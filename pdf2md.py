@@ -2,10 +2,11 @@
 """Convert PDF files to LLM-optimized Markdown.
 
 Usage:
-    python3 pdf2md.py                     # Convert all PDFs in script directory
-    python3 pdf2md.py file1.pdf file2.pdf  # Convert specific files
-    python3 pdf2md.py --force              # Overwrite existing .md files
-    python3 pdf2md.py --output-dir ./Out   # Custom output directory
+    python3 pdf2md.py                        # Convert all PDFs in script directory
+    python3 pdf2md.py file1.pdf file2.pdf    # Convert specific files
+    python3 pdf2md.py --input-dir ./PDFs     # Convert all PDFs in a directory
+    python3 pdf2md.py --force                # Overwrite existing .md files
+    python3 pdf2md.py --output-dir ./Out     # Custom output directory
 """
 
 import argparse
@@ -131,6 +132,11 @@ def main():
         help="PDF files to convert. If omitted, converts all PDFs in the script directory.",
     )
     parser.add_argument(
+        "--input-dir", "-i",
+        type=Path,
+        help="Directory to scan for PDF files.",
+    )
+    parser.add_argument(
         "--force", "-f",
         action="store_true",
         help="Overwrite existing .md files.",
@@ -144,6 +150,10 @@ def main():
     args = parser.parse_args()
 
     # Determine which PDFs to process
+    if args.files and args.input_dir:
+        print("Error: cannot use both positional files and --input-dir.", file=sys.stderr)
+        sys.exit(1)
+
     if args.files:
         pdf_paths = []
         for f in args.files:
@@ -157,6 +167,11 @@ def main():
                 print(f"  NOT A PDF: {f}", file=sys.stderr)
                 continue
             pdf_paths.append(p)
+    elif args.input_dir:
+        if not args.input_dir.is_dir():
+            print(f"Error: not a directory: {args.input_dir}", file=sys.stderr)
+            sys.exit(1)
+        pdf_paths = sorted(args.input_dir.glob("*.pdf"))
     else:
         pdf_paths = sorted(SCRIPT_DIR.glob("*.pdf"))
 
