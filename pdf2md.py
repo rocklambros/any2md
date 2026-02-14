@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Convert PDF files to LLM-optimized Markdown.
+"""Convert PDF and DOCX files to LLM-optimized Markdown.
 
 Usage:
-    python3 pdf2md.py                        # Convert all PDFs in script directory
-    python3 pdf2md.py file1.pdf file2.pdf    # Convert specific files
-    python3 pdf2md.py --input-dir ./PDFs     # Convert all PDFs in a directory
+    python3 pdf2md.py                        # Convert all files in script directory
+    python3 pdf2md.py file1.pdf doc.docx     # Convert specific files
+    python3 pdf2md.py --input-dir ./docs     # Convert all supported files in a directory
     python3 pdf2md.py --force                # Overwrite existing .md files
     python3 pdf2md.py --output-dir ./Out     # Custom output directory
 """
@@ -15,20 +15,23 @@ import sys
 import time
 from pathlib import Path
 
+import mammoth
+import markdownify
 import pymupdf
 import pymupdf4llm
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "Text"
+SUPPORTED_EXTENSIONS = {".pdf", ".docx"}
 
 
-def sanitize_filename(pdf_name: str) -> str:
-    """Convert a PDF filename to a sanitized .md filename.
+def sanitize_filename(name: str) -> str:
+    """Convert a source filename to a sanitized .md filename.
 
-    Matches existing convention: spaces → underscores, .pdf → .md.
+    Matches existing convention: spaces → underscores, extension → .md.
     """
-    stem = Path(pdf_name).stem
+    stem = Path(name).stem
     # Replace spaces with underscores
     stem = stem.replace(" ", "_")
     # Replace characters problematic in filenames
@@ -52,7 +55,7 @@ def extract_title(markdown_text: str, fallback: str) -> str:
         if len(title) > 10:
             return title
     # Fallback: derive from filename
-    return fallback.replace("_", " ").replace(".pdf", "").strip()
+    return fallback.replace("_", " ").strip()
 
 
 def clean_markdown(text: str) -> str:
@@ -122,19 +125,87 @@ def convert_pdf(pdf_path: Path, output_dir: Path, force: bool = False) -> bool:
         return False
 
 
+def convert_docx(docx_path: Path, output_dir: Path, force: bool = False) -> bool:
+    """Convert a single DOCX to LLM-optimized Markdown.
+
+    Returns True on success, False on failure.
+    """
+    out_name = sanitize_filename(docx_path.name)
+    out_path = output_dir / out_name
+
+    if out_path.exists() and not force:
+        print(f"  SKIP (exists): {out_name}")
+        return True
+
+    try:
+        with open(docx_path, "rb") as f:
+            result = mammoth.convert_to_html(f)
+
+        md_text = markdownify.markdownify(
+            result.value,
+            heading_style="ATX",
+            strip=["img"],
+        )
+
+        # Extract title
+        title = extract_title(md_text, docx_path.stem)
+
+        # Word count (DOCX has no reliable page count)
+        word_count = len(md_text.split())
+
+        # Build frontmatter
+        frontmatter = (
+            f'---\n'
+            f'title: "{title}"\n'
+            f'source_file: "{docx_path.name}"\n'
+            f'word_count: {word_count}\n'
+            f'type: docx\n'
+            f'---\n\n'
+        )
+
+        # Clean and combine
+        full_text = frontmatter + clean_markdown(md_text)
+
+        # Write output
+        output_dir.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(full_text, encoding="utf-8")
+        print(f"  OK: {out_name} ({word_count} words)")
+        return True
+
+    except Exception as e:
+        print(f"  FAIL: {docx_path.name} -- {e}", file=sys.stderr)
+        return False
+
+
+CONVERTERS = {
+    ".pdf": convert_pdf,
+    ".docx": convert_docx,
+}
+
+
+def convert_file(file_path: Path, output_dir: Path, force: bool = False) -> bool:
+    """Dispatch to the appropriate converter based on file extension."""
+    ext = file_path.suffix.lower()
+    converter = CONVERTERS.get(ext)
+    if converter is None:
+        print(f"  UNSUPPORTED: {file_path.name} (no converter for {ext})", file=sys.stderr)
+        return False
+    return converter(file_path, output_dir, force=force)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert PDF files to LLM-optimized Markdown."
+        description="Convert PDF and DOCX files to LLM-optimized Markdown."
     )
     parser.add_argument(
         "files",
         nargs="*",
-        help="PDF files to convert. If omitted, converts all PDFs in the script directory.",
+        help="PDF or DOCX files to convert. If omitted, converts all supported files in the script directory.",
     )
     parser.add_argument(
         "--input-dir", "-i",
         type=Path,
-        help="Directory to scan for PDF files.",
+        help="Directory to scan for supported files (PDF, DOCX).",
     )
     parser.add_argument(
         "--force", "-f",
@@ -149,13 +220,13 @@ def main():
     )
     args = parser.parse_args()
 
-    # Determine which PDFs to process
+    # Determine which files to process
     if args.files and args.input_dir:
         print("Error: cannot use both positional files and --input-dir.", file=sys.stderr)
         sys.exit(1)
 
     if args.files:
-        pdf_paths = []
+        file_paths = []
         for f in args.files:
             p = Path(f)
             if not p.is_absolute():
@@ -163,34 +234,40 @@ def main():
             if not p.exists():
                 print(f"  NOT FOUND: {f}", file=sys.stderr)
                 continue
-            if p.suffix.lower() != ".pdf":
-                print(f"  NOT A PDF: {f}", file=sys.stderr)
+            if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                print(f"  UNSUPPORTED FORMAT: {f}", file=sys.stderr)
                 continue
-            pdf_paths.append(p)
+            file_paths.append(p)
     elif args.input_dir:
         if not args.input_dir.is_dir():
             print(f"Error: not a directory: {args.input_dir}", file=sys.stderr)
             sys.exit(1)
-        pdf_paths = sorted(args.input_dir.glob("*.pdf"))
+        file_paths = sorted(
+            p for ext in SUPPORTED_EXTENSIONS
+            for p in args.input_dir.glob(f"*{ext}")
+        )
     else:
-        pdf_paths = sorted(SCRIPT_DIR.glob("*.pdf"))
+        file_paths = sorted(
+            p for ext in SUPPORTED_EXTENSIONS
+            for p in SCRIPT_DIR.glob(f"*{ext}")
+        )
 
-    if not pdf_paths:
-        print("No PDF files to process.")
+    if not file_paths:
+        print("No supported files to process.")
         sys.exit(0)
 
-    print(f"Processing {len(pdf_paths)} PDF(s) → {args.output_dir}/\n")
+    print(f"Processing {len(file_paths)} file(s) → {args.output_dir}/\n")
     start = time.time()
     ok = 0
     fail = 0
     skip = 0
 
-    for pdf_path in pdf_paths:
-        out_name = sanitize_filename(pdf_path.name)
+    for file_path in file_paths:
+        out_name = sanitize_filename(file_path.name)
         out_exists = (args.output_dir / out_name).exists()
         if out_exists and not args.force:
             skip += 1
-        result = convert_pdf(pdf_path, args.output_dir, force=args.force)
+        result = convert_file(file_path, args.output_dir, force=args.force)
         if result:
             if not (out_exists and not args.force):
                 ok += 1
