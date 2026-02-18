@@ -2,3 +2,5 @@ pymupdf
 pymupdf4llm
 mammoth
 markdownify
+trafilatura
+beautifulsoup4
