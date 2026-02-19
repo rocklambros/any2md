@@ -2,122 +2,30 @@
 
 Convert PDF, DOCX, and HTML files — or web pages by URL — to clean, LLM-optimized Markdown with YAML frontmatter.
 
-Built on [PyMuPDF](https://pymupdf.readthedocs.io/) and [pymupdf4llm](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/) for PDF extraction, [mammoth](https://github.com/mwilliamson/python-mammoth) + [markdownify](https://github.com/matthewwithanm/python-markdownify) for DOCX conversion, and [trafilatura](https://trafilatura.readthedocs.io/) + [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) for HTML/URL extraction. Preserves document structure — headings, lists, tables, and formatting — while stripping out noise like images and excessive whitespace.
+One command. Any format. Consistent, structured output ready for language models.
 
-## Features
-
-- **Multi-format support** — Converts PDF, DOCX, and HTML files (.html, .htm) to Markdown
-- **URL fetching** — Convert web pages directly by passing an http/https URL
-- **LLM-ready output** — Clean markdown optimized for ingestion by language models
-- **YAML frontmatter** — Each file includes title, source filename or URL, and format-specific metadata (page count for PDFs, word count for DOCX/HTML)
-- **Batch processing** — Convert a single file or every supported file in a directory
-- **Auto-detection** — Routes to the correct converter based on file extension
-- **Smart skip** — Won't overwrite existing conversions unless `--force` is used
-- **Filename sanitization** — Handles spaces, special characters, and unicode dashes
-- **Title extraction** — Automatically pulls the document title from the first heading
-- **`--strip-links` flag** — Remove markdown hyperlinks from output, keeping only the link text
-
-## Installation
-
-Requires Python 3.8+.
+## Quick Start
 
 ```bash
-pip install pymupdf pymupdf4llm mammoth markdownify trafilatura beautifulsoup4
-```
-
-Or using the requirements file:
-
-```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Convert a PDF
+python -m mdconv report.pdf
+
+# Convert a web page
+python -m mdconv https://example.com/article
+
+# Convert everything in the current directory
+python -m mdconv
 ```
 
-Clone the repository:
-
-```bash
-git clone https://github.com/rocklambros/mdconv.git
-cd mdconv
-```
-
-## Usage
-
-### Convert all supported files in the current directory
-
-```bash
-python3 mdconv.py
-```
-
-### Convert specific files
-
-```bash
-python3 mdconv.py report.pdf proposal.docx "meeting notes.pdf"
-```
-
-### Convert an HTML file
-
-```bash
-python3 mdconv.py page.html
-```
-
-### Convert a web page by URL
-
-```bash
-python3 mdconv.py https://example.com/article
-```
-
-### Mixed batch — PDFs, DOCX, HTML files, and URLs together
-
-```bash
-python3 mdconv.py doc.pdf page.html https://example.com
-```
-
-### Strip links from output
-
-```bash
-python3 mdconv.py --strip-links doc.pdf
-```
-
-### Scan a directory for supported files
-
-```bash
-python3 mdconv.py --input-dir ./documents
-```
-
-### Overwrite existing markdown files
-
-```bash
-python3 mdconv.py --force
-```
-
-### Custom output directory
-
-```bash
-python3 mdconv.py --output-dir ./converted
-```
-
-### Combine options
-
-```bash
-python3 mdconv.py -f -o ./out docs/*.pdf docs/*.docx docs/*.html
-```
-
-### Run as a module
-
-```bash
-python -m mdconv --help
-```
-
-By default, converted files are written to a `Text/` subdirectory next to the script.
-
-## Output Format
-
-Each converted file includes YAML frontmatter followed by the cleaned markdown content.
-
-**PDF output:**
+Output lands in `./Text/` by default:
 
 ```markdown
 ---
 title: "Quarterly Financial Report"
-source_file: "Q3 Report 2024.pdf"
+source_file: "report.pdf"
 pages: 12
 type: pdf
 ---
@@ -127,7 +35,109 @@ type: pdf
 Document content here...
 ```
 
-**DOCX output:**
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-format** | PDF, DOCX, HTML (.html, .htm) |
+| **URL fetching** | Pass any http/https URL as input |
+| **YAML frontmatter** | Title, source, page/word count, type |
+| **Batch processing** | Single file, directory scan, or mixed inputs |
+| **Auto-routing** | Dispatches to the correct converter by extension |
+| **Smart skip** | Won't overwrite existing files unless `--force` |
+| **Filename sanitization** | Spaces, special characters, unicode dashes handled |
+| **Title extraction** | Pulls the first H1–H3 heading automatically |
+| **Link stripping** | `--strip-links` removes hyperlinks, keeps text |
+
+## Installation
+
+Requires **Python 3.8+**.
+
+```bash
+git clone https://github.com/rocklambros/mdconv.git
+cd mdconv
+pip install -r requirements.txt
+```
+
+### Dependencies
+
+| Library | Purpose |
+|---------|---------|
+| [PyMuPDF](https://pymupdf.readthedocs.io/) + [pymupdf4llm](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/) | PDF extraction |
+| [mammoth](https://github.com/mwilliamson/python-mammoth) + [markdownify](https://github.com/matthewwithanm/python-markdownify) | DOCX conversion |
+| [trafilatura](https://trafilatura.readthedocs.io/) + [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) | HTML/URL extraction |
+
+## Usage
+
+### Basic conversion
+
+```bash
+# Single file
+python -m mdconv report.pdf
+
+# Multiple files
+python -m mdconv report.pdf proposal.docx "meeting notes.pdf"
+
+# HTML file
+python -m mdconv page.html
+
+# Web page by URL
+python -m mdconv https://example.com/article
+
+# Mixed batch — PDFs, DOCX, HTML, and URLs together
+python -m mdconv doc.pdf page.html https://example.com
+```
+
+### Directory scanning
+
+```bash
+# Scan a specific directory
+python -m mdconv --input-dir ./documents
+
+# Convert everything in the current directory (default behavior)
+python -m mdconv
+```
+
+### Options
+
+```bash
+# Custom output directory
+python -m mdconv -o ./converted report.pdf
+
+# Overwrite existing files
+python -m mdconv --force
+
+# Strip hyperlinks from output
+python -m mdconv --strip-links doc.pdf
+
+# Combine options
+python -m mdconv -f -o ./out --strip-links docs/*.pdf docs/*.docx
+```
+
+### Backward compatibility
+
+The legacy entry point still works:
+
+```bash
+python3 mdconv.py report.pdf
+```
+
+## Output Format
+
+Every converted file has YAML frontmatter followed by cleaned Markdown. The frontmatter fields vary by source format:
+
+**PDF** — includes page count:
+
+```markdown
+---
+title: "Quarterly Financial Report"
+source_file: "Q3 Report 2024.pdf"
+pages: 12
+type: pdf
+---
+```
+
+**DOCX** — includes word count:
 
 ```markdown
 ---
@@ -136,13 +146,9 @@ source_file: "proposal.docx"
 word_count: 3847
 type: docx
 ---
-
-# Project Proposal
-
-Document content here...
 ```
 
-**HTML file output:**
+**HTML file** — includes word count:
 
 ```markdown
 ---
@@ -151,13 +157,9 @@ source_file: "page.html"
 word_count: 1234
 type: html
 ---
-
-# Page Title
-
-Document content here...
 ```
 
-**URL output:**
+**URL** — records source URL instead of filename:
 
 ```markdown
 ---
@@ -166,23 +168,19 @@ source_url: "https://example.com/article"
 word_count: 567
 type: html
 ---
-
-# Article Title
-
-Document content here...
 ```
 
 ## CLI Reference
 
 ```
-usage: mdconv.py [-h] [--input-dir PATH] [--force] [--output-dir PATH] [--strip-links] [files ...]
+usage: mdconv [-h] [--input-dir PATH] [--force] [--output-dir PATH] [--strip-links] [files ...]
 
 Convert PDF, DOCX, and HTML files to LLM-optimized Markdown.
 
 positional arguments:
-  files                 Files or URLs to convert. Supports PDF, DOCX, HTML files and
-                        http(s) URLs. If omitted, converts all supported files in the
-                        current directory.
+  files                 Files or URLs to convert. Supports PDF, DOCX, HTML
+                        files and http(s) URLs. If omitted, converts all
+                        supported files in the current directory.
 
 options:
   -h, --help            show this help message and exit
@@ -192,19 +190,42 @@ options:
   --strip-links         Remove markdown links, keeping only the link text
 ```
 
-## How It Works
+## Architecture
 
-1. **Discovery** — Finds PDF, DOCX, and HTML files from command-line args, or scans the current directory; URLs are detected automatically
-2. **Routing** — Dispatches each file to the appropriate converter based on extension (or URL scheme)
-3. **Extraction**
-   - PDFs use `pymupdf4llm.to_markdown()`
-   - DOCX files use `mammoth` (DOCX to HTML) then `markdownify` (HTML to Markdown)
-   - HTML files and URLs pass through a pipeline: BS4 pre-cleaning (strips scripts, nav, footer, etc.) then `trafilatura` content extraction, with `markdownify` as a fallback
-4. **Title detection** — Searches for the first H1-H3 heading; falls back to the filename (or hostname for URLs)
-5. **Cleanup** — Collapses excessive blank lines and strips trailing whitespace
-6. **Link stripping** — If `--strip-links` is set, removes markdown hyperlinks while preserving the link text
-7. **Frontmatter** — Prepends YAML metadata (page count for PDFs, word count for DOCX/HTML, source URL for fetched pages)
-8. **Write** — Saves to the output directory with a sanitized filename
+```
+User Input (files, URLs, flags)
+         │
+         ▼
+      cli.py ─── parse args, classify URLs vs file paths
+         │
+         ▼
+converters/__init__.py ─── dispatch by extension
+         │
+    ┌────┼────┐
+    ▼    ▼    ▼
+ pdf  docx  html ─── format-specific extraction
+    │    │    │
+    └────┼────┘
+         ▼
+      utils.py ─── clean, title-extract, sanitize, frontmatter
+         │
+         ▼
+      Output ─── YAML frontmatter + Markdown → output_dir/
+```
+
+### Extraction pipelines
+
+| Format | Pipeline |
+|--------|----------|
+| **PDF** | `pymupdf4llm.to_markdown()` → clean → frontmatter |
+| **DOCX** | `mammoth` (DOCX → HTML) → `markdownify` (HTML → Markdown) → clean → frontmatter |
+| **HTML/URL** | BS4 pre-clean → `trafilatura` extract (fallback: `markdownify`) → clean → frontmatter |
+
+### Adding a new format
+
+1. Create `mdconv/converters/newformat.py` with a `convert_newformat(path, output_dir, force, strip_links_flag) → bool` function
+2. Add the extension and function to `CONVERTERS` in `mdconv/converters/__init__.py`
+3. Add the extension to `SUPPORTED_EXTENSIONS`
 
 ## License
 
