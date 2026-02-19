@@ -51,6 +51,11 @@ def clean_markdown(text: str) -> str:
     return text
 
 
+def escape_yaml_string(value: str) -> str:
+    """Escape a string for safe inclusion in double-quoted YAML values."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def strip_links(text: str) -> str:
     """Replace markdown links with their display text.
 

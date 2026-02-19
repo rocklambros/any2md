@@ -110,7 +110,7 @@ def main():
             skip += 1
 
         result = convert_html(
-            Path("url"),
+            None,
             args.output_dir,
             force=args.force,
             strip_links_flag=args.strip_links,

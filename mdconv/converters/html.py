@@ -1,5 +1,7 @@
 """HTML to Markdown converter module."""
 
+from __future__ import annotations
+
 import sys
 import urllib.parse
 from pathlib import Path
@@ -14,6 +16,7 @@ from mdconv.utils import (
     clean_markdown,
     strip_links,
     url_to_filename,
+    escape_yaml_string,
 )
 
 
@@ -50,7 +53,7 @@ def _bs4_preclean(html: str) -> str:
 
 
 def convert_html(
-    html_path: Path,
+    html_path: Path | None,
     output_dir: Path,
     force: bool = False,
     strip_links_flag: bool = False,
@@ -69,9 +72,11 @@ def convert_html(
     if source_url:
         out_name = url_to_filename(source_url)
         name_for_error = source_url
-    else:
+    elif html_path is not None:
         out_name = sanitize_filename(html_path.name)
         name_for_error = html_path.name
+    else:
+        raise ValueError("Either source_url or html_path must be provided")
 
     out_path = output_dir / out_name
 
@@ -83,11 +88,13 @@ def convert_html(
         # 1. Acquire HTML
         if html_content is not None:
             raw_html = html_content
-        else:
+        elif html_path is not None:
             try:
                 raw_html = html_path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 raw_html = html_path.read_text(encoding="latin-1")
+        else:
+            raise ValueError("Either html_content or html_path must be provided")
 
         # 2. BS4 pre-clean
         cleaned_html = _bs4_preclean(raw_html)
@@ -117,22 +124,26 @@ def convert_html(
         # 7. Extract title
         if source_url:
             fallback = urllib.parse.urlparse(source_url).netloc
-        else:
+        elif html_path is not None:
             fallback = html_path.stem
+        else:
+            fallback = "untitled"
         title = extract_title(md_text, fallback)
 
         # 8. Word count
         word_count = len(md_text.split())
 
-        # 9. Build frontmatter
+        # 9. Build frontmatter (escape values for valid YAML)
         if source_url:
-            source_field = f'source_url: "{source_url}"'
+            source_field = f'source_url: "{escape_yaml_string(source_url)}"'
+        elif html_path is not None:
+            source_field = f'source_file: "{escape_yaml_string(html_path.name)}"'
         else:
-            source_field = f'source_file: "{html_path.name}"'
+            source_field = 'source_file: "unknown"'
 
         frontmatter = (
             f'---\n'
-            f'title: "{title}"\n'
+            f'title: "{escape_yaml_string(title)}"\n'
             f'{source_field}\n'
             f'word_count: {word_count}\n'
             f'type: html\n'

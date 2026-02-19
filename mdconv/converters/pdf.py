@@ -6,7 +6,7 @@ from pathlib import Path
 import pymupdf
 import pymupdf4llm
 
-from mdconv.utils import sanitize_filename, extract_title, clean_markdown, strip_links
+from mdconv.utils import sanitize_filename, extract_title, clean_markdown, strip_links, escape_yaml_string
 
 
 def convert_pdf(
@@ -40,25 +40,27 @@ def convert_pdf(
             force_text=True,
         )
 
+        # Clean markdown content
+        md_text = clean_markdown(md_text)
+
+        # Optionally strip links (before frontmatter)
+        if strip_links_flag:
+            md_text = strip_links(md_text)
+
         # Extract title
         title = extract_title(md_text, pdf_path.stem)
 
-        # Build frontmatter
+        # Build frontmatter (escape values for valid YAML)
         frontmatter = (
             f'---\n'
-            f'title: "{title}"\n'
-            f'source_file: "{pdf_path.name}"\n'
+            f'title: "{escape_yaml_string(title)}"\n'
+            f'source_file: "{escape_yaml_string(pdf_path.name)}"\n'
             f'pages: {page_count}\n'
             f'type: pdf\n'
             f'---\n\n'
         )
 
-        # Clean and combine
-        full_text = frontmatter + clean_markdown(md_text)
-
-        # Optionally strip links
-        if strip_links_flag:
-            full_text = strip_links(full_text)
+        full_text = frontmatter + md_text
 
         # Write output
         output_dir.mkdir(parents=True, exist_ok=True)
