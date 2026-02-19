@@ -28,3 +28,13 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Generated output
+output/
+Text/
+input/
+
+# ZERG / dev tooling
+.gsd/
+.zerg/
+.devcontainer/
