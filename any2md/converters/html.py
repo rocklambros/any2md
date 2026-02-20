@@ -10,7 +10,7 @@ import trafilatura
 import markdownify
 from bs4 import BeautifulSoup
 
-from mdconv.utils import (
+from any2md.utils import (
     sanitize_filename,
     extract_title,
     clean_markdown,

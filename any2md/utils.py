@@ -1,4 +1,4 @@
-"""Shared utility functions for mdconv."""
+"""Shared utility functions for any2md."""
 
 import re
 import urllib.parse

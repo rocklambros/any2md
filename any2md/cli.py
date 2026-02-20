@@ -1,13 +1,13 @@
-"""CLI entry point for mdconv."""
+"""CLI entry point for any2md."""
 
 import argparse
 import sys
 import time
 from pathlib import Path
 
-from mdconv.converters import convert_file, SUPPORTED_EXTENSIONS
-from mdconv.converters.html import convert_html, fetch_url
-from mdconv.utils import sanitize_filename, url_to_filename
+from any2md.converters import convert_file, SUPPORTED_EXTENSIONS
+from any2md.converters.html import convert_html, fetch_url
+from any2md.utils import sanitize_filename, url_to_filename
 
 SCRIPT_DIR = Path.cwd()
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "Text"

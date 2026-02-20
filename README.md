@@ -1,4 +1,4 @@
-# mdconv
+# any2md
 
 Convert PDF, DOCX, and HTML files — or web pages by URL — to clean, LLM-optimized Markdown with YAML frontmatter.
 
@@ -7,11 +7,11 @@ One command. Any format. Consistent, structured output ready for language models
 ## Quick Start
 
 ```bash
-pip install mdconv
+pip install any2md
 
-mdconv report.pdf
-mdconv https://example.com/article
-mdconv --help
+any2md report.pdf
+any2md https://example.com/article
+any2md --help
 ```
 
 Output lands in `./Text/` by default:
@@ -48,14 +48,14 @@ Document content here...
 Requires **Python 3.8+**.
 
 ```bash
-pip install mdconv
+pip install any2md
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/rocklambros/mdconv.git
-cd mdconv
+git clone https://github.com/rocklambros/any2md.git
+cd any2md
 pip install .
 ```
 
@@ -73,52 +73,52 @@ pip install .
 
 ```bash
 # Single file
-mdconv report.pdf
+any2md report.pdf
 
 # Multiple files
-mdconv report.pdf proposal.docx "meeting notes.pdf"
+any2md report.pdf proposal.docx "meeting notes.pdf"
 
 # HTML file
-mdconv page.html
+any2md page.html
 
 # Web page by URL
-mdconv https://example.com/article
+any2md https://example.com/article
 
 # Mixed batch — PDFs, DOCX, HTML, and URLs together
-mdconv doc.pdf page.html https://example.com
+any2md doc.pdf page.html https://example.com
 ```
 
 ### Directory scanning
 
 ```bash
 # Scan a specific directory
-mdconv --input-dir ./documents
+any2md --input-dir ./documents
 
 # Convert everything in the current directory (default behavior)
-mdconv
+any2md
 ```
 
 ### Options
 
 ```bash
 # Custom output directory
-mdconv -o ./converted report.pdf
+any2md -o ./converted report.pdf
 
 # Overwrite existing files
-mdconv --force
+any2md --force
 
 # Strip hyperlinks from output
-mdconv --strip-links doc.pdf
+any2md --strip-links doc.pdf
 
 # Combine options
-mdconv -f -o ./out --strip-links docs/*.pdf docs/*.docx
+any2md -f -o ./out --strip-links docs/*.pdf docs/*.docx
 ```
 
 ### Alternative invocations
 
 ```bash
 # Module mode (works without installing via pip)
-python -m mdconv report.pdf
+python -m any2md report.pdf
 
 # Legacy script (backward compatibility)
 python3 mdconv.py report.pdf
@@ -175,7 +175,7 @@ type: html
 ## CLI Reference
 
 ```
-usage: mdconv [-h] [--input-dir PATH] [--force] [--output-dir PATH] [--strip-links] [files ...]
+usage: any2md [-h] [--input-dir PATH] [--force] [--output-dir PATH] [--strip-links] [files ...]
 
 Convert PDF, DOCX, and HTML files to LLM-optimized Markdown.
 
@@ -225,8 +225,8 @@ converters/__init__.py ─── dispatch by extension
 
 ### Adding a new format
 
-1. Create `mdconv/converters/newformat.py` with a `convert_newformat(path, output_dir, force, strip_links_flag) → bool` function
-2. Add the extension and function to `CONVERTERS` in `mdconv/converters/__init__.py`
+1. Create `any2md/converters/newformat.py` with a `convert_newformat(path, output_dir, force, strip_links_flag) → bool` function
+2. Add the extension and function to `CONVERTERS` in `any2md/converters/__init__.py`
 3. Add the extension to `SUPPORTED_EXTENSIONS`
 
 ## License

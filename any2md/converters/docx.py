@@ -6,7 +6,7 @@ from pathlib import Path
 import mammoth
 import markdownify
 
-from mdconv.utils import sanitize_filename, extract_title, clean_markdown, strip_links, escape_yaml_string
+from any2md.utils import sanitize_filename, extract_title, clean_markdown, strip_links, escape_yaml_string
 
 
 def convert_docx(

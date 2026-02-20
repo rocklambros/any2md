@@ -1,11 +1,11 @@
-"""Converter dispatcher for mdconv."""
+"""Converter dispatcher for any2md."""
 
 import sys
 from pathlib import Path
 
-from mdconv.converters.pdf import convert_pdf
-from mdconv.converters.docx import convert_docx
-from mdconv.converters.html import convert_html
+from any2md.converters.pdf import convert_pdf
+from any2md.converters.docx import convert_docx
+from any2md.converters.html import convert_html
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".html", ".htm"}
 
