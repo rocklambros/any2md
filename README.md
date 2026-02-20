@@ -7,17 +7,11 @@ One command. Any format. Consistent, structured output ready for language models
 ## Quick Start
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+pip install mdconv
 
-# Convert a PDF
-python -m mdconv report.pdf
-
-# Convert a web page
-python -m mdconv https://example.com/article
-
-# Convert everything in the current directory
-python -m mdconv
+mdconv report.pdf
+mdconv https://example.com/article
+mdconv --help
 ```
 
 Output lands in `./Text/` by default:
@@ -54,9 +48,15 @@ Document content here...
 Requires **Python 3.8+**.
 
 ```bash
+pip install mdconv
+```
+
+### From source
+
+```bash
 git clone https://github.com/rocklambros/mdconv.git
 cd mdconv
-pip install -r requirements.txt
+pip install .
 ```
 
 ### Dependencies
@@ -73,52 +73,54 @@ pip install -r requirements.txt
 
 ```bash
 # Single file
-python -m mdconv report.pdf
+mdconv report.pdf
 
 # Multiple files
-python -m mdconv report.pdf proposal.docx "meeting notes.pdf"
+mdconv report.pdf proposal.docx "meeting notes.pdf"
 
 # HTML file
-python -m mdconv page.html
+mdconv page.html
 
 # Web page by URL
-python -m mdconv https://example.com/article
+mdconv https://example.com/article
 
 # Mixed batch — PDFs, DOCX, HTML, and URLs together
-python -m mdconv doc.pdf page.html https://example.com
+mdconv doc.pdf page.html https://example.com
 ```
 
 ### Directory scanning
 
 ```bash
 # Scan a specific directory
-python -m mdconv --input-dir ./documents
+mdconv --input-dir ./documents
 
 # Convert everything in the current directory (default behavior)
-python -m mdconv
+mdconv
 ```
 
 ### Options
 
 ```bash
 # Custom output directory
-python -m mdconv -o ./converted report.pdf
+mdconv -o ./converted report.pdf
 
 # Overwrite existing files
-python -m mdconv --force
+mdconv --force
 
 # Strip hyperlinks from output
-python -m mdconv --strip-links doc.pdf
+mdconv --strip-links doc.pdf
 
 # Combine options
-python -m mdconv -f -o ./out --strip-links docs/*.pdf docs/*.docx
+mdconv -f -o ./out --strip-links docs/*.pdf docs/*.docx
 ```
 
-### Backward compatibility
-
-The legacy entry point still works:
+### Alternative invocations
 
 ```bash
+# Module mode (works without installing via pip)
+python -m mdconv report.pdf
+
+# Legacy script (backward compatibility)
 python3 mdconv.py report.pdf
 ```
 

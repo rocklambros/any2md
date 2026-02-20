@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mdconv"
+dynamic = ["version"]
+description = "Convert PDF, DOCX, and HTML files — or web pages by URL — to clean, LLM-optimized Markdown with YAML frontmatter."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [
+    { name = "rocklambros", email = "rock@rockcyber.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = [
+    "pymupdf",
+    "pymupdf4llm",
+    "mammoth",
+    "markdownify",
+    "trafilatura",
+    "beautifulsoup4",
+]
+
+[project.scripts]
+mdconv = "mdconv.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rocklambros/mdconv"
+Issues = "https://github.com/rocklambros/mdconv/issues"
+
+[tool.hatch.version]
+path = "mdconv/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/.github",
+    "/.claude",
+    "/.devcontainer",
+    "/.gsd",
+    "/.zerg",
+    "/input",
+    "/output",
+    "/Text",
+    "mdconv.py",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["mdconv"]
