@@ -49,6 +49,56 @@ def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
     }
 
 
+def pdf_looks_complex(pdf_path: Path) -> bool:
+    """Cheap heuristic: is this PDF likely to produce artifacts on pymupdf4llm?
+
+    Returns True when at least one signal suggests a complex layout that
+    Docling would handle better:
+      - Total pages > 5 AND
+        (multi-column layout detected on any sampled page OR
+         average chars-per-page < 200 — suggests scanned PDF).
+
+    Sampling: at most 5 pages, evenly distributed.
+    """
+    try:
+        with pymupdf.open(str(pdf_path)) as doc:
+            page_count = len(doc)
+            if page_count <= 5:
+                return False
+
+            sample_idxs = (
+                list(range(page_count))
+                if page_count <= 5
+                else [int(i * page_count / 5) for i in range(5)]
+            )
+
+            total_chars = 0
+            multi_column_seen = False
+            for idx in sample_idxs:
+                page = doc[idx]
+                text = page.get_text("text") or ""
+                total_chars += len(text)
+                # Multi-column heuristic: collect block x-positions; if there
+                # are clusters around two distinct x ranges with > 100 px
+                # separation, flag.
+                blocks = page.get_text("blocks") or []
+                xs = sorted({round(b[0], 0) for b in blocks if len(b) >= 4})
+                if len(xs) >= 4:
+                    # Check if there's a gap > page_width * 0.2 between
+                    # consecutive x-starts.
+                    pw = page.rect.width or 612
+                    for a, b in zip(xs, xs[1:]):
+                        if b - a > pw * 0.2:
+                            multi_column_seen = True
+                            break
+
+            avg_chars = total_chars / max(len(sample_idxs), 1)
+            scanned_signal = avg_chars < 200
+            return multi_column_seen or scanned_signal
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
 def convert_pdf(
     pdf_path: Path,
     output_dir: Path,
