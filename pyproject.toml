@@ -35,6 +35,9 @@ dev = [
     "reportlab>=4.0.0",
     "ruff>=0.6.0",
 ]
+high-fidelity = [
+    "docling>=2.0.0",
+]
 
 [project.scripts]
 any2md = "any2md.cli:main"
