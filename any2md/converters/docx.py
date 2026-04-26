@@ -1,4 +1,11 @@
-"""DOCX to Markdown converter (v1.0). Mammoth fallback path only in Phase 1."""
+"""DOCX to Markdown converter (v1.0).
+
+Phase 2: Docling primary backend with mammoth+markdownify fallback.
+Backend selection is automatic — if `docling` is importable we use it;
+otherwise we fall back to mammoth+markdownify. Core property metadata
+is always read directly from the DOCX zip independent of which backend
+produces the markdown body.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +19,7 @@ import mammoth
 import markdownify
 
 from any2md import pipeline
+from any2md._docling import has_docling
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename
@@ -65,6 +73,29 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
     return out
 
 
+def _extract_via_docling(docx_path: Path) -> tuple[str, str]:
+    """Returns (markdown, 'docling'). Raises on Docling errors."""
+    from docling.document_converter import DocumentConverter
+
+    converter = DocumentConverter()
+    result = converter.convert(str(docx_path))
+    return result.document.export_to_markdown(), "docling"
+
+
+def _extract_via_mammoth(
+    docx_path: Path, options: PipelineOptions
+) -> tuple[str, str]:
+    with open(docx_path, "rb") as f:
+        html_result = mammoth.convert_to_html(f)
+    md = markdownify.markdownify(
+        html_result.value,
+        heading_style="ATX",
+        strip=["img"] if not options.save_images else [],
+        bullets="-",
+    )
+    return md, "mammoth+markdownify"
+
+
 def convert_docx(
     docx_path: Path,
     output_dir: Path,
@@ -82,15 +113,23 @@ def convert_docx(
         return True
 
     try:
-        with open(docx_path, "rb") as f:
-            html_result = mammoth.convert_to_html(f)
-        md_text = markdownify.markdownify(
-            html_result.value,
-            heading_style="ATX",
-            strip=["img"] if not options.save_images else [],
-            bullets="-",
-        )
-        md_text, warnings = pipeline.run(md_text, "text", options)
+        if has_docling():
+            try:
+                md_text, extracted_via = _extract_via_docling(docx_path)
+                lane = "structured"
+            except Exception as e:  # noqa: BLE001 — fall back rather than fail
+                print(
+                    f"  WARN: Docling extraction failed for {docx_path.name}: {e}; "
+                    f"falling back to mammoth.",
+                    file=sys.stderr,
+                )
+                md_text, extracted_via = _extract_via_mammoth(docx_path, options)
+                lane = "text"
+        else:
+            md_text, extracted_via = _extract_via_mammoth(docx_path, options)
+            lane = "text"
+
+        md_text, warnings = pipeline.run(md_text, lane, options)
 
         props = _read_docx_metadata(docx_path)
         meta = SourceMeta(
@@ -107,8 +146,8 @@ def convert_docx(
             source_file=docx_path.name,
             source_url=None,
             doc_type="docx",
-            extracted_via="mammoth+markdownify",
-            lane="text",
+            extracted_via=extracted_via,
+            lane=lane,
         )
         full = compose(md_text, meta, options)
 
@@ -116,7 +155,7 @@ def convert_docx(
         out_path.write_text(full, encoding="utf-8", newline="\n")
         wc = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
-        print(f"  OK: {out_name} ({wc} words{suffix})")
+        print(f"  OK: {out_name} ({wc} words, via {extracted_via}{suffix})")
         return True
 
     except (OSError, ValueError) as e:

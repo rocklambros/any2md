@@ -56,6 +56,10 @@ _DOCX_DOCUMENT = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Table Heavy Test Document</w:t></w:r></w:p>
     <w:p><w:r><w:t>Body paragraph before the table.</w:t></w:r></w:p>
     <w:tbl>
+      <w:tblGrid>
+        <w:gridCol w:w="4500"/>
+        <w:gridCol w:w="4500"/>
+      </w:tblGrid>
       <w:tr>
         <w:tc><w:p><w:r><w:t>Header 1</w:t></w:r></w:p></w:tc>
         <w:tc><w:p><w:r><w:t>Header 2</w:t></w:r></w:p></w:tc>

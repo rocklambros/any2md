@@ -1,4 +1,10 @@
-"""Integration test: DOCX converter (mammoth fallback path)."""
+"""Integration test: DOCX converter (mammoth fallback path).
+
+Docling is now the default backend when installed. This test simulates
+the no-Docling environment by monkeypatching `has_docling` to return
+False so the mammoth fallback path is exercised regardless of install
+state.
+"""
 
 import yaml
 
@@ -6,7 +12,12 @@ from any2md.converters.docx import convert_docx
 from any2md.pipeline import PipelineOptions
 
 
-def test_docx_emits_v1_frontmatter_with_core_props(fixture_dir, tmp_output_dir):
+def test_docx_emits_v1_frontmatter_with_core_props(
+    fixture_dir, tmp_output_dir, monkeypatch
+):
+    monkeypatch.setattr(
+        "any2md.converters.docx.has_docling", lambda: False
+    )
     ok = convert_docx(
         fixture_dir / "table_heavy.docx",
         tmp_output_dir,
