@@ -180,9 +180,64 @@ def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
     return "\n".join(lines[end:]).lstrip("\n")
 
 
+_PAGE_NUM_RE = re.compile(r"^Page \d+ of \d+\s*$")
+_BARE_NUM_RE = re.compile(r"^\d+\s*$")
+
+
+def _is_page_number_line(line: str) -> bool:
+    """Heuristic: line is a page number / page-N-of-M footer."""
+    return bool(_PAGE_NUM_RE.match(line) or _BARE_NUM_RE.match(line))
+
+
+def strip_running_headers_footers(text: str, _options: "PipelineOptions") -> str:
+    """T5: Remove lines that appear ≥3× across page boundaries.
+
+    Also strips "Page N of M" / bare-number footer patterns when they
+    appear on ≥3 pages (treated as a class, not by exact match).
+    """
+    if "\f" not in text:
+        return text
+
+    pages = text.split("\f")
+    if len(pages) < 3:
+        return text
+
+    # Count exact-match candidates (first/last non-empty line of each page)
+    candidate_counts: dict[str, int] = {}
+    page_number_pages = 0
+    for page in pages:
+        plines = [ln.strip() for ln in page.split("\n") if ln.strip()]
+        if plines:
+            candidate_counts[plines[0]] = candidate_counts.get(plines[0], 0) + 1
+            if len(plines) > 1:
+                candidate_counts[plines[-1]] = candidate_counts.get(plines[-1], 0) + 1
+        # Count pages that contain a page-number-style line
+        if any(_is_page_number_line(ln) for ln in plines):
+            page_number_pages += 1
+
+    repeated = {ln for ln, count in candidate_counts.items() if count >= 3}
+    strip_page_numbers = page_number_pages >= 3
+    if not repeated and not strip_page_numbers:
+        return text
+
+    out_pages: list[str] = []
+    for page in pages:
+        kept = []
+        for ln in page.split("\n"):
+            stripped = ln.strip()
+            if stripped in repeated:
+                continue
+            if strip_page_numbers and _is_page_number_line(stripped):
+                continue
+            kept.append(ln)
+        out_pages.append("\n".join(kept))
+    return "\f".join(out_pages)
+
+
 STAGES: list[Stage] = [
     repair_line_wraps,
     dehyphenate,
     dedupe_paragraphs,
     dedupe_toc_block,
+    strip_running_headers_footers,
 ]
