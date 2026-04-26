@@ -100,6 +100,24 @@ def strip_footnote_markers(text: str, options: "PipelineOptions") -> str:
     return body + tail
 
 
+_HEADING_RE = re.compile(r"^(#{1,6})\s+\S", re.MULTILINE)
+
+
+def validate(text: str, _options: "PipelineOptions") -> str:
+    """C7: Read-only sanity checks. Emits warnings via the pipeline contextvar."""
+    from any2md.pipeline import emit_warning
+
+    levels = [len(m.group(1)) for m in _HEADING_RE.finditer(text)]
+    h1_count = sum(1 for level in levels if level == 1)
+    if h1_count != 1:
+        emit_warning(f"validator: H1 count is {h1_count} (expected 1)")
+    for prev, curr in zip(levels, levels[1:]):
+        if curr > prev + 1:
+            emit_warning(f"validator: heading level skip h{prev} -> h{curr}")
+            break
+    return text
+
+
 STAGES: list[Stage] = [
     nfc_normalize,
     strip_soft_hyphens,
@@ -107,4 +125,5 @@ STAGES: list[Stage] = [
     normalize_quotes_dashes,
     collapse_whitespace,
     strip_footnote_markers,
+    validate,
 ]
