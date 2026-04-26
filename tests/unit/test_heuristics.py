@@ -262,3 +262,77 @@ class TestRefineAbstract:
             candidate, body, profile="conservative",
         )
         assert result is None
+
+
+# --------------------------------------------------------------------- #
+# extract_authors
+# --------------------------------------------------------------------- #
+
+
+class TestExtractAuthors:
+    def test_authors_prefix_extracted(self):
+        body = (
+            "# Paper Title\n\n"
+            "Authors: Alice, Bob, Carol\n\n"
+            "Some body content..."
+        )
+        result = heuristics.extract_authors(body, title_hint="Paper Title")
+        assert result == ["Alice", "Bob", "Carol"]
+
+    def test_by_prefix_extracted(self):
+        body = (
+            "# Paper Title\n\n"
+            "By Jane Doe\n\n"
+            "Some body content..."
+        )
+        result = heuristics.extract_authors(body, title_hint="Paper Title")
+        assert result == ["Jane Doe"]
+
+    def test_academic_byline_extracted_aggressive(self):
+        body = (
+            "# AI Governance through Markets\n\n"
+            "PHILIP MOREIRA TOMEI 1, 2, RUPAL JAIN 2, 3\n\n"
+            "Some abstract content here..."
+        )
+        result = heuristics.extract_authors(body, title_hint=None)
+        assert result == ["Philip Moreira Tomei", "Rupal Jain"]
+
+    def test_duplicate_authors_deduplicated(self):
+        body = (
+            "# Paper Title\n\n"
+            "Authors: Alice Smith, Bob Jones, alice smith, ALICE SMITH\n\n"
+            "Body..."
+        )
+        result = heuristics.extract_authors(body, title_hint=None)
+        # Only one "Alice Smith" should remain (case-insensitive dedup),
+        # in original order.
+        assert len(result) == 2
+        assert result[0].lower() == "alice smith"
+        assert result[1].lower() == "bob jones"
+
+    def test_more_than_20_authors_capped(self):
+        names = [f"Author{i}" for i in range(30)]
+        body = (
+            "# Paper\n\n"
+            "Authors: " + ", ".join(names) + "\n\nBody..."
+        )
+        result = heuristics.extract_authors(body, title_hint=None)
+        assert len(result) == 20
+
+    def test_conservative_profile_skips_byline_pattern(self):
+        # Same body as test_academic_byline_extracted_aggressive but
+        # without "Authors:"/"By" prefix. Conservative should NOT use
+        # the byline pattern and should return [].
+        body = (
+            "# AI Governance through Markets\n\n"
+            "PHILIP MOREIRA TOMEI 1, 2, RUPAL JAIN 2, 3\n\n"
+            "Some abstract content here..."
+        )
+        result = heuristics.extract_authors(
+            body, title_hint=None, profile="conservative",
+        )
+        assert result == []
+
+    def test_empty_body_returns_empty_list(self):
+        result = heuristics.extract_authors("", title_hint=None)
+        assert result == []

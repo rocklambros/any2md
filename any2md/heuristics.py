@@ -85,6 +85,23 @@ _ABSTRACT_HEADING_RE = re.compile(
 # by whitespace or end-of-string)
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 
+# Author byline cleaning (digits are affiliation markers, drop them)
+_AFFIL_DIGITS_RE = re.compile(r"\s+\d+(?:\s*,\s*\d+)*\b")
+
+# "Authors:" / "Author:" / "By" prefixes
+_AUTHORS_PREFIX_RE = re.compile(
+    r"^(?:Authors?\s*:|By)\s+(.+?)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Academic byline detection — line of caps-or-titlecase names, typically
+# with digit affiliation markers, comma-separated. We use this only at
+# aggressive profile.
+_ACADEMIC_BYLINE_RE = re.compile(
+    r"^[A-Z][A-Z .'\-]{2,}(?:\s+\d+(?:\s*,\s*\d+)*)?"
+    r"(?:\s*,\s*[A-Z][A-Z .'\-]{2,}(?:\s+\d+(?:\s*,\s*\d+)*)?)+\s*$",
+)
+
 
 class OrgFilterResult(NamedTuple):
     organization: str | None
@@ -297,3 +314,201 @@ def refine_abstract(
     if candidate:
         return _cleanup_abstract(candidate)
     return None
+
+
+def _normalize_author_name(name: str) -> str:
+    """Title-case a name and strip stray digits/whitespace."""
+    # Strip affiliation digits (trailing or interleaved)
+    cleaned = _AFFIL_DIGITS_RE.sub("", name)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.")
+    if not cleaned:
+        return ""
+    # Title-case if currently all-caps; else preserve.
+    if cleaned.isupper():
+        cleaned = cleaned.title()
+    return cleaned
+
+
+def _split_authors(text: str) -> list[str]:
+    """Split a comma/and-separated author list into individual names."""
+    # Replace " and " with comma to unify separators
+    text = re.sub(r"\s+and\s+", ", ", text, flags=re.IGNORECASE)
+    parts = [p.strip() for p in text.split(",")]
+    # Filter empties and pure-digit affiliation tokens
+    return [p for p in parts if p and not p.strip().isdigit()]
+
+
+def _dedupe_authors(authors: list[str]) -> list[str]:
+    """Order-preserving, case-insensitive deduplication."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for a in authors:
+        key = re.sub(r"\s+", " ", a.strip().lower())
+        key = re.sub(r"[^\w\s]", "", key)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(a)
+    return out
+
+
+def extract_authors(
+    body: str,
+    title_hint: str | None,
+    arxiv_id: str | None = None,
+    *,
+    arxiv_lookup_enabled: bool = True,
+    profile: Profile = "aggressive",
+) -> list[str]:
+    """Extract authors from body, optionally enriched with arxiv API.
+
+    Detection chain (first match wins):
+      1. arxiv_lookup(arxiv_id) result (when arxiv_id is set and
+         arxiv_lookup_enabled is True; warns on failure).
+      2. "Authors: <list>" or "Author: <name>" prefix line.
+      3. "By <list>" prefix line near top of body (within first 20
+         lines after H1).
+      4. Academic byline pattern: caps-or-titlecase names, optional
+         digit-affiliation markers, comma-separated, on the line(s)
+         immediately after H1. Splits on commas-and-digit-groups.
+
+    Returns deduplicated, order-preserving author list (max 20).
+    Conservative profile: only patterns 1, 2, 3 (skips byline-pattern
+    inference); returns [] when none match.
+    """
+    if not body:
+        return []
+
+    # Step 1: arxiv API
+    if arxiv_id and arxiv_lookup_enabled:
+        result = arxiv_lookup(arxiv_id)
+        if result and result.get("authors"):
+            authors = [_normalize_author_name(a) for a in result["authors"]]
+            authors = [a for a in authors if a]
+            return _dedupe_authors(authors)[:20]
+
+    # Step 2 & 3: "Authors:" / "Author:" / "By" prefix
+    m = _AUTHORS_PREFIX_RE.search(body)
+    if m:
+        raw = m.group(1).strip()
+        names = [_normalize_author_name(n) for n in _split_authors(raw)]
+        names = [n for n in names if n]
+        if names:
+            return _dedupe_authors(names)[:20]
+
+    # Step 4: academic byline (aggressive only)
+    if profile == "conservative":
+        return []
+
+    # Walk body lines and look for the academic byline pattern.
+    lines = body.splitlines()
+    h1_idx = -1
+    for i, line in enumerate(lines):
+        if line.startswith("# "):
+            h1_idx = i
+            break
+    start = h1_idx + 1 if h1_idx >= 0 else 0
+    for line in lines[start:start + 20]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _ACADEMIC_BYLINE_RE.match(stripped):
+            names = [_normalize_author_name(n) for n in _split_authors(stripped)]
+            names = [n for n in names if n]
+            if names:
+                return _dedupe_authors(names)[:20]
+            break
+
+    return []
+
+
+def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
+    """Fetch metadata from the public arxiv API.
+
+    On success returns:
+      {
+        "title": str,
+        "authors": list[str],   # publication order
+        "abstract": str,
+        "date": str             # ISO YYYY-MM-DD
+      }
+
+    On any failure (SSRF block, network timeout, HTTP non-200, XML
+    parse error, schema mismatch), emits a non-blocking warning via
+    the pipeline's existing `add_warnings` channel and returns None.
+    Conversion never fails because of arxiv unreachability.
+
+    Endpoint: https://export.arxiv.org/api/query?id_list={arxiv_id}
+    SSRF-guarded same as html.py (validate IPs against private/
+    reserved/loopback). Timeout: 5s default. Single attempt, no retry.
+    """
+    import urllib.request
+    import xml.etree.ElementTree as ET
+
+    url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
+
+    def _warn(msg: str) -> None:
+        # Lazy import to avoid circular dependency at module load time.
+        try:
+            from any2md.converters import add_warnings
+            add_warnings([msg])
+        except Exception:  # noqa: BLE001
+            pass
+
+    # SSRF guard (lazy import)
+    try:
+        from any2md.converters.html import _validate_url_host
+        err = _validate_url_host(url)
+        if err:
+            _warn(f"arxiv lookup blocked: {err}")
+            return None
+    except Exception as e:  # noqa: BLE001
+        _warn(f"arxiv lookup SSRF check failed: {e}")
+        return None
+
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            status = getattr(resp, "status", 200)
+            if status != 200:
+                _warn(f"arxiv lookup HTTP {status} for {arxiv_id}")
+                return None
+            data = resp.read()
+    except Exception as e:  # noqa: BLE001
+        _warn(f"arxiv lookup failed for {arxiv_id}: {e}")
+        return None
+
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as e:
+        _warn(f"arxiv lookup XML parse error for {arxiv_id}: {e}")
+        return None
+
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    entry = root.find("atom:entry", ns)
+    if entry is None:
+        _warn(f"arxiv lookup: no entry for {arxiv_id}")
+        return None
+
+    title_el = entry.find("atom:title", ns)
+    summary_el = entry.find("atom:summary", ns)
+    published_el = entry.find("atom:published", ns)
+    author_els = entry.findall("atom:author/atom:name", ns)
+
+    title = (title_el.text or "").strip() if title_el is not None else ""
+    abstract = (summary_el.text or "").strip() if summary_el is not None else ""
+    date = ""
+    if published_el is not None and published_el.text:
+        # ISO 8601 → first 10 chars (YYYY-MM-DD)
+        date = published_el.text.strip()[:10]
+    authors = [(a.text or "").strip() for a in author_els if a.text]
+
+    if not title and not authors and not abstract:
+        _warn(f"arxiv lookup: empty schema for {arxiv_id}")
+        return None
+
+    return {
+        "title": title,
+        "authors": authors,
+        "abstract": abstract,
+        "date": date,
+    }
