@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from typing import Callable, TYPE_CHECKING
 
@@ -59,9 +60,23 @@ def normalize_quotes_dashes(text: str, _options: "PipelineOptions") -> str:
     return text
 
 
+_INTERWORD_RUNS_RE = re.compile(r"(?<=\S)[ \t]{2,}(?=\S)")
+_TRAILING_WS_RE = re.compile(r"[ \t]+$", re.MULTILINE)
+_BLANK_RUN_RE = re.compile(r"\n{3,}")
+
+
+def collapse_whitespace(text: str, _options: "PipelineOptions") -> str:
+    """C5: Collapse inter-word whitespace; trim trailing per line; cap blanks at 2."""
+    text = _INTERWORD_RUNS_RE.sub(" ", text)
+    text = _TRAILING_WS_RE.sub("", text)
+    text = _BLANK_RUN_RE.sub("\n\n", text)
+    return text
+
+
 STAGES: list[Stage] = [
     nfc_normalize,
     strip_soft_hyphens,
     normalize_ligatures,
     normalize_quotes_dashes,
+    collapse_whitespace,
 ]
