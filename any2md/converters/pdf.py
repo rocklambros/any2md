@@ -182,9 +182,31 @@ def convert_pdf(
         return True
 
     try:
-        use_docling = has_docling()
+        # Backend override (PipelineOptions.backend). When set, honor the
+        # caller's choice instead of the auto-select. ``mammoth`` is
+        # invalid for PDFs — fail the file with a clear error.
+        if options.backend == "mammoth":
+            print(
+                f"  FAIL: {pdf_path.name} -- backend 'mammoth' is not "
+                f"valid for PDF input (mammoth processes DOCX only).",
+                file=sys.stderr,
+            )
+            return False
 
-        if not use_docling and pdf_looks_complex(pdf_path):
+        if options.backend == "pymupdf4llm":
+            use_docling = False
+        elif options.backend == "docling":
+            # Same install-required behavior as --high-fidelity. If
+            # Docling isn't importable, fall through to the existing
+            # auto-select path which will error via _extract_via_docling
+            # below if Docling truly isn't usable. The CLI layer
+            # pre-checks install for both --high-fidelity and
+            # --backend docling, so this branch normally has Docling.
+            use_docling = has_docling()
+        else:
+            use_docling = has_docling()
+
+        if not use_docling and options.backend is None and pdf_looks_complex(pdf_path):
             install_hint()
 
         # Always extract metadata via PyMuPDF — independent of which

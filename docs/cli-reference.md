@@ -145,6 +145,42 @@ You'll see `extracted_via: "docling"` in the frontmatter of every PDF and DOCX
 output. Without `-H`, any2md uses Docling when it's importable and falls back
 silently otherwise.
 
+### `--backend {docling,pymupdf4llm,mammoth}`
+
+Force a specific extraction backend, overriding the automatic Docling-when-
+installed selection. `docling` is equivalent to `--high-fidelity` (and shares
+the same install pre-flight). `pymupdf4llm` forces the lightweight PDF
+fallback even when Docling is installed. `mammoth` forces the lightweight
+DOCX fallback even when Docling is installed.
+
+The backend must match the input format. Mismatches fail per file rather
+than the whole run:
+
+- `--backend pymupdf4llm` on a DOCX → that file fails with a clear message;
+  PDF inputs in the same run still convert.
+- `--backend mammoth` on a PDF → that file fails with a clear message; DOCX
+  inputs in the same run still convert.
+
+**Use this when** Docling extracts incorrectly on a specific input (e.g.
+[#13](https://github.com/rocklambros/any2md/issues/13) — Docling drops list
+items on certain academic PDFs) and you want to fall back to the lightweight
+backend without uninstalling Docling.
+
+**Don't use this when** the auto-detection is doing the right thing — the
+default behavior already prefers Docling when installed and falls back when
+it isn't.
+
+```bash
+# Skip Docling for one specific PDF that triggers a known bug
+any2md --backend pymupdf4llm research_paper.pdf
+
+# Force Docling explicitly (same as --high-fidelity)
+any2md --backend docling ./corpus
+```
+
+You'll see `extracted_via: "pymupdf4llm"` (or `"mammoth+markdownify"`, or
+`"docling"`) in the frontmatter, matching the backend you forced.
+
 ### `--ocr-figures`
 
 Run OCR on figures embedded in PDFs (Docling path). Implies `--high-fidelity`.

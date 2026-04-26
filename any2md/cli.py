@@ -133,6 +133,16 @@ def main():
         help="Force the Docling backend (PDF/DOCX). Exit 1 if not installed.",
     )
     parser.add_argument(
+        "--backend",
+        choices=("docling", "pymupdf4llm", "mammoth"),
+        default=None,
+        help="Force a specific extraction backend. By default any2md auto-selects "
+        "(prefers Docling when installed). Use 'docling' (equivalent to --high-fidelity), "
+        "'pymupdf4llm' to force the lightweight PDF fallback even when Docling is installed, "
+        "or 'mammoth' to force the lightweight DOCX fallback. Mismatched format/backend "
+        "combinations (e.g., --backend pymupdf4llm on a DOCX) error out per file.",
+    )
+    parser.add_argument(
         "--ocr-figures",
         action="store_true",
         help="OCR text inside figures (PDF Docling path). Implies --high-fidelity.",
@@ -228,11 +238,16 @@ def main():
         sys.exit(1)
     overrides = _deep_merge_overrides(overrides, cli_meta)
 
-    if args.high_fidelity or args.ocr_figures or args.save_images:
+    if (
+        args.high_fidelity
+        or args.ocr_figures
+        or args.save_images
+        or args.backend == "docling"
+    ):
         from any2md._docling import has_docling, INSTALL_HINT_MSG
         if not has_docling():
             print(
-                f"  ERROR: Docling required for --high-fidelity / --ocr-figures / --save-images.\n"
+                f"  ERROR: Docling required for --high-fidelity / --ocr-figures / --save-images / --backend docling.\n"
                 f"  {INSTALL_HINT_MSG}",
                 file=sys.stderr,
             )
@@ -252,6 +267,7 @@ def main():
         auto_id_prefix=auto_id_prefix,
         auto_id_type_code=auto_id_type_code,
         frontmatter_overrides=overrides or None,
+        backend=args.backend,
     )
 
     # CLI-only output controls (not part of PipelineOptions).

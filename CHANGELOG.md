@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] — 2026-04-26
+
+Patch release. Adds an explicit backend-selection CLI flag.
+
+### Added
+- `--backend {docling,pymupdf4llm,mammoth}` CLI flag and corresponding
+  `PipelineOptions.backend` field. Lets users override the automatic
+  backend selection. Useful when Docling extracts incorrectly on a
+  specific input and the user wants to fall back to pymupdf4llm
+  without uninstalling Docling. Mismatched format/backend combinations
+  (e.g., `--backend pymupdf4llm` on a DOCX) error out per file.
+
+### Fixes (workaround)
+- Refs #13 — Docling drops list items on certain academic PDFs with
+  the "Parent element of the list item is not a ListGroup" warning.
+  No upstream fix yet; users hitting this can now `any2md --backend
+  pymupdf4llm doc.pdf` to use the lightweight backend instead.
+
+### Note
+- `--backend docling` is equivalent to the existing `--high-fidelity`
+  / `-H` flag (both kept). Future releases may consolidate.
+
 ## [1.0.0] — 2026-04-26
 
 First stable release of any2md v1.0. Validated end-to-end against

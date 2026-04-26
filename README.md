@@ -196,7 +196,7 @@ You'd run this when your corpus has multi-column PDFs, complex tables, or scanne
 pip install "any2md[high-fidelity]"
 ```
 
-After install, the CLI auto-detects Docling and uses it for PDF and DOCX. To force it explicitly (and fail fast when it isn't installed), pass `-H` / `--high-fidelity`. To require it (treat fallback as an error), combine with `--strict`.
+After install, the CLI auto-detects Docling and uses it for PDF and DOCX. To force it explicitly (and fail fast when it isn't installed), pass `-H` / `--high-fidelity`. To require it (treat fallback as an error), combine with `--strict`. Use `--backend pymupdf4llm` to force the lightweight backend even when Docling is installed (useful when Docling produces extraction artifacts on a specific input).
 
 ### When do I need high-fidelity?
 

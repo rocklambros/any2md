@@ -23,6 +23,13 @@ class PipelineOptions:
     strip_links: bool = False
     strict: bool = False
     high_fidelity: bool = False  # force Docling backend
+    # Explicit backend selection. ``None`` preserves the existing
+    # auto-select behavior (Docling when installed, else format-specific
+    # fallback). When set, the converter MUST honor the choice or fail
+    # the file with a clear error if the backend is incompatible with
+    # the input format (e.g. ``"mammoth"`` on a PDF, ``"pymupdf4llm"``
+    # on a DOCX).
+    backend: Literal["docling", "pymupdf4llm", "mammoth"] | None = None
     # --auto-id wiring. When ``auto_id`` is True, ``frontmatter.compose``
     # emits a generated ``document_id``. The prefix and type_code are
     # used as-is; Phase 4 hardcodes "LOCAL"/"DOC" and Task 5 wires
