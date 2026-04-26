@@ -2,7 +2,13 @@
 
 import dataclasses
 
-from any2md.frontmatter import SourceMeta
+from any2md.frontmatter import (
+    SourceMeta,
+    derive_title,
+    estimate_tokens,
+    extract_abstract,
+    recommend_chunk_level,
+)
 
 
 def test_source_meta_has_required_fields():
@@ -27,8 +33,6 @@ def test_source_meta_defaults_are_safe():
     assert meta.doc_type == "txt"
 
 
-from any2md.frontmatter import estimate_tokens
-
 
 def test_estimate_tokens_zero_on_empty():
     assert estimate_tokens("") == 0
@@ -40,8 +44,6 @@ def test_estimate_tokens_ceil_chars_over_4():
     assert estimate_tokens("a" * 5) == 2
     assert estimate_tokens("a" * 8) == 2
 
-
-from any2md.frontmatter import recommend_chunk_level
 
 
 def test_chunk_level_h2_when_no_h2_sections():
@@ -59,8 +61,6 @@ def test_chunk_level_h3_when_any_section_exceeds_1500_tokens():
     body = f"# Title\n\n## A\n\n{big}\n\n## B\n\nshort\n"
     assert recommend_chunk_level(body) == "h3"
 
-
-from any2md.frontmatter import extract_abstract
 
 
 def test_abstract_first_paragraph_after_h1():
@@ -102,8 +102,6 @@ def test_abstract_returns_none_when_no_paragraph_after_h1():
     # No bare paragraph between H1 and the next heading.
     assert extract_abstract(body) is None
 
-
-from any2md.frontmatter import derive_title
 
 
 def test_derive_title_uses_first_h1():

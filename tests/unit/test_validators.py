@@ -1,6 +1,5 @@
 """Tests for the validators module."""
 
-import pytest
 
 from any2md.validators import (
     check_content_hash_round_trip,

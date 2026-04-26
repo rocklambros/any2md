@@ -1,6 +1,5 @@
 """Tests for frontmatter.compose() — SSRM-compatible output."""
 
-from datetime import date
 
 import yaml
 
