@@ -114,7 +114,24 @@ def convert_docx(
         return True
 
     try:
-        if has_docling():
+        # Backend override (PipelineOptions.backend). When set, honor the
+        # caller's choice instead of the auto-select. ``pymupdf4llm`` is
+        # invalid for DOCX — fail the file with a clear error.
+        if options.backend == "pymupdf4llm":
+            print(
+                f"  FAIL: {docx_path.name} -- backend 'pymupdf4llm' is not "
+                f"valid for DOCX input (pymupdf4llm processes PDF only).",
+                file=sys.stderr,
+            )
+            return False
+
+        if options.backend == "mammoth":
+            md_text, extracted_via = _extract_via_mammoth(docx_path, options)
+            lane = "text"
+        elif options.backend == "docling":
+            md_text, extracted_via = _extract_via_docling(docx_path)
+            lane = "structured"
+        elif has_docling():
             try:
                 md_text, extracted_via = _extract_via_docling(docx_path)
                 lane = "structured"
