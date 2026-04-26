@@ -34,6 +34,10 @@ output/
 Text/
 input/
 
+# Local-only working dirs (not part of the package)
+template/
+test_docs/
+
 # ZERG / dev tooling
 .gsd/
 .zerg/
