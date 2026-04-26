@@ -38,6 +38,7 @@ input/
 template/
 test_docs/
 .worktrees/
+logo/
 
 # ZERG / dev tooling
 .gsd/
