@@ -129,8 +129,60 @@ def dedupe_paragraphs(text: str, _options: "PipelineOptions") -> str:
     return "\n\n".join(out)
 
 
+_TOC_LINE_RE = re.compile(r"^\s*(?:[\d.]+\s+)?(.+?)(?:\s*\.{3,}|\s+)\s*\d+\s*$")
+_BODY_HEADING_RE = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
+
+
+def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
+    """T4: Strip leading TOC block when its entries mirror later headings.
+
+    Aggressive/maximum profiles only.
+    """
+    if options.profile == "conservative":
+        return text
+
+    lines = text.split("\n")
+    # Find the longest run of consecutive TOC-shaped lines starting near the top
+    start = 0
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    end = start
+    while end < len(lines) and (lines[end].strip() == "" or _TOC_LINE_RE.match(lines[end])):
+        end += 1
+
+    toc_lines = [
+        ln.strip() for ln in lines[start:end] if _TOC_LINE_RE.match(ln)
+    ]
+    if len(toc_lines) < 5:
+        return text
+
+    # Extract title-only fragments from the TOC entries
+    toc_titles = set()
+    for ln in toc_lines:
+        m = _TOC_LINE_RE.match(ln)
+        if m:
+            toc_titles.add(m.group(1).strip().lower())
+
+    # Find body H2/H3 titles AFTER the TOC block
+    body = "\n".join(lines[end:])
+    body_titles = {
+        m.group(1).strip().lower()
+        for m in _BODY_HEADING_RE.finditer(body)
+    }
+
+    if not toc_titles:
+        return text
+    overlap = len(toc_titles & body_titles) / len(toc_titles)
+    if overlap < 0.7:
+        return text
+
+    # Strip the TOC block
+    return "\n".join(lines[end:]).lstrip("\n")
+
+
 STAGES: list[Stage] = [
     repair_line_wraps,
     dehyphenate,
     dedupe_paragraphs,
+    dedupe_toc_block,
 ]
