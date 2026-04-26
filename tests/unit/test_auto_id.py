@@ -42,3 +42,23 @@ def test_custom_prefix_and_type_code():
     doc_id = generate_document_id(body, prefix="CSA", type_code="GD")
     assert doc_id.startswith("CSA-")
     assert "-GD-" in doc_id
+
+
+def test_auto_id_uses_config_prefix(tmp_path, monkeypatch):
+    """``.any2md.toml`` ``[document_id]`` settings drive --auto-id."""
+    cfg = tmp_path / ".any2md.toml"
+    cfg.write_text(
+        '[document_id]\npublisher_prefix = "CSA"\ntype_code = "GD"\n'
+    )
+    monkeypatch.chdir(tmp_path)
+    from any2md.config import (
+        discover_config,
+        extract_document_id_settings,
+        load_toml,
+    )
+
+    discovered = discover_config()
+    assert discovered == cfg
+    p, t = extract_document_id_settings(load_toml(discovered))
+    assert p == "CSA"
+    assert t == "GD"
