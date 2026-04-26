@@ -15,7 +15,7 @@ internals, see [architecture.md](architecture.md).
 any2md [-h] [--input-dir PATH] [--output-dir PATH] [-r] [-f]
        [--max-file-size BYTES]
        [--strip-links]
-       [-H] [--ocr-figures] [--save-images]
+       [-H] [--ocr-figures] [--save-images] [--no-arxiv-lookup]
        [--auto-id] [--meta KEY=VAL] [--meta-file PATH]
        [--strict] [-q] [-v]
        [files ...]
@@ -200,6 +200,45 @@ any2md --ocr-figures slides.pdf
 
 You'll see `OK:` lines that take longer than usual — figure OCR runs Tesseract
 per figure region.
+
+### `--no-arxiv-lookup`
+
+Disable the arxiv API metadata enrichment for PDFs. **Default: enabled.**
+
+For PDFs whose filename matches the arxiv ID pattern (`\d{4}\.\d{4,5}` —
+e.g. `2501.17755v1.pdf`, `1706.03762.pdf`), any2md by default queries
+`https://export.arxiv.org/api/query?id_list={arxiv_id}` to enrich the
+frontmatter with the official `authors`, abstract, and `date` from arxiv.
+The lookup is SSRF-guarded (resolved IPs checked against private, reserved,
+loopback, and link-local ranges), has a 5-second timeout, makes a single
+attempt with no retry, and emits a non-blocking warning on any failure
+(network error, HTTP non-200, XML parse error). Conversion never fails
+because of arxiv unreachability.
+
+**Use this when** you're running any2md in an airgapped environment, on a
+build agent that's not allowed to make outbound calls, or when you want a
+guarantee that no network traffic leaves the host during conversion. Also
+useful when arxiv is rate-limiting your IP and you'd rather not see the
+warnings on every run.
+
+**Don't use this when** you're processing arxiv-named PDFs and you want the
+authoritative author list and abstract — the on-disk PDF often has incomplete
+or missing metadata, and the arxiv API is the canonical source. The default
+(enabled) is the right choice for most online conversions.
+
+```bash
+# Disable the lookup for one batch
+any2md --no-arxiv-lookup ./papers/
+
+# Equivalent for a single file
+any2md --no-arxiv-lookup 2501.17755v1.pdf
+```
+
+You'll see frontmatter populated only from the local PDF metadata — for
+arxiv-named PDFs that means `authors` may be `[]` if the PDF's `/Author`
+field is empty, and `abstract_for_rag` will derive from the body text rather
+than the official arxiv abstract. No `arxiv lookup ...` warnings appear on
+stderr regardless of network availability.
 
 ### `--save-images`
 
