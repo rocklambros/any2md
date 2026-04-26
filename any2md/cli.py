@@ -64,9 +64,28 @@ def main():
         default=_DEFAULT_MAX_FILE_SIZE,
         help=f"Maximum file size in bytes (default: {_DEFAULT_MAX_FILE_SIZE}).",
     )
+    parser.add_argument(
+        "--high-fidelity",
+        "-H",
+        action="store_true",
+        help="Force the Docling backend (PDF/DOCX). Exit 1 if not installed.",
+    )
     args = parser.parse_args()
 
-    options = PipelineOptions(strip_links=args.strip_links)
+    if args.high_fidelity:
+        from any2md._docling import has_docling, INSTALL_HINT_MSG
+        if not has_docling():
+            print(
+                f"  ERROR: --high-fidelity requested but docling is not installed.\n"
+                f"  {INSTALL_HINT_MSG}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    options = PipelineOptions(
+        strip_links=args.strip_links,
+        high_fidelity=args.high_fidelity,
+    )
 
     # Determine which files to process
     if args.files and args.input_dir:
