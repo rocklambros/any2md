@@ -42,3 +42,13 @@ def test_pipeline_options_has_high_fidelity_field():
 def test_pipeline_options_high_fidelity_default_false():
     opts = PipelineOptions()
     assert opts.high_fidelity is False
+
+
+def test_pipeline_options_backend_default_none():
+    assert PipelineOptions().backend is None
+
+
+def test_pipeline_options_backend_can_be_set():
+    assert PipelineOptions(backend="docling").backend == "docling"
+    assert PipelineOptions(backend="pymupdf4llm").backend == "pymupdf4llm"
+    assert PipelineOptions(backend="mammoth").backend == "mammoth"
