@@ -1,4 +1,9 @@
-"""Integration test: PDF converter (pymupdf4llm path)."""
+"""Integration test: PDF converter (pymupdf4llm fallback path).
+
+Docling is now the default backend when installed. This test simulates
+the no-Docling environment by monkeypatching `has_docling` to return
+False so the fallback path is exercised regardless of install state.
+"""
 
 import yaml
 
@@ -6,7 +11,12 @@ from any2md.converters.pdf import convert_pdf
 from any2md.pipeline import PipelineOptions
 
 
-def test_pdf_emits_v1_frontmatter_pymupdf_path(fixture_dir, tmp_output_dir):
+def test_pdf_emits_v1_frontmatter_pymupdf_path(
+    fixture_dir, tmp_output_dir, monkeypatch
+):
+    monkeypatch.setattr(
+        "any2md.converters.pdf.has_docling", lambda: False
+    )
     ok = convert_pdf(
         fixture_dir / "multi_column.pdf",
         tmp_output_dir,

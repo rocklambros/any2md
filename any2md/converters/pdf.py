@@ -1,4 +1,11 @@
-"""PDF to Markdown converter (v1.0). Phase 1: pymupdf4llm only."""
+"""PDF to Markdown converter (v1.0).
+
+Phase 2: Docling primary backend with pymupdf4llm fallback. Backend
+selection is automatic — if `docling` is importable we use it; otherwise
+we fall back to pymupdf4llm. The `--high-fidelity` flag forces Docling
+(enforced upstream in the CLI) but does not change the converter logic
+beyond surfacing the requested backend in extracted_via.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +17,7 @@ import pymupdf
 import pymupdf4llm
 
 from any2md import pipeline
+from any2md._docling import has_docling, install_hint
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename
@@ -99,6 +107,40 @@ def pdf_looks_complex(pdf_path: Path) -> bool:
         return False
 
 
+def _extract_via_docling(
+    pdf_path: Path, options: PipelineOptions
+) -> tuple[str, str]:
+    """Returns (markdown, 'docling'). Raises on Docling errors."""
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    pipeline_opts = PdfPipelineOptions(
+        do_ocr=options.ocr_figures,
+        do_table_structure=True,
+        generate_picture_images=options.save_images,
+    )
+
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts),
+        }
+    )
+    result = converter.convert(str(pdf_path))
+    md = result.document.export_to_markdown()
+    return md, "docling"
+
+
+def _extract_via_pymupdf4llm(doc: "pymupdf.Document") -> tuple[str, str]:
+    md = pymupdf4llm.to_markdown(
+        doc,
+        write_images=False,
+        show_progress=False,
+        force_text=True,
+    )
+    return md, "pymupdf4llm"
+
+
 def convert_pdf(
     pdf_path: Path,
     output_dir: Path,
@@ -116,17 +158,38 @@ def convert_pdf(
         return True
 
     try:
+        use_docling = has_docling()
+
+        if not use_docling and pdf_looks_complex(pdf_path):
+            install_hint()
+
+        # Always extract metadata via PyMuPDF — independent of which
+        # backend produces the markdown body.
         with pymupdf.open(str(pdf_path)) as doc:
             page_count = len(doc)
-            md_text = pymupdf4llm.to_markdown(
-                doc,
-                write_images=False,
-                show_progress=False,
-                force_text=True,
-            )
             props = _parse_pdf_metadata(doc)
+            fallback_md = None
+            if not use_docling:
+                fallback_md, extracted_via = _extract_via_pymupdf4llm(doc)
+                lane = "text"
 
-        md_text, warnings = pipeline.run(md_text, "text", options)
+        if use_docling:
+            try:
+                md_text, extracted_via = _extract_via_docling(pdf_path, options)
+                lane = "structured"
+            except Exception as e:  # noqa: BLE001 — fall back rather than fail
+                print(
+                    f"  WARN: Docling extraction failed for {pdf_path.name}: {e}; "
+                    f"falling back to pymupdf4llm.",
+                    file=sys.stderr,
+                )
+                with pymupdf.open(str(pdf_path)) as doc:
+                    md_text, extracted_via = _extract_via_pymupdf4llm(doc)
+                lane = "text"
+        else:
+            md_text = fallback_md
+
+        md_text, warnings = pipeline.run(md_text, lane, options)
 
         meta = SourceMeta(
             title_hint=props["title_hint"],
@@ -142,15 +205,17 @@ def convert_pdf(
             source_file=pdf_path.name,
             source_url=None,
             doc_type="pdf",
-            extracted_via="pymupdf4llm",
-            lane="text",
+            extracted_via=extracted_via,
+            lane=lane,
         )
         full = compose(md_text, meta, options)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path.write_text(full, encoding="utf-8", newline="\n")
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
-        print(f"  OK: {out_name} ({page_count} pages{suffix})")
+        print(
+            f"  OK: {out_name} ({page_count} pages, via {extracted_via}{suffix})"
+        )
         return True
 
     except (OSError, ValueError, RuntimeError) as e:
