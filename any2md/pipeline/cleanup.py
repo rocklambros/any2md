@@ -21,7 +21,31 @@ def strip_soft_hyphens(text: str, _options: "PipelineOptions") -> str:
     return text.replace("­", "")
 
 
+# Whitelist of presentation-form ligatures and similar single-glyph compounds
+# that are safe to expand. NOT a blanket NFKC pass — that would fold
+# superscripts, subscripts, and CJK compatibility characters.
+_LIGATURE_TABLE = str.maketrans({
+    "ﬀ": "ff",
+    "ﬁ": "fi",
+    "ﬂ": "fl",
+    "ﬃ": "ffi",
+    "ﬄ": "ffl",
+    "ﬅ": "st",
+    "ﬆ": "st",
+    " ": " ",   # non-breaking space → regular space
+})
+
+
+def normalize_ligatures(text: str, _options: "PipelineOptions") -> str:
+    """C3: Expand whitelisted ligatures and NBSP only.
+
+    Deliberately not a blanket NFKC pass — see spec §4.3 C3.
+    """
+    return text.translate(_LIGATURE_TABLE)
+
+
 STAGES: list[Stage] = [
     nfc_normalize,
     strip_soft_hyphens,
+    normalize_ligatures,
 ]
