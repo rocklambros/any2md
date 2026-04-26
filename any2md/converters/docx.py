@@ -22,6 +22,7 @@ from any2md import pipeline
 from any2md._docling import has_docling
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
+from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename
 
@@ -40,6 +41,7 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
         "title_hint": None,
         "authors": [],
         "organization": None,
+        "produced_by": None,
         "date": None,
         "keywords": [],
     }
@@ -65,8 +67,22 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
                 with z.open("docProps/app.xml") as f:
                     root = ET.parse(f).getroot()
                 company = root.findtext("ext:Company", namespaces=_NS_APP)
-                if company:
+                application = root.findtext("ext:Application", namespaces=_NS_APP)
+                # v1.0.2: Company takes priority for `organization` (real
+                # legal entity); Application is software → goes to
+                # `produced_by` via filter_organization. When Company is
+                # absent we route Application through filter_organization
+                # for both fields so a real-org Application name still
+                # populates `organization`.
+                if company and company.strip():
                     out["organization"] = company.strip()
+                    if application and application.strip():
+                        app_result = filter_organization(application.strip())
+                        out["produced_by"] = app_result.produced_by
+                elif application and application.strip():
+                    app_result = filter_organization(application.strip())
+                    out["organization"] = app_result.organization
+                    out["produced_by"] = app_result.produced_by
             except KeyError:
                 pass
     except (zipfile.BadZipFile, ET.ParseError):
@@ -167,6 +183,7 @@ def convert_docx(
             doc_type="docx",
             extracted_via=extracted_via,
             lane=lane,
+            produced_by=props["produced_by"],
         )
         full = compose(
             md_text, meta, options, overrides=options.frontmatter_overrides
