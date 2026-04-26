@@ -13,7 +13,7 @@ the CLI surface that drives this code, see
 ## High-level data flow
 
 ```
-                  any2md  v1.0
+                  any2md  v1.0.2
                        │
                   ┌────┴────┐
               CLI │ cli.py  │  parse args, classify URL/file/dir,
@@ -30,43 +30,69 @@ the CLI surface that drives this code, see
         │ pymupdf4llm│ mammoth+md │       │
         └────┬───────┴────┬───────┴───┬───┘
              │            │           │
+             │  SourceMeta carries (v1.0.2):
+             │    organization, produced_by
+             │    (split via heuristics.filter_organization)
+             │
        structured-md  structured-md   text-md
              │            │           │
              └─────┬──────┴───────────┘
                    ▼
         ┌─────────────────────────┐
         │  pipeline/structured.py │   structured lane
-        │  - figure caption pass  │   (trusts layout)
-        │  - table compactor      │
-        │  - cite normalizer      │
-        │  - heading hierarchy    │
+        │  S1 figure caption pass │   (trusts layout)
+        │  S2 table compactor     │
+        │  S3 cite normalizer     │
+        │  S4 heading hierarchy   │
         └────────────┬────────────┘
                      │
         ┌────────────┴────────────┐
         │     pipeline/text.py    │   text lane
-        │  - line-wrap repair     │
-        │  - dehyphenate          │
-        │  - duplicate paragraph  │
-        │  - TOC dedupe           │
-        │  - hdr/ftr strip        │
-        │  - list/code restore    │
+        │  T1 line-wrap repair    │
+        │  T2 dehyphenate         │
+        │  T9 strip repeated      │   ◀ NEW v1.0.2
+        │     byline              │
+        │  T3 dedupe paragraphs   │
+        │  T4 dedupe TOC block    │
+        │  T7 dedupe TOC table    │   ◀ NEW v1.0.2
+        │  T5 hdr/ftr strip       │
+        │  T10 strip web          │   ◀ NEW v1.0.2
+        │      fragments          │
+        │  T6 list/code restore   │
+        │  T8 strip cover         │   ◀ NEW v1.0.2
+        │     artifacts           │
         └────────────┬────────────┘
                      │
         ┌────────────┴────────────┐
         │   pipeline/cleanup.py   │   shared lane
-        │  - NFC normalize        │   (always last)
-        │  - soft hyphen strip    │
-        │  - ligature normalize   │
-        │  - quote/dash normalize │
-        │  - whitespace collapse  │
-        │  - footnote marker strip│
-        │  - validate             │
+        │  C1 NFC normalize       │   (always last)
+        │  C2 soft hyphen strip   │
+        │  C3 ligature normalize  │
+        │  C4 quote/dash normalize│
+        │  C5 whitespace collapse │
+        │  C8 decode HTML entities│   ◀ NEW v1.0.2
+        │  C6 footnote marker strip│
+        │  C7 validate            │
         └────────────┬────────────┘
                      │
-        ┌────────────┴────────────┐
-        │     frontmatter.py      │   SSRM-compatible
-        │  - merge user overrides │   YAML emitter
+                     │           ┌──────────────────────────┐
+                     │           │   any2md/heuristics.py   │  ◀ NEW v1.0.2
+                     │           │  pure functions:         │
+                     │           │  - refine_title          │
+                     │           │  - refine_abstract       │
+                     │           │  - extract_authors       │
+                     │           │    (+ optional arxiv API)│
+                     │           │  - filter_organization   │
+                     │           │  - is_arxiv_filename     │
+                     │           │  - arxiv_lookup          │
+                     │           └────────────┬─────────────┘
+                     │                        │
+                     ▼                        │
+        ┌─────────────────────────┐           │
+        │     frontmatter.py      │ ◀─────────┘   (consults heuristics
+        │  - merge user overrides │                before YAML emission)
         │  - derive title/date/…  │
+        │  - emit produced_by     │   ◀ NEW v1.0.2
         │  - compute content_hash │
         │  - emit YAML            │
         └────────────┬────────────┘
@@ -75,10 +101,14 @@ the CLI surface that drives this code, see
               <output>.md   ← frontmatter + cleaned body
 ```
 
-The diagram captures the three invariants that the rest of this document
-unpacks: a converter produces raw markdown plus a `SourceMeta` and declares
-its lane; the lane runs first, shared cleanup runs last, and `frontmatter.py`
-is the only producer of the YAML block.
+The diagram captures three invariants that the rest of this document unpacks:
+a converter produces raw markdown plus a `SourceMeta` and declares its lane;
+the lane runs first, shared cleanup runs last, and `frontmatter.py` is the
+only producer of the YAML block. v1.0.2 adds a fourth piece: a leaf
+`heuristics.py` module of pure functions that `frontmatter.compose()`
+consults to refine candidate field values before emission. Heuristics never
+import from converters or pipeline modules — the dependency arrow points one
+way, frontmatter to heuristics.
 
 ## Why two lanes
 
@@ -163,48 +193,61 @@ shared cleanup, on Docling output.
 | S3 | `normalize_citations` | structured | Markdown with `[1] [2] [3]`-style spaced numeric citations | `[1][2][3]` (no spaces between adjacent numeric refs) | No spaced numeric citations | Non-numeric refs (`[Smith2020]`) are left alone |
 | S4 | `enforce_heading_hierarchy` | structured | Markdown with any heading shape | Single H1, no skipped levels | Document has zero headings | First H1 absent: first heading promoted; subsequent H1s demoted to H2; H2 → H4 jump flattened to H2 → H3 → H4. Emits a warning when changes were applied. |
 
-### Text-lane stages (T1–T6)
+### Text-lane stages (T1–T10)
 
-Located in `any2md/pipeline/text.py`. Run in the order listed before shared
-cleanup, on text-lane output.
+Located in `any2md/pipeline/text.py`. Stages run in the order listed in the
+`STAGES` list at the bottom of the module — shown below. Note that the IDs
+(T1, T2, …) reflect the order each stage was *introduced*, not the order
+they run in. The "Run order" column gives the actual execution sequence.
 
-| ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
-|---|---|---|---|---|---|---|
-| T1 | `repair_line_wraps` | text | Paragraph text with single newlines mid-sentence | Paragraphs joined into single lines per logical paragraph | Inside fenced code blocks; lines that are structural (lists, tables, headings); lines ending in terminal punctuation; next line starts with uppercase letter | Tracks fence state across the document; never joins across blank lines |
-| T2 | `dehyphenate` | text | `co-\noperation`-style word breaks | `cooperation` when joined word appears elsewhere in the document | Joined word does not appear elsewhere (preserves genuine compounds) | Same-document corroboration only — no external wordlist |
-| T3 | `dedupe_paragraphs` | text | Paragraphs split by blank lines | Adjacent identical paragraphs collapsed to one | No adjacent duplicates | Whitespace-only differences are treated as identical (`.strip()` comparison) |
-| T4 | `dedupe_toc_block` | text | TOC-shaped opening (≥ 5 entries matching `<title> <dots> <pagenum>`) followed by body whose H2/H3 headings cover ≥ 70% of the TOC entries | TOC block stripped | Profile is `conservative`; fewer than 5 TOC-shaped lines; overlap with body headings < 70% | Aggressive/maximum profiles only |
-| T5 | `strip_running_headers_footers` | text | Multi-page output with `\f` form-feed page breaks | Page-repeated headers and footers removed | Document has fewer than 3 pages; no form-feed markers; no line repeats ≥ 3 times | Also strips `Page N of M` and bare-numeric footer lines when they appear on ≥ 3 pages |
-| T6 | `restore_lists_and_code` | text | ≥ 4-line indented blocks (4 leading spaces) between blank lines | Indented blocks wrapped in fenced code | Already inside a fence; block has < 4 non-empty lines | Tracks fence state; preserves leading 4-space indent strip when wrapping |
+| Run order | ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
+|---|---|---|---|---|---|---|---|
+| 1 | T1 | `repair_line_wraps` | text | Paragraph text with single newlines mid-sentence | Paragraphs joined into single lines per logical paragraph | Inside fenced code blocks; lines that are structural (lists, tables, headings); lines ending in terminal punctuation; next line starts with uppercase letter | Tracks fence state across the document; never joins across blank lines |
+| 2 | T2 | `dehyphenate` | text | `co-\noperation`-style word breaks | `cooperation` when joined word appears elsewhere in the document | Joined word does not appear elsewhere (preserves genuine compounds) | Same-document corroboration only — no external wordlist |
+| 3 | T9 | `strip_repeated_byline` | text | "Author's Contact Information:" / "Authors' Contact Information:" / "Contact:" lines duplicating an earlier byline; or email-list footer lines within the first 50 lines | Such lines (and any indented continuations) dropped | Profile is `conservative`; pattern not present | Aggressive/maximum only. Drops the matched line plus subsequent indented continuations. |
+| 4 | T3 | `dedupe_paragraphs` | text | Paragraphs split by blank lines | Adjacent identical paragraphs collapsed to one | No adjacent duplicates | Whitespace-only differences are treated as identical (`.strip()` comparison) |
+| 5 | T4 | `dedupe_toc_block` | text | TOC-shaped opening (≥ 5 entries matching `<title> <dots> <pagenum>`) followed by body whose H2/H3 headings cover ≥ 70% of the TOC entries | Text-formatted TOC block stripped | Profile is `conservative`; fewer than 5 TOC-shaped lines; overlap with body headings < 70% | Aggressive/maximum only |
+| 6 | T7 | `dedupe_toc_table` | text | A leading GFM table (consecutive `|`-prefixed lines) in the first 30% of the document whose non-numeric cells match ≥ 70% of later H2/H3 headings | Such tables dropped | Profile is `conservative`; no table in the leading region; overlap below threshold; numeric cells dominate (looks like a data table, not a TOC) | Aggressive/maximum only. Sibling of T4 — handles table-formatted TOCs that T4's text-formatted heuristic misses (common on academic PDFs). |
+| 7 | T5 | `strip_running_headers_footers` | text | Multi-page output with `\f` form-feed page breaks | Page-repeated headers and footers removed | Document has fewer than 3 pages; no form-feed markers; no line repeats ≥ 3 times | Also strips `Page N of M` and bare-numeric footer lines when they appear on ≥ 3 pages |
+| 8 | T10 | `strip_web_fragments` | text | Lines containing only `\|` or `>`; short incomplete-sentence lines (≤ 25 chars, no terminal punctuation) surrounded by blank lines and following a paragraph that ended in terminal punctuation | Fragments dropped | Profile is `conservative`; no qualifying fragments; line is a known short heading (`Contents`, `Note:`, etc.) | Aggressive/maximum only. Targets trafilatura extraction artifacts. Conservative on purpose — short legitimate lines are preserved. |
+| 9 | T6 | `restore_lists_and_code` | text | ≥ 4-line indented blocks (4 leading spaces) between blank lines | Indented blocks wrapped in fenced code | Already inside a fence; block has < 4 non-empty lines | Tracks fence state; preserves leading 4-space indent strip when wrapping |
+| 10 | T8 | `strip_cover_artifacts` | text | First ~30 lines (before the first H2): lines containing "QR code", "scan the", "customer feedback form" (case-insensitive); or lines matching `^(?:Third|Fourth|...) edition \d{4}-\d{2}$`; or lines matching `^Corrected version \d{4}-\d{2}$` | Such lines dropped | Profile is `conservative`; pattern not present; line is past the first H2 | Aggressive/maximum only. Bounded to the cover region so legitimate body content is never touched. |
 
-### Shared cleanup stages (C1–C7)
+### Shared cleanup stages (C1–C8)
 
 Located in `any2md/pipeline/cleanup.py`. Run last, identically for both lanes.
+The "Run order" column gives execution sequence; ID reflects introduction
+order.
 
-| ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
-|---|---|---|---|---|---|---|
-| C1 | `nfc_normalize` | shared | Any unicode text | NFC-normalized text | Already-NFC text | Required by SSRM `content_hash` invariant |
-| C2 | `strip_soft_hyphens` | shared | Text containing U+00AD (`­`) | Text without U+00AD | No soft hyphens | Soft hyphens are invisible but token-costly |
-| C3 | `normalize_ligatures` | shared | Text containing presentation-form ligatures (`ﬁ`, `ﬂ`, `ﬃ`, `ﬄ`, `ﬅ`, `ﬆ`, `ﬀ`) and NBSP | Text with whitelist-expanded ligatures and regular spaces | None of the whitelist characters present | Whitelist-only — does not run blanket NFKC, which would fold superscripts and CJK compatibility characters |
-| C4 | `normalize_quotes_dashes` | shared | Smart quotes (`“”‘’`) and ellipsis (`…`) | Straight quotes (`""''`) and three-dot ellipsis | No smart quotes or ellipsis | En-dash and em-dash are preserved (semantic) |
-| C5 | `collapse_whitespace` | shared | Multiple spaces, trailing whitespace, ≥ 3 blank lines | Single inter-word spaces, trimmed line ends, blank-line runs capped at 2 | None of those patterns present | Inter-word run regex requires non-space on both sides |
-| C6 | `strip_footnote_markers` | shared | Body with inline footnote refs (`[^1]`, `¹`-`⁹`, `⁰`) followed by a recognizable footnotes section heading | Body without inline markers; footnotes section preserved | Profile is `conservative`; no footnotes heading found | Heading regex accepts `## Footnotes`, `## Notes`, `## References` (case-insensitive) |
-| C7 | `validate` | shared | Any post-cleanup body | Identical body (read-only) | Always read-only | Emits warnings via `emit_warning()` for H1 count != 1, heading skips |
+| Run order | ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
+|---|---|---|---|---|---|---|---|
+| 1 | C1 | `nfc_normalize` | shared | Any unicode text | NFC-normalized text | Already-NFC text | Required by SSRM `content_hash` invariant |
+| 2 | C2 | `strip_soft_hyphens` | shared | Text containing U+00AD (`­`) | Text without U+00AD | No soft hyphens | Soft hyphens are invisible but token-costly |
+| 3 | C3 | `normalize_ligatures` | shared | Text containing presentation-form ligatures (`ﬁ`, `ﬂ`, `ﬃ`, `ﬄ`, `ﬅ`, `ﬆ`, `ﬀ`) and NBSP | Text with whitelist-expanded ligatures and regular spaces | None of the whitelist characters present | Whitelist-only — does not run blanket NFKC, which would fold superscripts and CJK compatibility characters |
+| 4 | C4 | `normalize_quotes_dashes` | shared | Smart quotes (`“”‘’`) and ellipsis (`…`) | Straight quotes (`""''`) and three-dot ellipsis | No smart quotes or ellipsis | En-dash and em-dash are preserved (semantic) |
+| 5 | C5 | `collapse_whitespace` | shared | Multiple spaces, trailing whitespace, ≥ 3 blank lines | Single inter-word spaces, trimmed line ends, blank-line runs capped at 2 | None of those patterns present | Inter-word run regex requires non-space on both sides |
+| 6 | C8 | `decode_html_entities` | shared | Body containing named (`&amp;`, `&lt;`, `&gt;`) or numeric (`&#x2014;`, `&#8212;`) HTML entities | Body with entities decoded via `html.unescape()` | No entities present; line is inside a fenced code block | Universal — runs at all profiles. Tracks fenced-code-block state to preserve literal entities inside ` ``` ` blocks. Inline single-backtick code is not skipped (false-positive rate acceptable). |
+| 7 | C6 | `strip_footnote_markers` | shared | Body with inline footnote refs (`[^1]`, `¹`-`⁹`, `⁰`) followed by a recognizable footnotes section heading | Body without inline markers; footnotes section preserved | Profile is `conservative`; no footnotes heading found | Heading regex accepts `## Footnotes`, `## Notes`, `## References` (case-insensitive) |
+| 8 | C7 | `validate` | shared | Any post-cleanup body | Identical body (read-only) | Always read-only | Emits warnings via `emit_warning()` for H1 count != 1, heading skips |
 
 ### Profile gating
 
-`PipelineOptions.profile` controls a small subset of stages.
+`PipelineOptions.profile` controls a small subset of stages. The v1.0.2
+text-lane additions (T7–T10) and the v1.0.2 cleanup addition (C8) follow the
+same gating rules as their siblings.
 
-| Profile | T4 (TOC dedupe) | C6 (footnote markers) |
-|---|---|---|
-| `conservative` | off | off |
-| `aggressive` (default) | on | on |
-| `maximum` | on | on |
+| Profile | T4 TOC text dedupe | T7 TOC table dedupe | T8 cover artifacts | T9 repeated byline | T10 web fragments | C6 footnote markers | C8 HTML entities |
+|---|---|---|---|---|---|---|---|
+| `conservative` | off | off | off | off | off | off | on |
+| `aggressive` (default) | on | on | on | on | on | on | on |
+| `maximum` | on | on | on | on | on | on | on |
 
-All other stages run unconditionally. The default is `aggressive` because the
-gated stages are net-positive for retrieval token budget on the documents we
-test against (TOCs that mirror the body waste tokens; inline footnote markers
-fragment paragraphs).
+All other stages run unconditionally. C8 is on at every profile because HTML
+entities in body text are universally wrong for both human and RAG readers —
+there's no legitimate use case for keeping them un-decoded. The other gated
+stages are aggressive-only because they apply heuristics that, while
+high-precision in practice, carry a non-zero false-positive risk that the
+conservative profile chooses to avoid.
 
 ## The `SourceMeta` dataclass
 
@@ -219,6 +262,10 @@ class SourceMeta:
     title_hint: str | None
     authors: list[str]
     organization: str | None
+    produced_by: str | None       # NEW v1.0.2 — software/tool that produced
+                                  # the source file (PDF Creator field;
+                                  # DOCX docProps/app.xml Application field).
+                                  # None when not extractable.
     date: str | None              # ISO-8601 YYYY-MM-DD
     keywords: list[str]
     pages: int | None             # PDFs only
@@ -238,8 +285,9 @@ class SourceMeta:
 | Field | Filled by | Required for SSRM contract |
 |---|---|---|
 | `title_hint` | All converters when source metadata has a title (PDF `/Title`, DOCX `dc:title`, HTML `<title>`, otherwise `None`) | No — `frontmatter.derive_title` falls back to first H1, then filename |
-| `authors` | PDF (`/Author` parsed), DOCX (`dc:creator`), HTML (`<meta name="author">`), TXT (always `[]`) | No — empty `[]` is valid |
-| `organization` | PDF/DOCX `Company`, HTML `og:site_name`, otherwise `None` | No — empty `""` is valid |
+| `authors` | PDF (`/Author` parsed), DOCX (`dc:creator`), HTML (`<meta name="author">`), TXT (always `[]`). v1.0.2 adds body-text extraction and an arxiv API enrichment via `heuristics.extract_authors`. | No — empty `[]` is valid |
+| `organization` | PDF/DOCX `Company`, HTML `og:site_name`, otherwise `None`. v1.0.2 routes the PDF `Creator` field and DOCX `<Application>` element through `heuristics.filter_organization` so software values populate `produced_by` instead. | No — empty `""` is valid |
+| `produced_by` | PDF `Creator` field (when it matches a known software pattern); DOCX `<Application>` element of `docProps/app.xml`; otherwise `None`. New in v1.0.2. | No — extension field |
 | `date` | PDF `creationDate`, DOCX `dcterms:modified`, URL `Last-Modified` HEAD response, file mtime, today | Yes — derived to today if all sources fail |
 | `keywords` | PDF `/Keywords`, DOCX `cp:keywords`, HTML `<meta name="keywords">`, trafilatura `categories`, otherwise `[]` | No — emitted only when non-empty |
 | `pages` | PDF only (page count via `pymupdf.open`); other formats `None` | No — extension field |
@@ -268,6 +316,73 @@ distinction.
 
 The DOCX converters parse `docProps/core.xml` and `docProps/app.xml` directly
 via `zipfile + xml.etree.ElementTree`. There is no python-docx dependency.
+
+## Heuristics module
+
+`any2md/heuristics.py` (added in v1.0.2) is a leaf module of pure functions
+that `frontmatter.compose()` and the converter modules consult to refine
+candidate field values before they're emitted. It exists because the v0.7-
+through-1.0.1 derivation rules — first H1 for title, source `/Author` for
+authors, `Company` field for organization — were under-specified for several
+real-world document classes (academic PDFs with cover pages, ISO standards
+with boilerplate H1s, Wikipedia URL extractions with namespace prefixes).
+The module collects the refinements in one place rather than scattering them
+across the converters and the YAML emitter.
+
+### Module boundary principle
+
+`heuristics.py` does not import from `any2md/converters/` or
+`any2md/pipeline/`. The dependency arrow points one way: converters and
+`frontmatter.compose()` import from `heuristics`, never the reverse. This
+keeps the module testable in isolation and avoids the temptation to chain
+heuristics through pipeline state.
+
+The single network-touching exception is `arxiv_lookup`, which uses
+`urllib.request` from the stdlib (no new dependency) and emits a non-blocking
+warning via the pipeline's existing `add_warnings` channel on any failure.
+The SSRF guard reuses `_validate_url_host` from `any2md/converters/html.py`
+via a lazy import inside the function body — that's the lone deferred import
+in the module, present specifically to avoid the circular dependency.
+
+### Public functions
+
+| Function | Purpose | Profile-gated? |
+|---|---|---|
+| `filter_organization(creator_value)` | Splits a candidate `organization` value into either a real organization name or a `produced_by` software string. Returns an `OrgFilterResult(organization, produced_by)` named tuple where exactly one of the two is non-None. Used by PDF and DOCX converters. | No — pure pattern match |
+| `refine_title(candidate, body, *, source_url, profile)` | Replaces a candidate title that looks like cover-page boilerplate (`"INTERNATIONAL STANDARD"`, `"TECHNICAL REPORT"`, etc.) with the first H2 in the body. Strips `Wikipedia:` namespace prefixes for `*.wikipedia.org` source URLs. Aggressive profile additionally splits DOCX line-broken titles (course code + project) when an explicit delimiter is present. | Conservative skips the DOCX line-break refinement |
+| `refine_abstract(candidate, body, *, profile)` | Replaces a candidate abstract that looks like a byline, cover blurb, or TOC line with the first paragraph of the body's `## Abstract` (or `## Summary`) section. Decodes HTML entities, strips inline markdown links, truncates to ≤ 400 chars at the last sentence boundary. | Conservative returns `None` rather than falling back to a skipped paragraph |
+| `extract_authors(body, title_hint, arxiv_id, *, arxiv_lookup_enabled, profile)` | Detects authors via a chain: (1) arxiv API lookup when an arxiv ID is set, (2) `Authors:` / `Author:` / `By` prefix lines, (3) academic byline pattern in the lines following the H1. Returns a deduplicated, order-preserving list capped at 20. | Conservative skips the byline-pattern inference (steps 1–3 only) |
+| `is_arxiv_filename(name)` | Returns the arxiv ID if the filename matches `\d{4}\.\d{4,5}` (with optional `v\d+` version qualifier), otherwise `None`. Used by the PDF converter to gate `arxiv_lookup`. | No |
+| `arxiv_lookup(arxiv_id, *, timeout=5.0)` | Single-attempt fetch from `https://export.arxiv.org/api/query?id_list={arxiv_id}`. Returns a dict of `{title, authors, abstract, date}` on success or `None` on any failure. SSRF-guarded; 5-second timeout; non-blocking warning on failure via `add_warnings`. | Disabled by `--no-arxiv-lookup` (CLI) or `PipelineOptions.arxiv_lookup=False` |
+
+### Where each function is called
+
+- **Converters (`pdf.py`, `docx.py`)** call `filter_organization` while
+  building `SourceMeta`. PDF `_parse_pdf_metadata` routes the `/Creator`
+  string; DOCX `_read_docx_metadata` routes the `<Application>` string.
+  HTML and TXT converters do not call it — `sitename` from trafilatura and
+  the absence of a producer in TXT mean there's nothing to filter.
+- **`frontmatter.compose()`** calls `refine_title`, `refine_abstract`, and
+  `extract_authors` after the body has been pipeline-cleaned but before
+  YAML emission. Heuristic refinements never override an explicit user
+  override (`--meta`, `.any2md.toml`); user values still win.
+- **PDF converter** also calls `is_arxiv_filename` and passes the result to
+  `extract_authors` via `SourceMeta`. The CLI flag `--no-arxiv-lookup` flips
+  `PipelineOptions.arxiv_lookup` to `False`, which is then forwarded.
+
+### Arxiv lookup contract
+
+The arxiv lookup is opt-out, not opt-in: it runs by default for PDFs whose
+filename matches the arxiv ID pattern. The rationale is that arxiv-named
+PDFs typically have weak local metadata (the on-disk `/Author` field is
+often empty or contains a single placeholder), and the arxiv API is the
+canonical source. The contract is that any failure — DNS, timeout,
+HTTP non-200, malformed XML, blocked SSRF check — emits a warning and
+returns `None`. Conversion never fails because of network conditions.
+
+For airgapped environments or hosts that must not make outbound calls,
+`--no-arxiv-lookup` disables the lookup entirely. The flag does not affect
+any other behavior; the rest of the pipeline runs identically.
 
 ## Adding a new converter
 
