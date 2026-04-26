@@ -90,3 +90,53 @@ def normalize_citations(text: str, _options: "PipelineOptions") -> str:
 
 
 STAGES.append(normalize_citations)
+
+
+_HEADING_LINE_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$", re.MULTILINE)
+
+
+def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
+    """S4: Ensure single H1 and no skipped levels.
+
+    - If no H1 exists, the first heading is promoted to H1.
+    - Subsequent H1s are demoted to H2.
+    - Skipped levels are flattened: a heading that's > prev_level + 1
+      becomes prev_level + 1.
+    """
+    matches = list(_HEADING_LINE_RE.finditer(text))
+    if not matches:
+        return text
+
+    # Pass 1: collect (level, title, span)
+    levels = [len(m.group(1)) for m in matches]
+
+    # Promote first heading to H1 if no H1
+    if 1 not in levels:
+        levels[0] = 1
+
+    # Demote subsequent H1s
+    seen_h1 = False
+    for i, lvl in enumerate(levels):
+        if lvl == 1:
+            if seen_h1:
+                levels[i] = 2
+            else:
+                seen_h1 = True
+
+    # Flatten skipped levels
+    for i in range(1, len(levels)):
+        if levels[i] > levels[i - 1] + 1:
+            levels[i] = levels[i - 1] + 1
+
+    # Pass 2: rewrite
+    out = []
+    last = 0
+    for new_level, m in zip(levels, matches):
+        out.append(text[last:m.start()])
+        out.append("#" * new_level + " " + m.group(2))
+        last = m.end()
+    out.append(text[last:])
+    return "".join(out)
+
+
+STAGES.append(enforce_heading_hierarchy)
