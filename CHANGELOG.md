@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0] — 2026-04-26
+
+First stable release of any2md v1.0. Validated end-to-end against
+real-world documents (a 164-page PDF technical standard via Docling,
+a multi-page academic DOCX, and a Wikipedia article via trafilatura).
+The output contract — SSRM-compatible frontmatter, deterministic
+`content_hash`, NFC + LF body normalization — is now stable. Downstream
+consumers can rely on this shape.
+
+Functional contents are identical to 1.0.0rc1; only the version is bumped.
+
 ## [1.0.0rc1] — 2026-04-26
 
 Phase 4: configuration, polish, and the v1.0 documentation set.
