@@ -102,6 +102,12 @@ _ACADEMIC_BYLINE_RE = re.compile(
     r"(?:\s*,\s*[A-Z][A-Z .'\-]{2,}(?:\s+\d+(?:\s*,\s*\d+)*)?)+\s*$",
 )
 
+# arxiv ID pattern in filename
+_ARXIV_FILENAME_RE = re.compile(
+    r"(?<!\d)(\d{4}\.\d{4,5})(?:v\d+)?(?=\.pdf$|\.|$)",
+    re.IGNORECASE,
+)
+
 
 class OrgFilterResult(NamedTuple):
     organization: str | None
@@ -420,6 +426,36 @@ def extract_authors(
             break
 
     return []
+
+
+def is_arxiv_filename(name: str) -> str | None:
+    """Return arxiv ID if name matches arxiv pattern, else None.
+
+    Accepts both new (\\d{4}.\\d{5}) and legacy (\\d{4}.\\d{4}) formats.
+    Strips trailing "v\\d+" version qualifier.
+
+    Examples:
+      "2501.17755v1.pdf"    → "2501.17755"
+      "1706.03762.pdf"      → "1706.03762"
+      "report.pdf"          → None
+    """
+    if not name:
+        return None
+    # Use just the basename without leading directories
+    base = name
+    if "/" in base:
+        base = base.rsplit("/", 1)[-1]
+    if "\\" in base:
+        base = base.rsplit("\\", 1)[-1]
+    # Strip trailing .pdf (case-insensitive) so the regex can anchor.
+    base_no_ext = base
+    if base_no_ext.lower().endswith(".pdf"):
+        base_no_ext = base_no_ext[: -len(".pdf")]
+    # Match the entire stripped basename against the arxiv pattern.
+    m = re.match(r"^(\d{4}\.\d{4,5})(?:v\d+)?$", base_no_ext)
+    if m:
+        return m.group(1)
+    return None
 
 
 def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:

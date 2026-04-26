@@ -336,3 +336,22 @@ class TestExtractAuthors:
     def test_empty_body_returns_empty_list(self):
         result = heuristics.extract_authors("", title_hint=None)
         assert result == []
+
+
+# --------------------------------------------------------------------- #
+# is_arxiv_filename
+# --------------------------------------------------------------------- #
+
+
+class TestIsArxivFilename:
+    def test_new_format_with_version_qualifier(self):
+        assert heuristics.is_arxiv_filename("2501.17755v1.pdf") == "2501.17755"
+
+    def test_legacy_4digit_format(self):
+        assert heuristics.is_arxiv_filename("1706.03762.pdf") == "1706.03762"
+
+    def test_no_version_qualifier(self):
+        assert heuristics.is_arxiv_filename("2501.17755.pdf") == "2501.17755"
+
+    def test_non_arxiv_filename_returns_none(self):
+        assert heuristics.is_arxiv_filename("report.pdf") is None
