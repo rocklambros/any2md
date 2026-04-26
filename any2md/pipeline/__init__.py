@@ -22,7 +22,14 @@ class PipelineOptions:
     save_images: bool = False
     strip_links: bool = False
     strict: bool = False
-    high_fidelity: bool = False  # NEW: force Docling backend
+    high_fidelity: bool = False  # force Docling backend
+    # --auto-id wiring. When ``auto_id`` is True, ``frontmatter.compose``
+    # emits a generated ``document_id``. The prefix and type_code are
+    # used as-is; Phase 4 hardcodes "LOCAL"/"DOC" and Task 5 wires
+    # config-driven overrides via .any2md.toml [document_id].
+    auto_id: bool = False
+    auto_id_prefix: str = "LOCAL"
+    auto_id_type_code: str = "DOC"
 
 
 Stage = Callable[[str, PipelineOptions], str]

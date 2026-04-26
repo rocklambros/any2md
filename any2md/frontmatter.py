@@ -30,6 +30,21 @@ def compute_content_hash(body: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def generate_document_id(
+    body: str, prefix: str = "LOCAL", type_code: str = "DOC"
+) -> str:
+    """Generate an SSRM-conformant ``document_id`` from body content.
+
+    Pattern: ``{PREFIX}-{YYYY}-{TYPE}-{SHA8}``.
+
+    Used by ``--auto-id``. The ``SHA8`` is the first 8 hex chars of the
+    NFC + LF body's SHA-256 (i.e. ``compute_content_hash(body)[:8]``),
+    so two bodies that share a ``content_hash`` share an ``id``.
+    """
+    full_hash = compute_content_hash(body)
+    return f"{prefix}-{_date_cls.today().year}-{type_code}-{full_hash[:8]}"
+
+
 @dataclass
 class SourceMeta:
     title_hint: str | None
@@ -178,7 +193,15 @@ def compose(body: str, meta: SourceMeta, options: PipelineOptions) -> str:
     # 3. Emit YAML in SSRM-defined order
     lines: list[str] = ["---"]
     lines.append(f"title: {_emit_value(title)}")
-    lines.append('document_id: ""')
+    if options.auto_id:
+        doc_id = generate_document_id(
+            body,
+            prefix=options.auto_id_prefix,
+            type_code=options.auto_id_type_code,
+        )
+        lines.append(f'document_id: "{doc_id}"')
+    else:
+        lines.append('document_id: ""')
     lines.append('version: "1"')
     lines.append(f"date: {_emit_value(fm_date)}")
     lines.append('status: "draft"')

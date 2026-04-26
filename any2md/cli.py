@@ -103,6 +103,13 @@ def main():
         action="store_true",
         help="Print pipeline stage timings per file.",
     )
+    parser.add_argument(
+        "--auto-id",
+        action="store_true",
+        help="Generate an SSRM-conformant document_id of the form "
+        "{PREFIX}-{YYYY}-{TYPE}-{SHA8}. Defaults: PREFIX=LOCAL, TYPE=DOC. "
+        "Override via .any2md.toml [document_id] (publisher_prefix, type_code).",
+    )
     args = parser.parse_args()
 
     if args.high_fidelity or args.ocr_figures or args.save_images:
@@ -121,6 +128,7 @@ def main():
         ocr_figures=args.ocr_figures,
         save_images=args.save_images,
         strict=args.strict,
+        auto_id=args.auto_id,
     )
 
     # CLI-only output controls (not part of PipelineOptions).
