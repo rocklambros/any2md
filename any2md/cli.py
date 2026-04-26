@@ -143,6 +143,14 @@ def main():
         help="Save extracted images to <output>/images/ and reference them. Implies --high-fidelity.",
     )
     parser.add_argument(
+        "--profile",
+        choices=("conservative", "aggressive", "maximum"),
+        default="aggressive",
+        help="Token-minimization aggressiveness (default: aggressive). "
+        "'conservative' skips TOC dedupe and footnote-marker stripping; "
+        "'maximum' additionally turns on --strip-links.",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="Promote pipeline validation warnings to errors (exit 3).",
@@ -230,8 +238,12 @@ def main():
             )
             sys.exit(1)
 
+    # --profile maximum implies --strip-links per spec §4.4.
+    effective_strip_links = args.strip_links or (args.profile == "maximum")
+
     options = PipelineOptions(
-        strip_links=args.strip_links,
+        profile=args.profile,
+        strip_links=effective_strip_links,
         high_fidelity=args.high_fidelity or args.ocr_figures or args.save_images,
         ocr_figures=args.ocr_figures,
         save_images=args.save_images,
