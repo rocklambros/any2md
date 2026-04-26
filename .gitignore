@@ -37,6 +37,7 @@ input/
 # Local-only working dirs (not part of the package)
 template/
 test_docs/
+.worktrees/
 
 # ZERG / dev tooling
 .gsd/
