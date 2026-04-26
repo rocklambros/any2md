@@ -73,6 +73,7 @@ v0.7 are listed in the second table.
 | `abstract_for_rag` | string | Conditional — emitted only when `token_estimate ≥ 500`. ≤ 400 chars. |
 | `keywords` | array | Conditional — emitted only when at least one keyword was extracted. |
 | `extracted_via` | string | Records which backend produced the markdown (`docling`, `pymupdf4llm`, `mammoth+markdownify`, `trafilatura`, `trafilatura+bs4_fallback`, `heuristic`). |
+| `produced_by` | string | **New in v1.0.2.** Software that produced the source file (PDF `Creator`, DOCX `Application`). Conditional — emitted only when set, and typically empty when the source has a real `organization`. Distinct from `extracted_via`, which records the any2md backend. |
 | `frameworks_referenced` | array | Empty by default. SSRM extension; user-provided via `--meta`. |
 | `tlp` | string | Empty by default. SSRM marking; user-provided via `--meta`. |
 
