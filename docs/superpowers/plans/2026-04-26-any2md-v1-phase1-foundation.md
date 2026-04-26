@@ -721,10 +721,11 @@ def test_source_meta_defaults_are_safe():
         title_hint=None, authors=[], organization=None, date=None,
         keywords=[], pages=None, word_count=None,
         source_file="x.txt", source_url=None,
-        extracted_via="heuristic", lane="text",
+        doc_type="txt", extracted_via="heuristic", lane="text",
     )
     assert meta.lane == "text"
     assert meta.extracted_via == "heuristic"
+    assert meta.doc_type == "txt"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
