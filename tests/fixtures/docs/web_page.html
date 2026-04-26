@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Article: Markdown Conversion</title>
+  <meta name="author" content="Test Author">
+  <meta name="keywords" content="markdown, conversion, test">
+</head>
+<body>
+  <header>
+    <nav><a href="/home">Home</a> <a href="/about">About</a></nav>
+  </header>
+  <main>
+    <h1>Test Article: Markdown Conversion</h1>
+    <p>This article exists to validate the trafilatura extraction path. It contains a paragraph,
+    a list, and a small table.</p>
+    <h2>Section One</h2>
+    <p>First section content. Soft&shy;hyphenation and curly &ldquo;quotes&rdquo; should normalize.</p>
+    <ul>
+      <li>Bullet alpha</li>
+      <li>Bullet beta</li>
+    </ul>
+    <h2>Section Two</h2>
+    <table>
+      <thead><tr><th>Key</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>k1</td><td>v1</td></tr>
+        <tr><td>k2</td><td>v2</td></tr>
+      </tbody>
+    </table>
+  </main>
+  <aside>Sidebar noise that must be stripped.</aside>
+  <footer>Site footer that must be stripped.</footer>
+</body>
+</html>
