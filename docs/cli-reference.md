@@ -279,6 +279,32 @@ disable auto-discovery — drop the file and it's active.
 
 ## Body-level transformations
 
+### `--profile {conservative,aggressive,maximum}`
+
+Tune how aggressively the post-processing pipeline minimizes the body.
+
+**Default:** `aggressive`.
+
+| Profile | Stages skipped | When to use |
+|---|---|---|
+| `conservative` | T4 (TOC dedupe), C6 (footnote-marker strip) | Maximum fidelity to the source; you'd rather keep redundant TOC text than risk false positives. |
+| `aggressive` | none | Default. Lossless minimization for RAG ingestion. |
+| `maximum` | none, **and implies `--strip-links`** | Most compact output. Drops link URLs from the body. |
+
+**Use `conservative` when** you're producing reference-quality archival output and the small token wins are not worth the small risk of a false positive on the TOC heuristic.
+
+**Use `aggressive` (default) when** you want the standard RAG-optimized output.
+
+**Use `maximum` when** token budget is the dominant constraint and you've confirmed the URL stripping is safe for your downstream consumers.
+
+```bash
+# Default: aggressive
+any2md report.pdf
+
+# Maximum compaction
+any2md --profile maximum report.pdf
+```
+
 ### `--strip-links`
 
 Remove markdown links from the body, keeping only the link text.
