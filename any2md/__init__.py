@@ -1,3 +1,3 @@
 """Convert PDF, DOCX, HTML, and TXT files to LLM-optimized Markdown."""
 
-__version__ = "1.0.0a3"
+__version__ = "1.0.0rc1"

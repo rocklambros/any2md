@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from any2md import pipeline
+from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
 from any2md.utils import read_text_with_fallback, sanitize_filename
@@ -179,6 +180,7 @@ def convert_txt(
 
         md_text = structurize(raw_text)
         md_text, warnings = pipeline.run(md_text, "text", options)
+        add_warnings(warnings)
         meta = _build_meta(txt_path, md_text)
         full = compose(md_text, meta, options)
 
@@ -186,7 +188,8 @@ def convert_txt(
         out_path.write_text(full, encoding="utf-8", newline="\n")
         word_count = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
-        print(f"  OK: {out_name} ({word_count} words{suffix})")
+        if not is_quiet():
+            print(f"  OK: {out_name} ({word_count} words{suffix})")
         return True
 
     except (OSError, ValueError) as e:

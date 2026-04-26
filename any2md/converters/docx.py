@@ -20,6 +20,7 @@ import markdownify
 
 from any2md import pipeline
 from any2md._docling import has_docling
+from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename
@@ -130,6 +131,7 @@ def convert_docx(
             lane = "text"
 
         md_text, warnings = pipeline.run(md_text, lane, options)
+        add_warnings(warnings)
 
         props = _read_docx_metadata(docx_path)
         meta = SourceMeta(
@@ -155,7 +157,8 @@ def convert_docx(
         out_path.write_text(full, encoding="utf-8", newline="\n")
         wc = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
-        print(f"  OK: {out_name} ({wc} words, via {extracted_via}{suffix})")
+        if not is_quiet():
+            print(f"  OK: {out_name} ({wc} words, via {extracted_via}{suffix})")
         return True
 
     except (OSError, ValueError) as e:

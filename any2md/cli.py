@@ -5,7 +5,13 @@ import sys
 import time
 from pathlib import Path
 
-from any2md.converters import convert_file, SUPPORTED_EXTENSIONS
+from any2md.converters import (
+    SUPPORTED_EXTENSIONS,
+    collected_warnings,
+    convert_file,
+    reset_warnings,
+    set_output_mode,
+)
 from any2md.converters.html import convert_url
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename, url_to_filename
@@ -80,6 +86,23 @@ def main():
         action="store_true",
         help="Save extracted images to <output>/images/ and reference them. Implies --high-fidelity.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Promote pipeline validation warnings to errors (exit 3).",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Suppress per-file 'OK:' lines. Errors and final summary still print.",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Print pipeline stage timings per file.",
+    )
     args = parser.parse_args()
 
     if args.high_fidelity or args.ocr_figures or args.save_images:
@@ -97,7 +120,12 @@ def main():
         high_fidelity=args.high_fidelity or args.ocr_figures or args.save_images,
         ocr_figures=args.ocr_figures,
         save_images=args.save_images,
+        strict=args.strict,
     )
+
+    # CLI-only output controls (not part of PipelineOptions).
+    set_output_mode(quiet=args.quiet, verbose=args.verbose)
+    reset_warnings()
 
     # Determine which files to process
     if args.files and args.input_dir:
@@ -218,4 +246,20 @@ def main():
             fail += 1
 
     elapsed = time.time() - start
-    print(f"\nDone in {elapsed:.1f}s: {ok} converted, {skip} skipped, {fail} failed.")
+    warnings_seen = collected_warnings()
+    warn_suffix = (
+        f" {len(warnings_seen)} warning(s) — pass --strict to fail on warnings."
+        if warnings_seen
+        else ""
+    )
+    print(
+        f"\nDone in {elapsed:.1f}s: {ok} converted, {skip} skipped, {fail} failed."
+        f"{warn_suffix}"
+    )
+
+    # Exit code policy (Task 1: strict-mode warnings → 3; failure handling
+    # is layered in by Task 2). Argparse handles usage errors itself.
+    had_strict_warning = args.strict and bool(warnings_seen)
+    if had_strict_warning:
+        sys.exit(3)
+    sys.exit(0)
