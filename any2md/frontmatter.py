@@ -12,9 +12,10 @@ import math
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Literal
+from datetime import date as _date_cls
+from typing import Any, Literal
 
-from any2md.pipeline import Lane
+from any2md.pipeline import Lane, PipelineOptions
 
 
 def compute_content_hash(body: str) -> str:
@@ -118,3 +119,94 @@ def derive_title(body: str, title_hint: str | None, fallback: str) -> str:
         return title_hint.strip()
     stem = fallback.rsplit(".", 1)[0]
     return stem.replace("_", " ").strip() or "Untitled"
+
+
+def _yaml_escape(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+             .replace('"', '\\"')
+             .replace("\n", "\\n")
+             .replace("\r", "\\r")
+    )
+
+
+def _emit_value(value: Any) -> str:
+    """Emit a scalar or simple list as YAML (one line)."""
+    if value is None:
+        return '""'
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return f'"{_yaml_escape(value)}"'
+    if isinstance(value, (int, float)):
+        return str(value)
+    raise TypeError(f"unsupported scalar: {type(value)}")
+
+
+def _emit_array(values: list[str]) -> str:
+    if not values:
+        return "[]"
+    items = ", ".join(_emit_value(v) for v in values)
+    return f"[{items}]"
+
+
+def compose(body: str, meta: SourceMeta, options: PipelineOptions) -> str:
+    """Build a complete SSRM-compatible Markdown document.
+
+    Steps:
+    1. Normalize body to NFC + LF endings (matches content_hash invariant).
+    2. Derive title, content_hash, token_estimate, chunk_level, abstract.
+    3. Emit YAML frontmatter in spec §3.2-3.4 order.
+    4. Concatenate frontmatter + body.
+    """
+    # 1. Normalize body
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    body = unicodedata.normalize("NFC", body)
+    if not body.endswith("\n"):
+        body += "\n"
+
+    # 2. Derive
+    fallback = meta.source_file or meta.source_url or "untitled"
+    title = derive_title(body, meta.title_hint, fallback)
+    content_hash = compute_content_hash(body)
+    token_est = estimate_tokens(body)
+    chunk_level = recommend_chunk_level(body)
+    abstract = extract_abstract(body) if token_est >= 500 else None
+    today = _date_cls.today().isoformat()
+    fm_date = meta.date or today
+
+    # 3. Emit YAML in SSRM-defined order
+    lines: list[str] = ["---"]
+    lines.append(f"title: {_emit_value(title)}")
+    lines.append('document_id: ""')
+    lines.append('version: "1"')
+    lines.append(f"date: {_emit_value(fm_date)}")
+    lines.append('status: "draft"')
+    lines.append('document_type: ""')
+    lines.append("content_domain: []")
+    lines.append(f"authors: {_emit_array(meta.authors)}")
+    lines.append(f"organization: {_emit_value(meta.organization or '')}")
+    lines.append("generation_metadata:")
+    lines.append('  authored_by: "unknown"')
+    lines.append(f'content_hash: "{content_hash}"')
+    if meta.keywords:
+        lines.append(f"keywords: {_emit_array(meta.keywords)}")
+    lines.append(f"token_estimate: {token_est}")
+    lines.append(f'recommended_chunk_level: "{chunk_level}"')
+    if abstract:
+        lines.append(f"abstract_for_rag: {_emit_value(abstract)}")
+    # any2md extension fields (preserved from v0.7 for traceability)
+    if meta.source_file:
+        lines.append(f"source_file: {_emit_value(meta.source_file)}")
+    if meta.source_url:
+        lines.append(f"source_url: {_emit_value(meta.source_url)}")
+    lines.append(f'type: "{meta.doc_type}"')          # v0.7-compat field (spec §3.2)
+    lines.append(f'extracted_via: "{meta.extracted_via}"')  # v1.0 provenance extension
+    if meta.pages is not None:
+        lines.append(f"pages: {meta.pages}")
+    if meta.word_count is not None:
+        lines.append(f"word_count: {meta.word_count}")
+    lines.append("---")
+    lines.append("")  # blank line separator
+
+    return "\n".join(lines) + "\n" + body
