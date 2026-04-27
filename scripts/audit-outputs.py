@@ -32,21 +32,36 @@ from pathlib import Path
 
 import yaml
 
-COVER_PAGE_TITLES = frozenset({
-    "international standard", "technical report", "technical specification",
-    "publicly available specification", "white paper", "whitepaper",
-})
+COVER_PAGE_TITLES = frozenset(
+    {
+        "international standard",
+        "technical report",
+        "technical specification",
+        "publicly available specification",
+        "white paper",
+        "whitepaper",
+    }
+)
 LICENSE_KEYWORDS = (
-    "licensed to", "single user licence", "single user license",
-    "iso store order", "all rights reserved", "qr code",
-    "scan the", "customer feedback form",
+    "licensed to",
+    "single user licence",
+    "single user license",
+    "iso store order",
+    "all rights reserved",
+    "qr code",
+    "scan the",
+    "customer feedback form",
 )
 ARXIV_FILENAME_RE = re.compile(r"(?<![0-9.])\d{4}\.\d{4,5}(?:v\d+)?(?:\.pdf)?$")
 HTML_ENTITY_RE = re.compile(r"&(?:amp|lt|gt|quot|#x?\d+);")
 ORPHAN_PUNCT_RE = re.compile(r"^\s*[|>]\s*$", re.MULTILINE)
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\([^)]+\)")
-AUTHOR_CONTACT_RE = re.compile(r"^Author(?:'s|s'?)\s*Contact Information:", re.IGNORECASE | re.MULTILINE)
-LEADING_TABLE_BEFORE_H2_RE = re.compile(r"\A(?:[^\n]*\n)*?\|[^\n]*\|\s*\n\|[^|\n]*-+", re.MULTILINE)
+AUTHOR_CONTACT_RE = re.compile(
+    r"^Author(?:'s|s'?)\s*Contact Information:", re.IGNORECASE | re.MULTILINE
+)
+LEADING_TABLE_BEFORE_H2_RE = re.compile(
+    r"\A(?:[^\n]*\n)*?\|[^\n]*\|\s*\n\|[^|\n]*-+", re.MULTILINE
+)
 
 
 def split_frontmatter(text: str) -> tuple[dict, str]:
@@ -56,7 +71,7 @@ def split_frontmatter(text: str) -> tuple[dict, str]:
         end = text.index("\n---\n", 4)
     except ValueError:
         return {}, text
-    body = text[end + 5:]
+    body = text[end + 5 :]
     if body.startswith("\n"):
         body = body[1:]
     try:
@@ -93,8 +108,11 @@ def audit_file(path: Path) -> int:
     authors = fm.get("authors") or []
     src = fm.get("source_file") or fm.get("source_url") or ""
     if not authors and ARXIV_FILENAME_RE.search(src):
-        flag(path, "arxiv-no-authors",
-             f"filename matches arxiv pattern but authors=[] (arxiv lookup failed?): {src}")
+        flag(
+            path,
+            "arxiv-no-authors",
+            f"filename matches arxiv pattern but authors=[] (arxiv lookup failed?): {src}",
+        )
         flags += 1
 
     abstract = fm.get("abstract_for_rag") or ""
@@ -134,15 +152,20 @@ def audit_file(path: Path) -> int:
     if expected_hash:
         actual = compute_hash(body)
         if actual != expected_hash:
-            flag(path, "content-hash-mismatch",
-                 f"expected {expected_hash[:12]}... got {actual[:12]}...")
+            flag(
+                path,
+                "content-hash-mismatch",
+                f"expected {expected_hash[:12]}... got {actual[:12]}...",
+            )
             flags += 1
 
     return flags
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("dir", type=Path, help="output directory to audit")
     p.add_argument("--strict", action="store_true", help="exit 3 if any flags fired")
     args = p.parse_args()
