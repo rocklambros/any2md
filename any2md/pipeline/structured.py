@@ -140,3 +140,27 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
 
 
 STAGES.append(enforce_heading_hierarchy)
+
+
+# Lane-agnostic body-cleanup stages (also run on structured lane in
+# v1.0.3+). T7/T8/T9 were originally text-lane-only in v1.0.2, but the
+# patterns they catch ("Author's Contact Information:" duplicate, leading
+# TOC tables, cover-page artifacts) appear in Docling output too — these
+# stages should fire regardless of which extractor produced the markdown.
+# strip_orphan_punctuation (the lone-|/> portion of T10) is also added
+# here in v1.0.3 because Docling's table parser occasionally emits
+# malformed rows. The remaining T10 short-fragment heuristic stays
+# text-lane-only (trafilatura-specific).
+from any2md.pipeline.text import (  # noqa: E402 — late import after STAGES init
+    dedupe_toc_table,
+    strip_cover_artifacts,
+    strip_orphan_punctuation,
+    strip_repeated_byline,
+)
+
+STAGES.extend([
+    strip_repeated_byline,
+    dedupe_toc_table,
+    strip_cover_artifacts,
+    strip_orphan_punctuation,
+])
