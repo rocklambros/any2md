@@ -430,9 +430,7 @@ class _FakeResponse:
 class TestArxivLookup:
     def test_successful_response_returns_metadata(self):
         with (
-            patch("any2md.heuristics.socket.getaddrinfo", _public_ip_addrinfo)
-            if False
-            else patch("socket.getaddrinfo", _public_ip_addrinfo),
+            patch("socket.getaddrinfo", _public_ip_addrinfo),
             patch(
                 "urllib.request.urlopen",
                 return_value=_FakeResponse(_ARXIV_SAMPLE_XML),
