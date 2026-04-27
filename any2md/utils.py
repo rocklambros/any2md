@@ -51,6 +51,20 @@ def read_text_with_fallback(path: Path) -> str:
         return path.read_text(encoding="latin-1")
 
 
+def safe_dir_name(name: str) -> str:
+    """Conservative directory-name sanitizer: alphanumeric/_/- only.
+
+    Used for output sub-directories whose name comes from an untrusted
+    input filename stem. Replaces every non-allowed char with ``_``,
+    collapses runs of ``_``, strips leading/trailing ``_``, and falls
+    back to ``"untitled"`` for empty results.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9_-]", "_", name)
+    cleaned = _COLLAPSE_UNDERSCORES_RE.sub("_", cleaned)
+    cleaned = cleaned.strip("_") or "untitled"
+    return cleaned
+
+
 def url_to_filename(url: str) -> str:
     """Convert a URL to a sanitized .md filename.
 
