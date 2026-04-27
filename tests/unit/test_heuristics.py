@@ -137,6 +137,47 @@ class TestRefineTitle:
         )
         assert result_wiki == "Wikipedia:Signs of AI writing"
 
+    # v1.0.3 — empty-title regression: H2 fallback must not return empty.
+    def test_cover_page_h1_keeps_candidate_when_first_h2_strips_to_empty(self):
+        # H2 line whose captured group strips to empty (no real content
+        # after the heading marker; some extractors emit ``## `` with
+        # only whitespace-equivalent unicode trailing).
+        body = "# INTERNATIONAL STANDARD\n\n## \xa0\xa0\xa0\n"
+        result = heuristics.refine_title("INTERNATIONAL STANDARD", body)
+        # Must NOT be empty; must fall through to the original candidate.
+        assert result == "INTERNATIONAL STANDARD"
+
+    def test_cover_page_h1_skips_emphasis_only_h2_and_picks_next(self):
+        # First H2 is just markdown emphasis (e.g., a stray ``***``
+        # rendered as a heading by the extractor). Should be skipped.
+        body = (
+            "# WHITE PAPER\n\n"
+            "## ***\n\n"
+            "## Real H2 Title\n\nBody.\n"
+        )
+        result = heuristics.refine_title("WHITE PAPER", body)
+        assert result == "Real H2 Title"
+
+    def test_cover_page_h1_falls_through_when_all_h2s_empty(self):
+        # No usable H2 anywhere — keep the candidate rather than emit "".
+        body = (
+            "# TECHNICAL REPORT\n\n"
+            "## ***\n\n"
+            "## \xa0\n\nBody.\n"
+        )
+        result = heuristics.refine_title("TECHNICAL REPORT", body)
+        assert result == "TECHNICAL REPORT"
+
+    def test_wikipedia_prefix_only_title_keeps_candidate(self):
+        # Edge case: title is just the prefix. Stripping leaves "" — must
+        # fall through to the candidate instead of emitting empty.
+        result = heuristics.refine_title(
+            "Wikipedia:",
+            "# Wikipedia:\n\nBody...\n",
+            source_url="https://en.wikipedia.org/wiki/Whatever",
+        )
+        assert result == "Wikipedia:"
+
 
 # --------------------------------------------------------------------- #
 # refine_abstract

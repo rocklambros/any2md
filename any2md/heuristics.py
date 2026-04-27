@@ -51,6 +51,10 @@ _COVER_PAGE_H1_VALUES = frozenset({
 # H1 / H2 line detectors (markdown ATX style)
 _H1_LINE_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 _H2_LINE_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+# Markdown emphasis chars stripped when probing an H2 for non-empty content
+# (mirrors derive_title's emphasis-stripping so headings like ``## ***``
+# are treated as empty rather than yielding a useless title).
+_MD_EMPHASIS_STRIP_RE = re.compile(r"[*_]+")
 
 # DOCX line-break course-code / document-type prefix detector. Matches
 # strings like "COMP 4441 Final Project " (course code followed by
@@ -166,13 +170,25 @@ def refine_title(
 
     refined = candidate.strip()
 
-    # Cover-page boilerplate skip (both profiles)
+    # Cover-page boilerplate skip (both profiles). Walk H2 lines and
+    # pick the first one whose content is non-empty after stripping
+    # markdown emphasis. The original single-match logic returned ""
+    # when the first H2 was emphasis-only (``## ***``) or contained
+    # only whitespace-equivalent unicode; iterating line-by-line also
+    # prevents the regex's ``\s+`` from grabbing the next paragraph's
+    # first word as fake H2 content.
     if refined.lower() in _COVER_PAGE_H1_VALUES:
-        m = _H2_LINE_RE.search(body)
-        if m:
-            return m.group(1).strip()
+        for line in body.splitlines():
+            if not line.startswith("## "):
+                continue
+            candidate_h2 = line[3:].strip()
+            probe = _MD_EMPHASIS_STRIP_RE.sub("", candidate_h2).strip()
+            if probe:
+                return candidate_h2
 
-    # Wikipedia namespace prefix strip (aggressive only)
+    # Wikipedia namespace prefix strip (aggressive only). Only apply
+    # when stripping leaves a non-empty remainder; otherwise keep the
+    # candidate as-is rather than emit "".
     if profile != "conservative" and source_url:
         try:
             from urllib.parse import urlparse
@@ -182,7 +198,9 @@ def refine_title(
         if host.endswith("wikipedia.org"):
             for prefix in ("Wikipedia:", "WP:"):
                 if refined.startswith(prefix):
-                    refined = refined[len(prefix):].strip()
+                    stripped = refined[len(prefix):].strip()
+                    if stripped:
+                        refined = stripped
                     break
 
     # DOCX line-break course-code / document-type prefix split
