@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.4] — 2026-04-26
+
+Patch release. Two follow-ups deferred from v1.0.3 (#17): the T7
+`dedupe_toc_table` now normalizes leader-dot padding from TOC
+cells before matching against body headings, so Docling-rendered
+TOC tables (e.g., `Purpose..........Page`) get properly stripped;
+and the audit script's `leading-toc-table` check no longer
+false-flags documents whose only GFM table sits at the end (skip
+when the body contains no H2).
+
+### Changed
+- `pipeline/text.py::dedupe_toc_table` strips leader-dot padding
+  (`re.sub(r'\.{3,}.*$', '', cell)`) from each TOC cell before
+  lower-casing and matching against body H2/H3 titles. (The
+  text-block TOC variant already handles this via `_TOC_LINE_RE`'s
+  capture group — only the table-variant site needed the fix.)
+- `scripts/audit-outputs.py` `leading-toc-table` check is now
+  gated on `"\n## "` being present in the body — when no H2
+  exists, no "leading-TOC region" is defined, so the check is
+  skipped instead of matching the entire document.
+
+### Fixes
+- TOC tables with dotted-page-number padding (typical Docling
+  output for SafeBreach-style PDFs — e.g., `Backup.pdf`,
+  `Password.pdf`) now get stripped by T7 in aggressive/maximum
+  profiles. Previously they survived because the cell content
+  `"1.1. Purpose............."` failed string-equality with the
+  body heading `"1.1. Purpose"`, dropping overlap below the 70%
+  threshold.
+- Audit script no longer reports false-positive
+  `leading-toc-table` flags on documents whose only GFM table is
+  at the end and the body contains no `## ` headings.
+
+### Tests
+- New `test_strips_toc_table_with_leader_dot_padding` in
+  `tests/unit/pipeline/test_text_dedupe_toc_table.py` — TOC
+  table whose cells carry leader-dot padding mirroring later H2
+  headings still triggers the strip.
+- New `tests/unit/scripts/test_audit_outputs.py` covering the
+  audit-script `leading-toc-table` check: no-H2-with-trailing-
+  table is NOT flagged; leading-table-before-H2 IS still flagged.
+
+### Other
+- `scripts/audit-outputs.py` is now tracked in version control
+  (was previously local-only).
+
 ## [1.0.3] — 2026-04-26
 
 Patch release. Audit on the v1.0.2-regenerated corpus surfaced two
