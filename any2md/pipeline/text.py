@@ -199,6 +199,7 @@ def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
     return "\n".join(lines[end:]).lstrip("\n")
 
 
+_LEADER_DOT_RE = re.compile(r"\.{3,}.*$")
 _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 _TABLE_SEP_RE = re.compile(r"^\s*\|[\s\-:|]+\|\s*$")
 
@@ -260,12 +261,16 @@ def dedupe_toc_table(text: str, options: "PipelineOptions") -> str:
                 continue
 
             # Extract title text from non-numeric cells.
+            # Strip leader-dot padding ('Purpose............') before matching —
+            # Docling renders TOC entries with dotted page-number padding and
+            # the body-heading equivalent does not contain the dots.
             toc_titles: set[str] = set()
             for row in entry_rows:
                 cells = _split_table_cells(row)
                 for cell in cells:
-                    if cell and not cell.replace(".", "").isdigit():
-                        toc_titles.add(cell.lower())
+                    normalized = _LEADER_DOT_RE.sub("", cell).strip()
+                    if normalized and not normalized.replace(".", "").isdigit():
+                        toc_titles.add(normalized.lower())
             if not toc_titles:
                 i = tbl_end if tbl_end > i else i + 1
                 continue

@@ -104,3 +104,44 @@ def test_no_table_is_noop():
     text = "# Title\n\n## Section\n\nBody content.\n"
     out = dedupe_toc_table(text, PipelineOptions(profile="aggressive"))
     assert out == text
+
+
+def test_strips_toc_table_with_leader_dot_padding():
+    """Docling renders TOC entries as 'Title.................Page' — the
+    leader-dot run must be stripped before matching against body headings.
+
+    Regression for issue #17 item 1.
+    """
+    doc = """\
+# Document Title
+
+| # | Section | Page |
+|---|---------|------|
+| 1 | 1.1. Purpose............................................................................. | 1 |
+| 2 | 1.2. Scope................................................................................ | 2 |
+| 3 | 2.1. Backup Frequency................................................................. | 5 |
+| 4 | 2.2. Retention.......................................................................... | 8 |
+
+## 1.1. Purpose
+
+Body of purpose.
+
+## 1.2. Scope
+
+Body of scope.
+
+## 2.1. Backup Frequency
+
+Body of backup frequency.
+
+## 2.2. Retention
+
+End body.
+"""
+    out = dedupe_toc_table(doc, PipelineOptions(profile="aggressive"))
+    # Table content gone (the leader-dot padded entries should not survive)
+    assert "Purpose..............." not in out
+    assert "|---|---------|------|" not in out
+    # Headings still present
+    assert "## 1.1. Purpose" in out
+    assert "## 2.2. Retention" in out
