@@ -10,8 +10,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import pytest
-
 
 def _load_audit_module():
     """Load scripts/audit-outputs.py as a module (hyphen in filename
@@ -79,6 +77,5 @@ def test_leading_table_before_h2_is_still_flagged(tmp_path, capsys):
     audit.audit_file(path)
     captured = capsys.readouterr().out
     assert "leading-toc-table" in captured, (
-        f"audit_file failed to flag a real leading TOC table. "
-        f"Output was:\n{captured}"
+        f"audit_file failed to flag a real leading TOC table. Output was:\n{captured}"
     )
