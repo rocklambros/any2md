@@ -81,7 +81,6 @@ def test_snapshot(fixture_name, fixture_dir, snapshot_dir, tmp_output_dir):
     expected = snap_path.read_text(encoding="utf-8") if snap_path.exists() else None
     if expected is None:
         pytest.fail(
-            f"Snapshot missing: {snap_path}. "
-            f"Run UPDATE_SNAPSHOTS=1 pytest to create."
+            f"Snapshot missing: {snap_path}. Run UPDATE_SNAPSHOTS=1 pytest to create."
         )
     assert actual == expected, "Snapshot diff. Inspect or run UPDATE_SNAPSHOTS=1."

@@ -13,7 +13,9 @@ def test_normalize_ligatures_fl():
 
 
 def test_normalize_ligatures_ffi_ffl():
-    assert normalize_ligatures("ﬃlation ﬄuent", PipelineOptions()) == "ffilation ffluent"
+    assert (
+        normalize_ligatures("ﬃlation ﬄuent", PipelineOptions()) == "ffilation ffluent"
+    )
 
 
 def test_normalize_ligatures_nbsp_to_space():

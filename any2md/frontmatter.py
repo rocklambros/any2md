@@ -51,16 +51,20 @@ class SourceMeta:
     title_hint: str | None
     authors: list[str]
     organization: str | None
-    date: str | None              # ISO-8601 YYYY-MM-DD
+    date: str | None  # ISO-8601 YYYY-MM-DD
     keywords: list[str]
-    pages: int | None             # PDFs only
-    word_count: int | None        # DOCX/HTML/TXT (post-cleanup)
+    pages: int | None  # PDFs only
+    word_count: int | None  # DOCX/HTML/TXT (post-cleanup)
     source_file: str | None
     source_url: str | None
-    doc_type: Literal["pdf", "docx", "html", "txt"]   # v0.7-compat extension
+    doc_type: Literal["pdf", "docx", "html", "txt"]  # v0.7-compat extension
     extracted_via: Literal[
-        "docling", "pymupdf4llm", "mammoth+markdownify",
-        "trafilatura", "trafilatura+bs4_fallback", "heuristic",
+        "docling",
+        "pymupdf4llm",
+        "mammoth+markdownify",
+        "trafilatura",
+        "trafilatura+bs4_fallback",
+        "heuristic",
     ]
     lane: Lane
     # v1.0.2: software/tool that produced the source (PDF Creator field for
@@ -105,7 +109,7 @@ def extract_abstract(body: str) -> str | None:
         return None
 
     # Walk paragraphs after the H1 (split on blank lines).
-    after = body[h1.end():]
+    after = body[h1.end() :]
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", after)]
     for para in paragraphs:
         if not para:
@@ -145,9 +149,9 @@ def derive_title(body: str, title_hint: str | None, fallback: str) -> str:
 def _yaml_escape(value: str) -> str:
     return (
         value.replace("\\", "\\\\")
-             .replace('"', '\\"')
-             .replace("\n", "\\n")
-             .replace("\r", "\\r")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
     )
 
 
@@ -194,7 +198,8 @@ def _build_fields(
     title_raw = derive_title(body, meta.title_hint, fallback)
     arxiv_id = heuristics.is_arxiv_filename(meta.source_file or "")
     title = heuristics.refine_title(
-        title_raw, body,
+        title_raw,
+        body,
         source_url=meta.source_url,
         profile=options.profile,
     )
@@ -253,7 +258,7 @@ def _build_fields(
         fields["source_file"] = meta.source_file
     if meta.source_url:
         fields["source_url"] = meta.source_url
-    fields["type"] = meta.doc_type           # v0.7-compat field (spec §3.2)
+    fields["type"] = meta.doc_type  # v0.7-compat field (spec §3.2)
     fields["extracted_via"] = meta.extracted_via  # v1.0 provenance extension
     if meta.produced_by is not None:
         fields["produced_by"] = meta.produced_by  # v1.0.2 extension (spec §6.1)
@@ -273,11 +278,7 @@ def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, An
     """
     out = dict(base)
     for key, val in overrides.items():
-        if (
-            key in out
-            and isinstance(out[key], dict)
-            and isinstance(val, dict)
-        ):
+        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
             out[key] = _deep_merge(out[key], val)
         else:
             out[key] = val

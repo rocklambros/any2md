@@ -13,15 +13,11 @@ def test_compact_pads_in_data_rows():
     )
     out = compact_tables(table, PipelineOptions())
     assert "| value 1 | value 2 |" in out  # single space around values
-    assert "value 1  " not in out   # no double-space padding
+    assert "value 1  " not in out  # no double-space padding
 
 
 def test_compact_preserves_alignment_row():
-    table = (
-        "| A | B |\n"
-        "|:--|--:|\n"
-        "| 1 | 2 |\n"
-    )
+    table = "| A | B |\n|:--|--:|\n| 1 | 2 |\n"
     out = compact_tables(table, PipelineOptions())
     assert "|:--|--:|" in out  # alignment row intact
 

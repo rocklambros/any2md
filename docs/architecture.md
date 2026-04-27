@@ -181,7 +181,7 @@ Stages may emit non-fatal warnings via `pipeline.emit_warning()`, which the
 runner collects. Stages must be no-ops on input they don't match: an
 unmatched regex returns the input unchanged, never raises.
 
-### Structured-lane stages (S1–S4)
+### Structured-lane stages (S1–S4 + lane-agnostic body cleanup)
 
 Located in `any2md/pipeline/structured.py`. Run in the order listed before
 shared cleanup, on Docling output.
@@ -193,12 +193,35 @@ shared cleanup, on Docling output.
 | S3 | `normalize_citations` | structured | Markdown with `[1] [2] [3]`-style spaced numeric citations | `[1][2][3]` (no spaces between adjacent numeric refs) | No spaced numeric citations | Non-numeric refs (`[Smith2020]`) are left alone |
 | S4 | `enforce_heading_hierarchy` | structured | Markdown with any heading shape | Single H1, no skipped levels | Document has zero headings | First H1 absent: first heading promoted; subsequent H1s demoted to H2; H2 → H4 jump flattened to H2 → H3 → H4. Emits a warning when changes were applied. |
 
-### Text-lane stages (T1–T10)
+After S4, v1.0.3 appends four lane-agnostic stages from `text.py` so Docling
+output gets the same body-cleanup pass that text-lane output already had:
 
-Located in `any2md/pipeline/text.py`. Stages run in the order listed in the
-`STAGES` list at the bottom of the module — shown below. Note that the IDs
-(T1, T2, …) reflect the order each stage was *introduced*, not the order
-they run in. The "Run order" column gives the actual execution sequence.
+| Run order | Name | Origin | Why also run on Docling |
+|---|---|---|---|
+| 5 | `strip_repeated_byline` (T9) | `text.py` | Academic PDFs that Docling extracts have the same `Author's Contact Information:` duplicate-byline pattern. |
+| 6 | `dedupe_toc_table` (T7) | `text.py` | Docling renders the document's TOC as a leading GFM table that mirrors later H2/H3s — exactly the pattern T7 was written for. |
+| 7 | `strip_cover_artifacts` (T8) | `text.py` | Cover-page noise (QR-code blurbs, version stamps) appears in Docling output too. |
+| 8 | `strip_orphan_punctuation` | `text.py` (extracted from T10 in v1.0.3) | Docling's table parser occasionally emits malformed rows containing only `\|`. The trafilatura-specific short-fragment portion of T10 is *not* run on Docling — it would over-strip deliberate short headings. |
+
+T10 `strip_web_fragments` itself stays text-lane-only.
+
+### Text-lane stages (registered `text.py` stages: T1–T10)
+
+Located in `any2md/pipeline/text.py`. The registered text-lane stages run
+in the order listed in the `STAGES` list at the bottom of the module —
+shown below. Note that the IDs (T1, T2, …) reflect the order each stage
+was *introduced*, not the order they run in. The "Run order" column gives
+the actual execution sequence.
+
+In v1.0.3 the lone-`|`/`>` orphan-punctuation filter inside T10 was
+extracted into a separate lane-agnostic helper `strip_orphan_punctuation`.
+On the text lane, that helper is still invoked internally by T10, so it
+does **not** appear as a standalone entry in `text.py`'s `STAGES` list.
+The helper itself is registered separately in the structured lane's
+`STAGES`, so Docling output gets the orphan-punctuation pass without
+inheriting T10's trafilatura-specific short-fragment heuristic. See
+`### Structured-lane stages` (above) for the v1.0.3 structured-lane
+registrations.
 
 | Run order | ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
 |---|---|---|---|---|---|---|---|
@@ -209,7 +232,7 @@ they run in. The "Run order" column gives the actual execution sequence.
 | 5 | T4 | `dedupe_toc_block` | text | TOC-shaped opening (≥ 5 entries matching `<title> <dots> <pagenum>`) followed by body whose H2/H3 headings cover ≥ 70% of the TOC entries | Text-formatted TOC block stripped | Profile is `conservative`; fewer than 5 TOC-shaped lines; overlap with body headings < 70% | Aggressive/maximum only |
 | 6 | T7 | `dedupe_toc_table` | text | A leading GFM table (consecutive `|`-prefixed lines) in the first 30% of the document whose non-numeric cells match ≥ 70% of later H2/H3 headings | Such tables dropped | Profile is `conservative`; no table in the leading region; overlap below threshold; numeric cells dominate (looks like a data table, not a TOC) | Aggressive/maximum only. Sibling of T4 — handles table-formatted TOCs that T4's text-formatted heuristic misses (common on academic PDFs). |
 | 7 | T5 | `strip_running_headers_footers` | text | Multi-page output with `\f` form-feed page breaks | Page-repeated headers and footers removed | Document has fewer than 3 pages; no form-feed markers; no line repeats ≥ 3 times | Also strips `Page N of M` and bare-numeric footer lines when they appear on ≥ 3 pages |
-| 8 | T10 | `strip_web_fragments` | text | Lines containing only `\|` or `>`; short incomplete-sentence lines (≤ 25 chars, no terminal punctuation) surrounded by blank lines and following a paragraph that ended in terminal punctuation | Fragments dropped | Profile is `conservative`; no qualifying fragments; line is a known short heading (`Contents`, `Note:`, etc.) | Aggressive/maximum only. Targets trafilatura extraction artifacts. Conservative on purpose — short legitimate lines are preserved. |
+| 8 | T10 | `strip_web_fragments` | text | Lines containing only `\|` or `>` (delegated to `strip_orphan_punctuation` since v1.0.3); short incomplete-sentence lines (≤ 25 chars, no terminal punctuation) surrounded by blank lines and following a paragraph that ended in terminal punctuation | Fragments dropped | Profile is `conservative`; no qualifying fragments; line is a known short heading (`Contents`, `Note:`, etc.) | Aggressive/maximum only. Targets trafilatura extraction artifacts. Conservative on purpose — short legitimate lines are preserved. |
 | 9 | T6 | `restore_lists_and_code` | text | ≥ 4-line indented blocks (4 leading spaces) between blank lines | Indented blocks wrapped in fenced code | Already inside a fence; block has < 4 non-empty lines | Tracks fence state; preserves leading 4-space indent strip when wrapping |
 | 10 | T8 | `strip_cover_artifacts` | text | First ~30 lines (before the first H2): lines containing "QR code", "scan the", "customer feedback form" (case-insensitive); or lines matching `^(?:Third|Fourth|...) edition \d{4}-\d{2}$`; or lines matching `^Corrected version \d{4}-\d{2}$` | Such lines dropped | Profile is `conservative`; pattern not present; line is past the first H2 | Aggressive/maximum only. Bounded to the cover region so legitimate body content is never touched. |
 
@@ -236,11 +259,11 @@ order.
 text-lane additions (T7–T10) and the v1.0.2 cleanup addition (C8) follow the
 same gating rules as their siblings.
 
-| Profile | T4 TOC text dedupe | T7 TOC table dedupe | T8 cover artifacts | T9 repeated byline | T10 web fragments | C6 footnote markers | C8 HTML entities |
-|---|---|---|---|---|---|---|---|
-| `conservative` | off | off | off | off | off | off | on |
-| `aggressive` (default) | on | on | on | on | on | on | on |
-| `maximum` | on | on | on | on | on | on | on |
+| Profile | T4 TOC text dedupe | T7 TOC table dedupe | T8 cover artifacts | T9 repeated byline | T10 web fragments | `strip_orphan_punctuation` | C6 footnote markers | C8 HTML entities |
+|---|---|---|---|---|---|---|---|---|
+| `conservative` | off | off | off | off | off | off | off | on |
+| `aggressive` (default) | on | on | on | on | on | on | on | on |
+| `maximum` | on | on | on | on | on | on | on | on |
 
 All other stages run unconditionally. C8 is on at every profile because HTML
 entities in body text are universally wrong for both human and RAG readers —

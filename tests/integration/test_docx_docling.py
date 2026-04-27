@@ -25,6 +25,6 @@ def test_docx_docling_uses_structured_lane(fixture_dir, tmp_output_dir):
     out = next(tmp_output_dir.glob("*.md")).read_text(encoding="utf-8")
     end = out.index("\n---\n", 4)
     fm = yaml.safe_load(out[4:end])
-    body = out[end + 5:]
+    body = out[end + 5 :]
     assert fm["extracted_via"] == "docling"
     assert "Header 1" in body  # Docling preserves table header

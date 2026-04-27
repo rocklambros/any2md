@@ -262,17 +262,13 @@ def convert_pdf(
             lane=lane,
             produced_by=props["produced_by"],
         )
-        full = compose(
-            md_text, meta, options, overrides=options.frontmatter_overrides
-        )
+        full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path.write_text(full, encoding="utf-8", newline="\n")
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
-            print(
-                f"  OK: {out_name} ({page_count} pages, via {extracted_via}{suffix})"
-            )
+            print(f"  OK: {out_name} ({page_count} pages, via {extracted_via}{suffix})")
         return True
 
     except (OSError, ValueError, RuntimeError) as e:

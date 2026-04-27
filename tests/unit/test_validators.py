@@ -1,6 +1,5 @@
 """Tests for the validators module."""
 
-
 from any2md.validators import (
     check_content_hash_round_trip,
     check_heading_hierarchy,
@@ -25,6 +24,7 @@ def test_heading_hierarchy_skip():
 def test_content_hash_round_trip_pass():
     body = "# Title\n\nbody.\n"
     from any2md.frontmatter import compute_content_hash
+
     expected = compute_content_hash(body)
     assert check_content_hash_round_trip(body, expected) is True
 

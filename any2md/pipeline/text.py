@@ -169,12 +169,12 @@ def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
     while start < len(lines) and not lines[start].strip():
         start += 1
     end = start
-    while end < len(lines) and (lines[end].strip() == "" or _TOC_LINE_RE.match(lines[end])):
+    while end < len(lines) and (
+        lines[end].strip() == "" or _TOC_LINE_RE.match(lines[end])
+    ):
         end += 1
 
-    toc_lines = [
-        ln.strip() for ln in lines[start:end] if _TOC_LINE_RE.match(ln)
-    ]
+    toc_lines = [ln.strip() for ln in lines[start:end] if _TOC_LINE_RE.match(ln)]
     if len(toc_lines) < 5:
         return text
 
@@ -187,10 +187,7 @@ def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
 
     # Find body H2/H3 titles AFTER the TOC block
     body = "\n".join(lines[end:])
-    body_titles = {
-        m.group(1).strip().lower()
-        for m in _BODY_HEADING_RE.finditer(body)
-    }
+    body_titles = {m.group(1).strip().lower() for m in _BODY_HEADING_RE.finditer(body)}
 
     if not toc_titles:
         return text
@@ -354,18 +351,29 @@ _HEADING_OR_KNOWN_SHORT_RE = re.compile(
 )
 
 
+def strip_orphan_punctuation(text: str, options: "PipelineOptions") -> str:
+    """Drop lines containing only ``|`` or ``>``. Lane-agnostic.
+
+    Splits cleanly out of T10 in v1.0.3 so the structured (Docling) lane
+    can also remove malformed table-row remnants. The trafilatura
+    short-fragment heuristic stays in ``strip_web_fragments`` and only
+    runs on the text lane.
+    """
+    if options.profile not in ("aggressive", "maximum"):
+        return text
+    return "\n".join(ln for ln in text.split("\n") if not _ORPHAN_PUNCT_RE.match(ln))
+
+
 def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
     """T10: Drop trafilatura extraction fragments (orphan chars, incomplete sentences)."""
     if options.profile not in ("aggressive", "maximum"):
         return text
+    text = strip_orphan_punctuation(text, options)
     lines = text.split("\n")
     out: list[str] = []
     n = len(lines)
     for i, line in enumerate(lines):
         stripped = line.strip()
-        # Orphan punctuation
-        if _ORPHAN_PUNCT_RE.match(line):
-            continue
         # Short incomplete sentence between blank lines
         if (
             stripped

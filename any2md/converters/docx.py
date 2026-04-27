@@ -99,9 +99,7 @@ def _extract_via_docling(docx_path: Path) -> tuple[str, str]:
     return result.document.export_to_markdown(), "docling"
 
 
-def _extract_via_mammoth(
-    docx_path: Path, options: PipelineOptions
-) -> tuple[str, str]:
+def _extract_via_mammoth(docx_path: Path, options: PipelineOptions) -> tuple[str, str]:
     with open(docx_path, "rb") as f:
         html_result = mammoth.convert_to_html(f)
     md = markdownify.markdownify(
@@ -185,9 +183,7 @@ def convert_docx(
             lane=lane,
             produced_by=props["produced_by"],
         )
-        full = compose(
-            md_text, meta, options, overrides=options.frontmatter_overrides
-        )
+        full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path.write_text(full, encoding="utf-8", newline="\n")

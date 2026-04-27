@@ -5,10 +5,7 @@ from any2md.pipeline.text import dehyphenate
 
 
 def test_dehyphenates_when_joined_word_appears_elsewhere():
-    text = (
-        "This shows co-\n"
-        "operation between teams. Successful cooperation matters.\n"
-    )
+    text = "This shows co-\noperation between teams. Successful cooperation matters.\n"
     out = dehyphenate(text, PipelineOptions())
     assert "cooperation between teams" in out
 

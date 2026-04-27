@@ -36,15 +36,7 @@ def test_drops_edition_stamp():
 
 
 def test_drops_corrected_version_stamp():
-    text = (
-        "# Title\n"
-        "\n"
-        "Corrected version 2022-03\n"
-        "\n"
-        "## Body\n"
-        "\n"
-        "Real content here.\n"
-    )
+    text = "# Title\n\nCorrected version 2022-03\n\n## Body\n\nReal content here.\n"
     out = strip_cover_artifacts(text, PipelineOptions(profile="aggressive"))
     assert "Corrected version 2022-03" not in out
     assert "## Body" in out

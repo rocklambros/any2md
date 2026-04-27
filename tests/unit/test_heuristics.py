@@ -16,7 +16,7 @@ from any2md import heuristics
 from any2md.heuristics import OrgFilterResult
 
 
-_ARXIV_SAMPLE_XML = b'''<?xml version="1.0" encoding="UTF-8"?>
+_ARXIV_SAMPLE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <entry>
     <title>Sample Paper Title</title>
@@ -25,7 +25,7 @@ _ARXIV_SAMPLE_XML = b'''<?xml version="1.0" encoding="UTF-8"?>
     <summary>This is the abstract of the sample paper.</summary>
     <published>2025-01-30T12:00:00Z</published>
   </entry>
-</feed>'''
+</feed>"""
 
 
 # --------------------------------------------------------------------- #
@@ -80,9 +80,7 @@ class TestRefineTitle:
             "Body...\n"
         )
         result = heuristics.refine_title("INTERNATIONAL STANDARD", body)
-        assert result == (
-            "Information security, cybersecurity and privacy protection"
-        )
+        assert result == ("Information security, cybersecurity and privacy protection")
 
     def test_technical_report_replaced_by_next_h2(self):
         body = (
@@ -107,7 +105,8 @@ class TestRefineTitle:
         # as conservative-by-design even at aggressive profile.
         candidate = "COMP 4441 Final Project Safety Alignment Effectiveness in LLMs"
         result_aggressive = heuristics.refine_title(
-            candidate, "# " + candidate + "\n\nBody...\n",
+            candidate,
+            "# " + candidate + "\n\nBody...\n",
             profile="aggressive",
         )
         # Aggressive profile: split at "Final Project " delimiter.
@@ -115,7 +114,8 @@ class TestRefineTitle:
 
         # Conservative profile: leave untouched.
         result_conservative = heuristics.refine_title(
-            candidate, "# " + candidate + "\n\nBody...\n",
+            candidate,
+            "# " + candidate + "\n\nBody...\n",
             profile="conservative",
         )
         assert result_conservative == candidate
@@ -124,7 +124,9 @@ class TestRefineTitle:
         # Conservative still applies cover-page-boilerplate skip-list.
         body = "# INTERNATIONAL STANDARD\n\n## Real Title\n\nBody..."
         result = heuristics.refine_title(
-            "INTERNATIONAL STANDARD", body, profile="conservative",
+            "INTERNATIONAL STANDARD",
+            body,
+            profile="conservative",
         )
         assert result == "Real Title"
 
@@ -136,6 +138,39 @@ class TestRefineTitle:
             profile="conservative",
         )
         assert result_wiki == "Wikipedia:Signs of AI writing"
+
+    # v1.0.3 — empty-title regression: H2 fallback must not return empty.
+    def test_cover_page_h1_keeps_candidate_when_first_h2_strips_to_empty(self):
+        # H2 line whose captured group strips to empty (no real content
+        # after the heading marker; some extractors emit ``## `` with
+        # only whitespace-equivalent unicode trailing).
+        body = "# INTERNATIONAL STANDARD\n\n## \xa0\xa0\xa0\n"
+        result = heuristics.refine_title("INTERNATIONAL STANDARD", body)
+        # Must NOT be empty; must fall through to the original candidate.
+        assert result == "INTERNATIONAL STANDARD"
+
+    def test_cover_page_h1_skips_emphasis_only_h2_and_picks_next(self):
+        # First H2 is just markdown emphasis (e.g., a stray ``***``
+        # rendered as a heading by the extractor). Should be skipped.
+        body = "# WHITE PAPER\n\n## ***\n\n## Real H2 Title\n\nBody.\n"
+        result = heuristics.refine_title("WHITE PAPER", body)
+        assert result == "Real H2 Title"
+
+    def test_cover_page_h1_falls_through_when_all_h2s_empty(self):
+        # No usable H2 anywhere — keep the candidate rather than emit "".
+        body = "# TECHNICAL REPORT\n\n## ***\n\n## \xa0\n\nBody.\n"
+        result = heuristics.refine_title("TECHNICAL REPORT", body)
+        assert result == "TECHNICAL REPORT"
+
+    def test_wikipedia_prefix_only_title_keeps_candidate(self):
+        # Edge case: title is just the prefix. Stripping leaves "" — must
+        # fall through to the candidate instead of emitting empty.
+        result = heuristics.refine_title(
+            "Wikipedia:",
+            "# Wikipedia:\n\nBody...\n",
+            source_url="https://en.wikipedia.org/wiki/Whatever",
+        )
+        assert result == "Wikipedia:"
 
 
 # --------------------------------------------------------------------- #
@@ -270,13 +305,13 @@ class TestRefineAbstract:
         # skipped content). Conservative profile returns None.
         candidate = "PHILIP MOREIRA TOMEI 1, 2, RUPAL JAIN 2, 3"
         body = (
-            "# Title\n\n"
-            + candidate
-            + "\n\nShort line.\n\n"
+            "# Title\n\n" + candidate + "\n\nShort line.\n\n"
             "Page 5\n\n## Section\n\nContent...\n"
         )
         result = heuristics.refine_abstract(
-            candidate, body, profile="conservative",
+            candidate,
+            body,
+            profile="conservative",
         )
         assert result is None
 
@@ -288,20 +323,12 @@ class TestRefineAbstract:
 
 class TestExtractAuthors:
     def test_authors_prefix_extracted(self):
-        body = (
-            "# Paper Title\n\n"
-            "Authors: Alice, Bob, Carol\n\n"
-            "Some body content..."
-        )
+        body = "# Paper Title\n\nAuthors: Alice, Bob, Carol\n\nSome body content..."
         result = heuristics.extract_authors(body, title_hint="Paper Title")
         assert result == ["Alice", "Bob", "Carol"]
 
     def test_by_prefix_extracted(self):
-        body = (
-            "# Paper Title\n\n"
-            "By Jane Doe\n\n"
-            "Some body content..."
-        )
+        body = "# Paper Title\n\nBy Jane Doe\n\nSome body content..."
         result = heuristics.extract_authors(body, title_hint="Paper Title")
         assert result == ["Jane Doe"]
 
@@ -329,10 +356,7 @@ class TestExtractAuthors:
 
     def test_more_than_20_authors_capped(self):
         names = [f"Author{i}" for i in range(30)]
-        body = (
-            "# Paper\n\n"
-            "Authors: " + ", ".join(names) + "\n\nBody..."
-        )
+        body = "# Paper\n\nAuthors: " + ", ".join(names) + "\n\nBody..."
         result = heuristics.extract_authors(body, title_hint=None)
         assert len(result) == 20
 
@@ -346,7 +370,9 @@ class TestExtractAuthors:
             "Some abstract content here..."
         )
         result = heuristics.extract_authors(
-            body, title_hint=None, profile="conservative",
+            body,
+            title_hint=None,
+            profile="conservative",
         )
         assert result == []
 
@@ -403,13 +429,12 @@ class _FakeResponse:
 
 class TestArxivLookup:
     def test_successful_response_returns_metadata(self):
-        with patch(
-            "any2md.heuristics.socket.getaddrinfo", _public_ip_addrinfo
-        ) if False else patch(
-            "socket.getaddrinfo", _public_ip_addrinfo
-        ), patch(
-            "urllib.request.urlopen",
-            return_value=_FakeResponse(_ARXIV_SAMPLE_XML),
+        with (
+            patch("socket.getaddrinfo", _public_ip_addrinfo),
+            patch(
+                "urllib.request.urlopen",
+                return_value=_FakeResponse(_ARXIV_SAMPLE_XML),
+            ),
         ):
             result = heuristics.arxiv_lookup("2501.17755")
         assert result is not None
@@ -426,18 +451,27 @@ class TestArxivLookup:
 
         err = HTTPError(
             "https://export.arxiv.org/api/query?id_list=bad",
-            404, "Not Found", {}, BytesIO(b""),
+            404,
+            "Not Found",
+            {},
+            BytesIO(b""),
         )
-        with patch("socket.getaddrinfo", _public_ip_addrinfo), patch(
-            "urllib.request.urlopen", side_effect=err
-        ), patch(
-            "any2md.converters.add_warnings", fake_add_warnings,
+        with (
+            patch("socket.getaddrinfo", _public_ip_addrinfo),
+            patch("urllib.request.urlopen", side_effect=err),
+            patch(
+                "any2md.converters.add_warnings",
+                fake_add_warnings,
+            ),
         ):
             result = heuristics.arxiv_lookup("bad")
         assert result is None
         assert warnings_collected, "expected add_warnings to be called"
-        assert any("404" in w or "HTTP" in w or "failed" in w
-                   for ws in warnings_collected for w in ws)
+        assert any(
+            "404" in w or "HTTP" in w or "failed" in w
+            for ws in warnings_collected
+            for w in ws
+        )
 
     def test_timeout_emits_warning_and_returns_none(self):
         warnings_collected: list[list[str]] = []
@@ -445,11 +479,16 @@ class TestArxivLookup:
         def fake_add_warnings(ws):
             warnings_collected.append(list(ws))
 
-        with patch("socket.getaddrinfo", _public_ip_addrinfo), patch(
-            "urllib.request.urlopen",
-            side_effect=URLError("timed out"),
-        ), patch(
-            "any2md.converters.add_warnings", fake_add_warnings,
+        with (
+            patch("socket.getaddrinfo", _public_ip_addrinfo),
+            patch(
+                "urllib.request.urlopen",
+                side_effect=URLError("timed out"),
+            ),
+            patch(
+                "any2md.converters.add_warnings",
+                fake_add_warnings,
+            ),
         ):
             result = heuristics.arxiv_lookup("2501.17755")
         assert result is None
@@ -462,12 +501,14 @@ class TestArxivLookup:
             warnings_collected.append(list(ws))
 
         def private_addrinfo(*a, **k):
-            return [
-                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))
-            ]
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
 
-        with patch("socket.getaddrinfo", private_addrinfo), patch(
-            "any2md.converters.add_warnings", fake_add_warnings,
+        with (
+            patch("socket.getaddrinfo", private_addrinfo),
+            patch(
+                "any2md.converters.add_warnings",
+                fake_add_warnings,
+            ),
         ):
             result = heuristics.arxiv_lookup("2501.17755")
         assert result is None
@@ -482,11 +523,16 @@ class TestArxivLookup:
         def fake_add_warnings(ws):
             warnings_collected.append(list(ws))
 
-        with patch("socket.getaddrinfo", _public_ip_addrinfo), patch(
-            "urllib.request.urlopen",
-            return_value=_FakeResponse(b"<not valid xml"),
-        ), patch(
-            "any2md.converters.add_warnings", fake_add_warnings,
+        with (
+            patch("socket.getaddrinfo", _public_ip_addrinfo),
+            patch(
+                "urllib.request.urlopen",
+                return_value=_FakeResponse(b"<not valid xml"),
+            ),
+            patch(
+                "any2md.converters.add_warnings",
+                fake_add_warnings,
+            ),
         ):
             result = heuristics.arxiv_lookup("2501.17755")
         assert result is None
@@ -497,11 +543,16 @@ class TestArxivLookup:
     def test_add_warnings_invoked_via_converters_module(self):
         """Verify that the warning channel is the converters.add_warnings hook."""
         mock_hook = MagicMock()
-        with patch("socket.getaddrinfo", _public_ip_addrinfo), patch(
-            "urllib.request.urlopen",
-            side_effect=URLError("boom"),
-        ), patch(
-            "any2md.converters.add_warnings", mock_hook,
+        with (
+            patch("socket.getaddrinfo", _public_ip_addrinfo),
+            patch(
+                "urllib.request.urlopen",
+                side_effect=URLError("boom"),
+            ),
+            patch(
+                "any2md.converters.add_warnings",
+                mock_hook,
+            ),
         ):
             heuristics.arxiv_lookup("2501.17755")
         assert mock_hook.called

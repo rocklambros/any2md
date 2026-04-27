@@ -91,6 +91,7 @@ def _http_last_modified(url: str) -> str | None:
             lm = resp.headers.get("Last-Modified")
             if lm:
                 from email.utils import parsedate_to_datetime
+
                 return parsedate_to_datetime(lm).date().isoformat()
     except Exception:  # noqa: BLE001
         pass
@@ -139,8 +140,10 @@ def _extract_metadata(
     elif isinstance(bare, dict):
         data = bare
     else:
-        data = {k: getattr(bare, k, None) for k in
-                ("title", "author", "sitename", "date", "categories")}
+        data = {
+            k: getattr(bare, k, None)
+            for k in ("title", "author", "sitename", "date", "categories")
+        }
     title = data.get("title")
     authors_raw = data.get("author") or ""
     authors = [a.strip() for a in authors_raw.split(",") if a.strip()]
@@ -221,9 +224,7 @@ def convert_html(
             extracted_via=extracted_via,
             lane="text",
         )
-        full = compose(
-            md_text, meta, options, overrides=options.frontmatter_overrides
-        )
+        full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path.write_text(full, encoding="utf-8", newline="\n")

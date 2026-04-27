@@ -14,9 +14,7 @@ from any2md.pipeline import PipelineOptions
 def test_pdf_emits_v1_frontmatter_pymupdf_path(
     fixture_dir, tmp_output_dir, monkeypatch
 ):
-    monkeypatch.setattr(
-        "any2md.converters.pdf.has_docling", lambda: False
-    )
+    monkeypatch.setattr("any2md.converters.pdf.has_docling", lambda: False)
     ok = convert_pdf(
         fixture_dir / "multi_column.pdf",
         tmp_output_dir,
@@ -29,7 +27,7 @@ def test_pdf_emits_v1_frontmatter_pymupdf_path(
     out = out_files[0].read_text(encoding="utf-8")
     end = out.index("\n---\n", 4)
     fm = yaml.safe_load(out[4:end])
-    body = out[end + 5:]
+    body = out[end + 5 :]
     assert fm["status"] == "draft"
     assert fm["extracted_via"] == "pymupdf4llm"
     assert fm["pages"] == 2
@@ -47,9 +45,7 @@ def test_pdf_software_creator_routes_to_produced_by(
     fixture_dir, tmp_output_dir, monkeypatch
 ):
     """When PDF Creator is software, organization is empty and produced_by populated."""
-    monkeypatch.setattr(
-        "any2md.converters.pdf.has_docling", lambda: False
-    )
+    monkeypatch.setattr("any2md.converters.pdf.has_docling", lambda: False)
     # Patch the metadata parser to simulate a software-creator PDF.
     from any2md.converters import pdf as pdf_mod
 
@@ -59,6 +55,7 @@ def test_pdf_software_creator_routes_to_produced_by(
         out = real(doc)
         # Re-route through filter_organization with a software value.
         from any2md.heuristics import filter_organization
+
         result = filter_organization("Adobe InDesign 16.2 (Windows)")
         out["organization"] = result.organization
         out["produced_by"] = result.produced_by

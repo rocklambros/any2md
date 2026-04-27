@@ -27,8 +27,22 @@ def _is_title_case(line: str) -> bool:
     if len(words) < 2:
         return False
     skip = {
-        "a", "an", "the", "and", "or", "but", "in", "on", "at", "to",
-        "for", "of", "with", "by", "from", "is",
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "is",
     }
     caps = sum(1 for w in words if w[0].isupper() or w.lower() in skip)
     return caps >= len(words) * 0.7
@@ -182,9 +196,7 @@ def convert_txt(
         md_text, warnings = pipeline.run(md_text, "text", options)
         add_warnings(warnings)
         meta = _build_meta(txt_path, md_text)
-        full = compose(
-            md_text, meta, options, overrides=options.frontmatter_overrides
-        )
+        full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path.write_text(full, encoding="utf-8", newline="\n")

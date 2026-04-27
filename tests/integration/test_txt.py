@@ -21,7 +21,7 @@ def test_txt_end_to_end_writes_ssrm_compat_output(fixture_dir, tmp_output_dir):
     assert out.startswith("---\n")
     end = out.index("\n---\n", 4)
     fm = yaml.safe_load(out[4:end])
-    body = out[end + 5:]
+    body = out[end + 5 :]
     assert fm["status"] == "draft"
     assert fm["extracted_via"] == "heuristic"
     assert fm["source_file"].endswith(".txt")

@@ -4,6 +4,66 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.3] — 2026-04-26
+
+Patch release. Audit on the v1.0.2-regenerated corpus surfaced two
+patterns the previous release did not handle: cover-page-titled
+documents whose first H2 stripped to empty produced an empty
+`title` field, and Docling-lane output retained malformed `|`
+table-row remnants because the lone-punctuation filter was
+text-lane-only. The lane-agnostic body cleanup that v1.0.2's
+text lane already had also now runs on Docling output.
+
+### Added
+- New lane-agnostic stage **`strip_orphan_punctuation`** — drops
+  lines containing only `|` or `>`. Extracted from T10
+  `strip_web_fragments` so it can run on the structured (Docling)
+  lane in addition to the text (trafilatura) lane.
+
+### Changed
+- `heuristics.refine_title` now walks all H2 lines line-by-line
+  and skips any whose content strips to empty after removing
+  markdown emphasis, instead of always returning the first
+  regex match. Also guards the Wikipedia-prefix strip against
+  emitting empty when the candidate is the bare prefix.
+- `pipeline/structured.py` now extends `STAGES` with
+  `strip_repeated_byline` (T9), `dedupe_toc_table` (T7),
+  `strip_cover_artifacts` (T8), and `strip_orphan_punctuation`
+  so Docling output gets the same body-cleanup pass as text-lane
+  output. T10's short-fragment heuristic stays text-lane-only —
+  it would over-strip Docling's deliberate short headings.
+- `pipeline/cleanup.py` `decode_html_entities` (C8) now loops
+  `html.unescape` until output stabilizes (max 5 iterations) so
+  double-encoded entities like `&amp;amp;` → `&amp;` → `&` are
+  fully decoded. Some extractors emit doubly-encoded entities
+  that survived a single pass.
+
+### Fixes
+- **Empty-title regression**: cover-page H1 documents whose first
+  H2 contained only markdown emphasis, NBSP-equivalent unicode,
+  or where the H2 regex's `\s+` class spanned a newline into the
+  next paragraph produced `title: ""`. Walk H2 lines line-by-line
+  with a non-empty guard.
+- **Orphan-punctuation in Docling output**: malformed table-row
+  remnants (lone `|`) survived in structured-lane output because
+  T10 was text-lane-only. New `strip_orphan_punctuation` runs on
+  both lanes.
+- **Double-encoded HTML entities**: `&amp;amp;` left a residual
+  `&amp;` after a single unescape pass. Loop until stable.
+
+### Tests
+- 4 new tests in `tests/unit/test_heuristics.py::TestRefineTitle`
+  covering NBSP-only H2, emphasis-only H2 (skip-and-pick-next),
+  all-empty-H2 fallthrough, and Wikipedia-prefix-only candidate.
+- New `tests/unit/pipeline/test_strip_orphan_punctuation.py`
+  covering aggressive removal, conservative no-op, and preservation
+  of lines containing other content alongside `|`/`>`.
+- New `tests/unit/pipeline/test_structured_body_cleanup_stages.py`
+  asserting the lane-agnostic stages are registered and that the
+  targeted patterns are removed from structured-lane output.
+- New `tests/unit/pipeline/test_cleanup_html_entities_double_encoded.py`
+  covering the C8 loop.
+
 ## [1.0.2] — 2026-04-26
 
 Patch release. Closes issue #15 plus 8 additional quality issues

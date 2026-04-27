@@ -1,6 +1,5 @@
 """Tests for frontmatter.compose() — SSRM-compatible output."""
 
-
 import yaml
 
 from any2md.frontmatter import SourceMeta, compose
@@ -22,10 +21,18 @@ def _split_frontmatter(text: str) -> tuple[dict, str]:
 
 def _meta(**overrides) -> SourceMeta:
     base = dict(
-        title_hint=None, authors=[], organization=None, date=None,
-        keywords=[], pages=None, word_count=None,
-        source_file="x.txt", source_url=None,
-        doc_type="txt", extracted_via="heuristic", lane="text",
+        title_hint=None,
+        authors=[],
+        organization=None,
+        date=None,
+        keywords=[],
+        pages=None,
+        word_count=None,
+        source_file="x.txt",
+        source_url=None,
+        doc_type="txt",
+        extracted_via="heuristic",
+        lane="text",
     )
     base.update(overrides)
     return SourceMeta(**base)
@@ -36,9 +43,17 @@ def test_compose_emits_required_ssrm_fields():
     out = compose(body, _meta(), PipelineOptions())
     fm, _ = _split_frontmatter(out)
     for key in [
-        "title", "document_id", "version", "date", "status",
-        "document_type", "content_domain", "authors", "organization",
-        "generation_metadata", "content_hash",
+        "title",
+        "document_id",
+        "version",
+        "date",
+        "status",
+        "document_type",
+        "content_domain",
+        "authors",
+        "organization",
+        "generation_metadata",
+        "content_hash",
     ]:
         assert key in fm, f"missing required field: {key}"
 
@@ -73,6 +88,7 @@ def test_compose_content_hash_matches_body():
     out = compose(body, _meta(), PipelineOptions())
     fm, body_out = _split_frontmatter(out)
     from any2md.frontmatter import compute_content_hash
+
     assert fm["content_hash"] == compute_content_hash(body_out)
 
 
@@ -106,7 +122,11 @@ def test_compose_skips_abstract_for_short_doc():
 
 
 def test_compose_includes_abstract_for_long_doc():
-    big = "# T\n\n" + "This is a long abstract sentence that should be picked. " * 100 + "\n"
+    big = (
+        "# T\n\n"
+        + "This is a long abstract sentence that should be picked. " * 100
+        + "\n"
+    )
     out = compose(big, _meta(), PipelineOptions())
     fm, _ = _split_frontmatter(out)
     assert fm.get("abstract_for_rag")
@@ -121,8 +141,9 @@ def test_compose_body_ends_with_lf():
 
 def test_compose_body_is_nfc():
     import unicodedata
+
     decomposed = unicodedata.normalize("NFD", "café")  # e + combining acute
-    composed = unicodedata.normalize("NFC", "café")    # precomposed é
+    composed = unicodedata.normalize("NFC", "café")  # precomposed é
     assert decomposed != composed  # sanity: forms differ
     body = f"# T\n\n{decomposed}\n"
     out = compose(body, _meta(), PipelineOptions())

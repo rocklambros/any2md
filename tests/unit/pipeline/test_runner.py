@@ -14,10 +14,12 @@ def test_pipeline_options_defaults():
 
 def test_pipeline_options_frozen():
     import dataclasses
+
     opts = PipelineOptions()
     assert dataclasses.is_dataclass(opts)
     # Frozen dataclasses raise on attribute assignment
     import pytest
+
     with pytest.raises(dataclasses.FrozenInstanceError):
         opts.profile = "conservative"  # type: ignore[misc]
 
@@ -30,6 +32,7 @@ def test_run_returns_text_and_warnings_tuple():
 
 def test_run_invalid_lane_raises():
     import pytest
+
     with pytest.raises(ValueError, match="lane"):
         run("hello", "bogus", PipelineOptions())  # type: ignore[arg-type]
 

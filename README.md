@@ -6,21 +6,16 @@
 
 Convert PDFs, DOCX, HTML, URLs, and plain text into structured, machine-consumable Markdown for downstream RAG pipelines.
 
-## What's new in 1.0.2
+## What's new in 1.0.3
 
-A patch release focused on frontmatter and body-content quality, validated against four representative inputs (an arxiv academic PDF, an ISO/IEC standard, an academic DOCX, a Wikipedia URL). Eleven distinct artifacts are addressed:
+A patch release closing two regressions surfaced by audit on the v1.0.2-regenerated corpus, plus a Docling-lane reach for the v1.0.2 body-cleanup stages:
 
-- New `any2md/heuristics.py` module — pure-functions library that `frontmatter.compose()` consults to refine `title`, `abstract_for_rag`, `authors`, and `organization` before emission.
-- New `produced_by` extension field, sitting between `extracted_via` and `pages`. Records the software that produced the source file (PDF `Creator`, DOCX `Application`). Distinct from `extracted_via`, which records the any2md backend.
-- New shared cleanup stage **C8 `decode_html_entities`** — universal removal of `&amp;`, `&lt;`, `&gt;`, and numeric entities (`&#x2014;`, `&#8212;`) from body text. Code-block aware.
-- Four new text-lane stages (aggressive/maximum profile only):
-  - **T7 `dedupe_toc_table`** — strips table-formatted TOCs that the existing T4 text-formatted heuristic doesn't catch. Common on academic PDFs.
-  - **T8 `strip_cover_artifacts`** — drops cover-page noise (QR-code blurbs, "Third edition 2022-02"-style version stamps) that appears before the first H2.
-  - **T9 `strip_repeated_byline`** — removes "Author's Contact Information:" and similar lines that duplicate a byline.
-  - **T10 `strip_web_fragments`** — drops trafilatura extraction fragments (orphan `|` and `>` lines, short incomplete sentences surrounded by blank lines).
-- New CLI flag `--no-arxiv-lookup`. Arxiv enrichment for filenames matching `\d{4}\.\d{4,5}` is **on by default**; this flag disables it for airgapped environments.
+- **Empty-title fix**: cover-page-titled documents (`# INTERNATIONAL STANDARD` etc.) whose first H2 stripped to empty (markdown emphasis only, NBSP-equivalent unicode, regex span crossing into the next paragraph) emitted `title: ""`. `heuristics.refine_title` now walks H2 lines line-by-line and skips any that strip to empty after dropping markdown emphasis. The Wikipedia-prefix strip got the same non-empty guard.
+- **Docling-lane orphan-punctuation**: lone `|` or `>` lines from Docling's malformed table parsing leaked through because T10 `strip_web_fragments` was text-lane-only by design. The orphan-punctuation portion is extracted into a new lane-agnostic stage `strip_orphan_punctuation` that runs on Docling output too. T10's trafilatura-specific short-fragment heuristic stays text-lane-only.
+- **Lane-agnostic body cleanup on Docling lane**: T7 `dedupe_toc_table`, T8 `strip_cover_artifacts`, and T9 `strip_repeated_byline` are now appended to the structured-lane `STAGES` list, so Docling output gets the same body-cleanup pass that text-lane output already had.
+- **Double-encoded HTML entities**: C8 `decode_html_entities` now loops `html.unescape` until output stabilizes (max 5 iterations) so `&amp;amp;` → `&amp;` → `&` is fully decoded.
 
-The full design rationale lives in [docs/superpowers/specs/2026-04-26-any2md-v1.0.2-design.md](docs/superpowers/specs/2026-04-26-any2md-v1.0.2-design.md). Per-fix detail is in the [CHANGELOG](CHANGELOG.md).
+The full design rationale lives in [docs/superpowers/specs/2026-04-26-v1.0.3-empty-title-orphan-punct-design.md](docs/superpowers/specs/2026-04-26-v1.0.3-empty-title-orphan-punct-design.md). Per-fix detail is in the [CHANGELOG](CHANGELOG.md). v1.0.2 highlights — `any2md/heuristics.py`, `produced_by`, C8, T7–T10, `--no-arxiv-lookup` — remain available; see [docs/superpowers/specs/2026-04-26-any2md-v1.0.2-design.md](docs/superpowers/specs/2026-04-26-any2md-v1.0.2-design.md).
 
 ## What this is
 
@@ -437,7 +432,7 @@ The full symptom-cause-fix triage guide, plus deeper diagnosis steps and follow-
 any2md uses a two-lane post-processing pipeline: one lane for layout-trustworthy backends (Docling), one for backends that need heavier text repair (pymupdf4llm, trafilatura, mammoth, the TXT heuristic). Both lanes converge on a shared cleanup pass, and the same `frontmatter.py` module emits YAML for every input format.
 
 ```
-                  any2md  v1.0.2
+                  any2md  v1.0.3
                        │
                   ┌────┴────┐
               CLI │ cli.py  │  parse args, classify URL/file/dir,
@@ -468,6 +463,12 @@ any2md uses a two-lane post-processing pipeline: one lane for layout-trustworthy
         │  S2 table compactor     │
         │  S3 cite normalizer     │
         │  S4 heading hierarchy   │
+        │  T9 strip repeated      │   ◀ NEW v1.0.3
+        │     byline              │
+        │  T7 dedupe TOC table    │   ◀ NEW v1.0.3
+        │  T8 strip cover         │   ◀ NEW v1.0.3
+        │     artifacts           │
+        │  strip_orphan_punct     │   ◀ NEW v1.0.3
         └────────────┬────────────┘
                      │
         ┌────────────┴────────────┐
@@ -482,6 +483,7 @@ any2md uses a two-lane post-processing pipeline: one lane for layout-trustworthy
         │  T5 hdr/ftr strip       │
         │  T10 strip web          │   ◀ NEW (D2)
         │      fragments          │
+        │      ↳ strip_orphan_punct  ◀ split out v1.0.3
         │  T6 list/code restore   │
         │  T8 strip cover         │   ◀ NEW (D3)
         │     artifacts           │

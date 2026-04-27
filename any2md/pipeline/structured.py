@@ -35,7 +35,11 @@ def lift_figure_captions(text: str, options: "PipelineOptions") -> str:
         caption_line = f"*Figure: {alt}*" if alt else ""
         if options.save_images:
             # Keep the link below the caption
-            return f"{caption_line}\n\n![{alt}]({url})" if caption_line else f"![{alt}]({url})"
+            return (
+                f"{caption_line}\n\n![{alt}]({url})"
+                if caption_line
+                else f"![{alt}]({url})"
+            )
         return caption_line
 
     text = _IMG_LINK_RE.sub(_img_repl, text)
@@ -132,7 +136,7 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
     out = []
     last = 0
     for new_level, m in zip(levels, matches):
-        out.append(text[last:m.start()])
+        out.append(text[last : m.start()])
         out.append("#" * new_level + " " + m.group(2))
         last = m.end()
     out.append(text[last:])
@@ -140,3 +144,29 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
 
 
 STAGES.append(enforce_heading_hierarchy)
+
+
+# Lane-agnostic body-cleanup stages (also run on structured lane in
+# v1.0.3+). T7/T8/T9 were originally text-lane-only in v1.0.2, but the
+# patterns they catch ("Author's Contact Information:" duplicate, leading
+# TOC tables, cover-page artifacts) appear in Docling output too — these
+# stages should fire regardless of which extractor produced the markdown.
+# strip_orphan_punctuation (the lone-|/> portion of T10) is also added
+# here in v1.0.3 because Docling's table parser occasionally emits
+# malformed rows. The remaining T10 short-fragment heuristic stays
+# text-lane-only (trafilatura-specific).
+from any2md.pipeline.text import (  # noqa: E402 — late import after STAGES init
+    dedupe_toc_table,
+    strip_cover_artifacts,
+    strip_orphan_punctuation,
+    strip_repeated_byline,
+)
+
+STAGES.extend(
+    [
+        strip_repeated_byline,
+        dedupe_toc_table,
+        strip_cover_artifacts,
+        strip_orphan_punctuation,
+    ]
+)

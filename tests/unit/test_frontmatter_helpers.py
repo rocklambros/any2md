@@ -14,24 +14,40 @@ from any2md.frontmatter import (
 def test_source_meta_has_required_fields():
     fields = {f.name for f in dataclasses.fields(SourceMeta)}
     expected = {
-        "title_hint", "authors", "organization", "produced_by", "date",
-        "keywords", "pages", "word_count", "source_file",
-        "source_url", "extracted_via", "lane",
+        "title_hint",
+        "authors",
+        "organization",
+        "produced_by",
+        "date",
+        "keywords",
+        "pages",
+        "word_count",
+        "source_file",
+        "source_url",
+        "extracted_via",
+        "lane",
     }
     assert expected <= fields, f"missing fields: {expected - fields}"
 
 
 def test_source_meta_defaults_are_safe():
     meta = SourceMeta(
-        title_hint=None, authors=[], organization=None, date=None,
-        keywords=[], pages=None, word_count=None,
-        source_file="x.txt", source_url=None,
-        doc_type="txt", extracted_via="heuristic", lane="text",
+        title_hint=None,
+        authors=[],
+        organization=None,
+        date=None,
+        keywords=[],
+        pages=None,
+        word_count=None,
+        source_file="x.txt",
+        source_url=None,
+        doc_type="txt",
+        extracted_via="heuristic",
+        lane="text",
     )
     assert meta.lane == "text"
     assert meta.extracted_via == "heuristic"
     assert meta.doc_type == "txt"
-
 
 
 def test_estimate_tokens_zero_on_empty():
@@ -43,7 +59,6 @@ def test_estimate_tokens_ceil_chars_over_4():
     assert estimate_tokens("a" * 4) == 1
     assert estimate_tokens("a" * 5) == 2
     assert estimate_tokens("a" * 8) == 2
-
 
 
 def test_chunk_level_h2_when_no_h2_sections():
@@ -60,7 +75,6 @@ def test_chunk_level_h3_when_any_section_exceeds_1500_tokens():
     big = "x" * 6500
     body = f"# Title\n\n## A\n\n{big}\n\n## B\n\nshort\n"
     assert recommend_chunk_level(body) == "h3"
-
 
 
 def test_abstract_first_paragraph_after_h1():
@@ -101,7 +115,6 @@ def test_abstract_returns_none_when_no_paragraph_after_h1():
     body = "# Title\n\n## Section\n\nbody under section.\n"
     # No bare paragraph between H1 and the next heading.
     assert extract_abstract(body) is None
-
 
 
 def test_derive_title_uses_first_h1():

@@ -35,22 +35,28 @@ _SOFTWARE_CREATORS_RE = re.compile(
 )
 
 # Cover-page H1 values to skip (case-insensitive after stripping)
-_COVER_PAGE_H1_VALUES = frozenset({
-    "international standard",
-    "technical report",
-    "technical specification",
-    "publicly available specification",
-    "draft international standard",
-    "final draft international standard",
-    "white paper",
-    "whitepaper",
-    "research note",
-    "request for comments",
-})
+_COVER_PAGE_H1_VALUES = frozenset(
+    {
+        "international standard",
+        "technical report",
+        "technical specification",
+        "publicly available specification",
+        "draft international standard",
+        "final draft international standard",
+        "white paper",
+        "whitepaper",
+        "research note",
+        "request for comments",
+    }
+)
 
 # H1 / H2 line detectors (markdown ATX style)
 _H1_LINE_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 _H2_LINE_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+# Markdown emphasis chars stripped when probing an H2 for non-empty content
+# (mirrors derive_title's emphasis-stripping so headings like ``## ***``
+# are treated as empty rather than yielding a useless title).
+_MD_EMPHASIS_STRIP_RE = re.compile(r"[*_]+")
 
 # DOCX line-break course-code / document-type prefix detector. Matches
 # strings like "COMP 4441 Final Project " (course code followed by
@@ -67,11 +73,18 @@ _BYLINE_DETECT_RE = re.compile(
     r"^[A-Z][A-Z .,\-&'/]{8,}\d.*,",
 )
 _COVER_BLURB_KEYWORDS = (
-    "feedback", "qr code", "scan the", "customer feedback form",
-    "third edition", "corrected version",
+    "feedback",
+    "qr code",
+    "scan the",
+    "customer feedback form",
+    "third edition",
+    "corrected version",
     # License notices (common on standards docs and licensed content)
-    "licensed to", "single user licence", "single user license",
-    "iso store order", "all rights reserved",
+    "licensed to",
+    "single user licence",
+    "single user license",
+    "iso store order",
+    "all rights reserved",
     "copying and networking prohibited",
 )
 _TOC_LINE_HINTS_RE = re.compile(r"\.{3,}\s*\d+|^\s*page\s+\d+", re.IGNORECASE)
@@ -166,23 +179,38 @@ def refine_title(
 
     refined = candidate.strip()
 
-    # Cover-page boilerplate skip (both profiles)
+    # Cover-page boilerplate skip (both profiles). Walk H2 lines and
+    # pick the first one whose content is non-empty after stripping
+    # markdown emphasis. The original single-match logic returned ""
+    # when the first H2 was emphasis-only (``## ***``) or contained
+    # only whitespace-equivalent unicode; iterating line-by-line also
+    # prevents the regex's ``\s+`` from grabbing the next paragraph's
+    # first word as fake H2 content.
     if refined.lower() in _COVER_PAGE_H1_VALUES:
-        m = _H2_LINE_RE.search(body)
-        if m:
-            return m.group(1).strip()
+        for line in body.splitlines():
+            if not line.startswith("## "):
+                continue
+            candidate_h2 = line[3:].strip()
+            probe = _MD_EMPHASIS_STRIP_RE.sub("", candidate_h2).strip()
+            if probe:
+                return candidate_h2
 
-    # Wikipedia namespace prefix strip (aggressive only)
+    # Wikipedia namespace prefix strip (aggressive only). Only apply
+    # when stripping leaves a non-empty remainder; otherwise keep the
+    # candidate as-is rather than emit "".
     if profile != "conservative" and source_url:
         try:
             from urllib.parse import urlparse
+
             host = (urlparse(source_url).hostname or "").lower()
         except Exception:  # noqa: BLE001
             host = ""
         if host.endswith("wikipedia.org"):
             for prefix in ("Wikipedia:", "WP:"):
                 if refined.startswith(prefix):
-                    refined = refined[len(prefix):].strip()
+                    stripped = refined[len(prefix) :].strip()
+                    if stripped:
+                        refined = stripped
                     break
 
     # DOCX line-break course-code / document-type prefix split
@@ -191,7 +219,7 @@ def refine_title(
     if profile != "conservative":
         m = _DOCX_PREFIX_RE.match(refined)
         if m and len(refined) > m.end():
-            tail = refined[m.end():].strip()
+            tail = refined[m.end() :].strip()
             if tail:
                 refined = tail
 
@@ -295,7 +323,7 @@ def refine_abstract(
     # Step 1: prefer "## Abstract" / "## Summary" body section.
     m = _ABSTRACT_HEADING_RE.search(body)
     if m:
-        rest = body[m.end():]
+        rest = body[m.end() :]
         # Take first non-empty paragraph until next heading or blank-line gap.
         for para in _split_body_paragraphs(rest):
             if len(para) >= 80 and not _is_skip_paragraph(para):
@@ -401,11 +429,9 @@ def extract_authors(
     # the first ~20 lines after H1 to avoid false positives on mid-doc
     # sentences like "By 'market governance mechanisms', we refer to ...".
     lines = body.splitlines()
-    h1_idx = next(
-        (i for i, line in enumerate(lines) if line.startswith("# ")), -1
-    )
+    h1_idx = next((i for i, line in enumerate(lines) if line.startswith("# ")), -1)
     start = h1_idx + 1 if h1_idx >= 0 else 0
-    head_block = "\n".join(lines[start:start + 20])
+    head_block = "\n".join(lines[start : start + 20])
     m = _AUTHORS_PREFIX_RE.search(head_block)
     if m:
         raw = m.group(1).strip()
@@ -416,11 +442,7 @@ def extract_authors(
         #   like "By 'market governance mechanisms', we refer to...")
         # - Each name <= 50 chars (rejects sentence-fragment captures)
         deduped = _dedupe_authors(names)[:20]
-        if (
-            deduped
-            and deduped[0][:1].isupper()
-            and all(len(n) <= 50 for n in deduped)
-        ):
+        if deduped and deduped[0][:1].isupper() and all(len(n) <= 50 for n in deduped):
             return deduped
 
     # Step 4: academic byline (aggressive only)
@@ -435,7 +457,7 @@ def extract_authors(
             h1_idx = i
             break
     start = h1_idx + 1 if h1_idx >= 0 else 0
-    for line in lines[start:start + 20]:
+    for line in lines[start : start + 20]:
         stripped = line.strip()
         if not stripped:
             continue
@@ -517,6 +539,7 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
         # Lazy import to avoid circular dependency at module load time.
         try:
             from any2md.converters import add_warnings
+
             add_warnings([msg])
         except Exception:  # noqa: BLE001
             pass
@@ -524,6 +547,7 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
     # SSRF guard (lazy import)
     try:
         from any2md.converters.html import _validate_url_host
+
         err = _validate_url_host(url)
         if err:
             _warn(f"arxiv lookup blocked: {err}")

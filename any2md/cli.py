@@ -65,11 +65,7 @@ def _deep_merge_overrides(
     """
     out = dict(base)
     for key, val in overrides.items():
-        if (
-            key in out
-            and isinstance(out[key], dict)
-            and isinstance(val, dict)
-        ):
+        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
             out[key] = _deep_merge_overrides(out[key], val)
         else:
             out[key] = val
@@ -136,9 +132,9 @@ def main():
         "--no-arxiv-lookup",
         action="store_true",
         help="Disable the arxiv API lookup that enriches frontmatter for "
-             "PDFs whose filename matches the arxiv ID pattern (\\d{4}.\\d{4,5}). "
-             "Useful in airgapped envs or when you don't want any2md to make "
-             "network calls. Default: arxiv lookup is enabled.",
+        "PDFs whose filename matches the arxiv ID pattern (\\d{4}.\\d{4,5}). "
+        "Useful in airgapped envs or when you don't want any2md to make "
+        "network calls. Default: arxiv lookup is enabled.",
     )
     parser.add_argument(
         "--backend",
@@ -224,9 +220,7 @@ def main():
 
     if args.meta_file is not None:
         if not args.meta_file.is_file():
-            print(
-                f"Error: --meta-file not found: {args.meta_file}", file=sys.stderr
-            )
+            print(f"Error: --meta-file not found: {args.meta_file}", file=sys.stderr)
             sys.exit(1)
         cfg = load_toml(args.meta_file)
         overrides = _deep_merge_overrides(overrides, extract_meta_overrides(cfg))
@@ -253,6 +247,7 @@ def main():
         or args.backend == "docling"
     ):
         from any2md._docling import has_docling, INSTALL_HINT_MSG
+
         if not has_docling():
             print(
                 f"  ERROR: Docling required for --high-fidelity / --ocr-figures / --save-images / --backend docling.\n"

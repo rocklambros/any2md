@@ -18,26 +18,14 @@ def test_drops_authors_contact_information_singular():
 
 
 def test_drops_authors_contact_information_plural():
-    text = (
-        "# Title\n"
-        "\n"
-        "Authors' Contact Information:\n"
-        "\n"
-        "Body.\n"
-    )
+    text = "# Title\n\nAuthors' Contact Information:\n\nBody.\n"
     out = strip_repeated_byline(text, PipelineOptions(profile="aggressive"))
     assert "Authors' Contact Information" not in out
     assert "Body." in out
 
 
 def test_drops_contact_email_line_within_first_50_lines():
-    text = (
-        "# Title\n"
-        "\n"
-        "Contact: alice@example.com\n"
-        "\n"
-        "Body.\n"
-    )
+    text = "# Title\n\nContact: alice@example.com\n\nBody.\n"
     out = strip_repeated_byline(text, PipelineOptions(profile="aggressive"))
     assert "Contact: alice@example.com" not in out
     assert "Body." in out

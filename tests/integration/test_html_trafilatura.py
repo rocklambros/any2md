@@ -19,7 +19,7 @@ def test_html_local_file_emits_v1_frontmatter(fixture_dir, tmp_output_dir):
     out = out_files[0].read_text(encoding="utf-8")
     end = out.index("\n---\n", 4)
     fm = yaml.safe_load(out[4:end])
-    body = out[end + 5:]
+    body = out[end + 5 :]
     assert fm["status"] == "draft"
     assert "trafilatura" in fm["extracted_via"]
     # boilerplate stripped

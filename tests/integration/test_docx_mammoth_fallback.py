@@ -66,9 +66,7 @@ def _build_docx(out_path: Path, app_xml: str) -> None:
 def test_docx_emits_v1_frontmatter_with_core_props(
     fixture_dir, tmp_output_dir, monkeypatch
 ):
-    monkeypatch.setattr(
-        "any2md.converters.docx.has_docling", lambda: False
-    )
+    monkeypatch.setattr("any2md.converters.docx.has_docling", lambda: False)
     ok = convert_docx(
         fixture_dir / "table_heavy.docx",
         tmp_output_dir,
@@ -81,7 +79,7 @@ def test_docx_emits_v1_frontmatter_with_core_props(
     out = out_files[0].read_text(encoding="utf-8")
     end = out.index("\n---\n", 4)
     fm = yaml.safe_load(out[4:end])
-    body = out[end + 5:]
+    body = out[end + 5 :]
     assert fm["title"] == "Table Heavy Test Document"
     assert fm["authors"] == ["Test Author"]
     assert fm["organization"] == "Test Org"
@@ -100,9 +98,7 @@ def test_docx_application_only_routes_to_produced_by(
     tmp_path, tmp_output_dir, monkeypatch
 ):
     """When Application is software and Company is absent, produced_by populated."""
-    monkeypatch.setattr(
-        "any2md.converters.docx.has_docling", lambda: False
-    )
+    monkeypatch.setattr("any2md.converters.docx.has_docling", lambda: False)
     docx = tmp_path / "app_only.docx"
     _build_docx(
         docx,
@@ -126,9 +122,7 @@ def test_docx_company_and_application_company_wins(
     tmp_path, tmp_output_dir, monkeypatch
 ):
     """Company is the real org; Application becomes produced_by."""
-    monkeypatch.setattr(
-        "any2md.converters.docx.has_docling", lambda: False
-    )
+    monkeypatch.setattr("any2md.converters.docx.has_docling", lambda: False)
     docx = tmp_path / "company_and_app.docx"
     _build_docx(
         docx,
@@ -152,9 +146,7 @@ def test_docx_application_real_org_routes_to_organization(
     tmp_path, tmp_output_dir, monkeypatch
 ):
     """When Company absent and Application looks like a real org name."""
-    monkeypatch.setattr(
-        "any2md.converters.docx.has_docling", lambda: False
-    )
+    monkeypatch.setattr("any2md.converters.docx.has_docling", lambda: False)
     docx = tmp_path / "app_real_org.docx"
     _build_docx(
         docx,

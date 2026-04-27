@@ -7,7 +7,8 @@ import sys
 def _run(*args):
     return subprocess.run(
         [sys.executable, "-m", "any2md", *args],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
 
 
@@ -26,8 +27,10 @@ def test_flags_compose(fixture_dir, tmp_path):
     effect on backend selection but must not error on argparse."""
     out_dir = tmp_path / "out"
     r = _run(
-        "-o", str(out_dir),
-        "--save-images", "--ocr-figures",
+        "-o",
+        str(out_dir),
+        "--save-images",
+        "--ocr-figures",
         str(fixture_dir / "ligatures_and_softhyphens.txt"),
     )
     # TXT input is unaffected by these flags but the CLI must still parse them

@@ -47,9 +47,7 @@ def test_custom_prefix_and_type_code():
 def test_auto_id_uses_config_prefix(tmp_path, monkeypatch):
     """``.any2md.toml`` ``[document_id]`` settings drive --auto-id."""
     cfg = tmp_path / ".any2md.toml"
-    cfg.write_text(
-        '[document_id]\npublisher_prefix = "CSA"\ntype_code = "GD"\n'
-    )
+    cfg.write_text('[document_id]\npublisher_prefix = "CSA"\ntype_code = "GD"\n')
     monkeypatch.chdir(tmp_path)
     from any2md.config import (
         discover_config,
