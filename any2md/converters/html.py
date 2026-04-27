@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import ipaddress
-import socket
 import sys
-import urllib.parse
-import urllib.request
 from datetime import date
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import markdownify
@@ -15,87 +12,51 @@ import trafilatura
 from bs4 import BeautifulSoup
 
 from any2md import pipeline
+from any2md._http import safe_fetch
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
 from any2md.utils import (
+    atomic_write_text,
     read_text_with_fallback,
     sanitize_filename,
     url_to_filename,
 )
 
+
 _MAX_FILE_SIZE = 100 * 1024 * 1024
 
 
-def _validate_url_host(url: str) -> str | None:
-    """Validate that a URL does not point to a private/reserved IP.
-
-    Returns an error message if the host is disallowed, or None if safe.
-    """
-    parsed = urllib.parse.urlparse(url)
-    hostname = parsed.hostname
-    if not hostname:
-        return f"No hostname in URL: {url}"
-    try:
-        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-    except socket.gaierror:
-        return f"Cannot resolve hostname: {hostname}"
-    for _family, _type, _proto, _canon, sockaddr in infos:
-        ip_str = sockaddr[0]
-        try:
-            addr = ipaddress.ip_address(ip_str)
-        except ValueError:
-            continue
-        if (
-            addr.is_private
-            or addr.is_reserved
-            or addr.is_loopback
-            or addr.is_link_local
-        ):
-            return f"URL resolves to disallowed address: {ip_str}"
-    return None
-
-
 def fetch_url(url: str) -> tuple[str | None, str | None]:
-    """Fetch HTML content from a URL.
+    """Fetch HTML from a URL using the SSRF-safe fetcher.
 
-    Only http and https schemes are accepted. SSRF protection blocks
-    requests to private/reserved/loopback addresses.
-
-    Returns (html_string, None) on success or (None, error_message) on failure.
+    Returns (html_string, None) on success or (None, error_message)
+    on failure. Per-hop host revalidation defends against DNS rebind
+    via redirects.
     """
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        return None, f"Unsupported URL scheme: {parsed.scheme!r}"
-    err = _validate_url_host(url)
+    body, _headers, err = safe_fetch(url)
     if err:
         return None, err
-    try:
-        html = trafilatura.fetch_url(url)
-        if html is None:
-            return None, f"Failed to fetch URL: {url}"
-        return html, None
-    except Exception as e:  # noqa: BLE001
-        return None, f"Error fetching URL: {e}"
+    if body is None:
+        return None, f"empty body for {url}"
+    return body.decode("utf-8", errors="replace"), None
 
 
 def _http_last_modified(url: str) -> str | None:
-    """Single HEAD request for Last-Modified. Best-effort."""
-    try:
-        req = urllib.request.Request(
-            url,
-            method="HEAD",
-            headers={"User-Agent": "any2md/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            lm = resp.headers.get("Last-Modified")
-            if lm:
-                from email.utils import parsedate_to_datetime
+    """Single HEAD request for Last-Modified. Best-effort.
 
-                return parsedate_to_datetime(lm).date().isoformat()
-    except Exception:  # noqa: BLE001
-        pass
-    return None
+    SSRF-safe: same scheme + IP validation as ``fetch_url``.
+    """
+    _body, headers, err = safe_fetch(url, method="HEAD")
+    if err or not headers:
+        return None
+    lm = headers.get("Last-Modified")
+    if not lm:
+        return None
+    try:
+        return parsedate_to_datetime(lm).date().isoformat()
+    except (TypeError, ValueError):
+        return None
 
 
 def _bs4_preclean(html: str) -> str:
@@ -227,7 +188,7 @@ def convert_html(
         full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(full, encoding="utf-8", newline="\n")
+        atomic_write_text(out_path, full)
         wc = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
