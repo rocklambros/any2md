@@ -354,18 +354,29 @@ _HEADING_OR_KNOWN_SHORT_RE = re.compile(
 )
 
 
+def strip_orphan_punctuation(text: str, options: "PipelineOptions") -> str:
+    """Drop lines containing only ``|`` or ``>``. Lane-agnostic.
+
+    Splits cleanly out of T10 in v1.0.3 so the structured (Docling) lane
+    can also remove malformed table-row remnants. The trafilatura
+    short-fragment heuristic stays in ``strip_web_fragments`` and only
+    runs on the text lane.
+    """
+    if options.profile not in ("aggressive", "maximum"):
+        return text
+    return "\n".join(ln for ln in text.split("\n") if not _ORPHAN_PUNCT_RE.match(ln))
+
+
 def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
     """T10: Drop trafilatura extraction fragments (orphan chars, incomplete sentences)."""
     if options.profile not in ("aggressive", "maximum"):
         return text
+    text = strip_orphan_punctuation(text, options)
     lines = text.split("\n")
     out: list[str] = []
     n = len(lines)
     for i, line in enumerate(lines):
         stripped = line.strip()
-        # Orphan punctuation
-        if _ORPHAN_PUNCT_RE.match(line):
-            continue
         # Short incomplete sentence between blank lines
         if (
             stripped
