@@ -20,6 +20,7 @@ from any2md.converters import (
     set_output_mode,
 )
 from any2md.converters.html import convert_url
+from any2md.frontmatter import filter_reserved_overrides
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename, url_to_filename
 
@@ -249,6 +250,9 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     overrides = _deep_merge_overrides(overrides, cli_meta)
+    overrides = filter_reserved_overrides(
+        overrides, source_label="--meta/--meta-file/.any2md.toml"
+    )
 
     if (
         args.high_fidelity
