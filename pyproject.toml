@@ -19,13 +19,16 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
 ]
 dependencies = [
-    "pymupdf>=1.24.0",
-    "pymupdf4llm>=0.0.17",
-    "mammoth>=1.6.0",
-    "markdownify>=0.13.0",
-    "trafilatura>=1.12.0",
-    "beautifulsoup4>=4.12.0",
-    "lxml>=5.0.0",
+    "pymupdf>=1.24.0,<2",
+    "pymupdf4llm>=0.0.17,<1",
+    "mammoth>=1.6.0,<2",
+    "markdownify>=0.13.0,<2",
+    "trafilatura>=1.12.0,<3",
+    "beautifulsoup4>=4.12.0,<5",
+    "lxml>=6.1.0,<7",        # CVE-2026-41066 fix
+    "pillow>=12.2.0,<13",    # CVE-2026-25990, CVE-2026-40192 fix
+    "urllib3>=2.6.3,<3",     # CVE-2026-21441 fix
+    "defusedxml>=0.7.1,<1",  # XXE defense-in-depth (Task P2)
 ]
 
 [project.optional-dependencies]
