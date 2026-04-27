@@ -205,20 +205,23 @@ output gets the same body-cleanup pass that text-lane output already had:
 
 T10 `strip_web_fragments` itself stays text-lane-only.
 
-### Text-lane stages (T1–T10 + `strip_orphan_punctuation`)
+### Text-lane stages (registered `text.py` stages: T1–T10)
 
-Located in `any2md/pipeline/text.py`. Stages run in the order listed in the
-`STAGES` list at the bottom of the module — shown below. Note that the IDs
-(T1, T2, …) reflect the order each stage was *introduced*, not the order
-they run in. The "Run order" column gives the actual execution sequence.
+Located in `any2md/pipeline/text.py`. The registered text-lane stages run
+in the order listed in the `STAGES` list at the bottom of the module —
+shown below. Note that the IDs (T1, T2, …) reflect the order each stage
+was *introduced*, not the order they run in. The "Run order" column gives
+the actual execution sequence.
 
-In v1.0.3 the lone-`|`/`>` orphan-punctuation filter inside T10 was extracted
-into a separate lane-agnostic helper `strip_orphan_punctuation`. T10 still
-runs that helper internally (so text-lane behavior is preserved) and is
-also registered in the structured lane's `STAGES` so Docling output gets
-the orphan-punctuation pass without inheriting T10's trafilatura-specific
-short-fragment heuristic. See `### Structured-lane stages` below for the
-v1.0.3 structured-lane registrations.
+In v1.0.3 the lone-`|`/`>` orphan-punctuation filter inside T10 was
+extracted into a separate lane-agnostic helper `strip_orphan_punctuation`.
+On the text lane, that helper is still invoked internally by T10, so it
+does **not** appear as a standalone entry in `text.py`'s `STAGES` list.
+The helper itself is registered separately in the structured lane's
+`STAGES`, so Docling output gets the orphan-punctuation pass without
+inheriting T10's trafilatura-specific short-fragment heuristic. See
+`### Structured-lane stages` (above) for the v1.0.3 structured-lane
+registrations.
 
 | Run order | ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
 |---|---|---|---|---|---|---|---|
