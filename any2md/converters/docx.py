@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import logging
 import sys
-import xml.etree.ElementTree as ET
 import zipfile
+
+from defusedxml.ElementTree import ParseError as _XmlParseError
+from defusedxml.ElementTree import parse as _xml_parse
 from datetime import date
 from pathlib import Path
 
@@ -90,7 +92,7 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
         with zipfile.ZipFile(docx_path) as z:
             try:
                 with z.open("docProps/core.xml") as f:
-                    root = ET.parse(f).getroot()
+                    root = _xml_parse(f).getroot()
                 title = root.findtext("dc:title", namespaces=_NS_CORE)
                 if title:
                     out["title_hint"] = title.strip()
@@ -106,7 +108,7 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
                 pass
             try:
                 with z.open("docProps/app.xml") as f:
-                    root = ET.parse(f).getroot()
+                    root = _xml_parse(f).getroot()
                 company = root.findtext("ext:Company", namespaces=_NS_APP)
                 application = root.findtext("ext:Application", namespaces=_NS_APP)
                 # v1.0.2: Company takes priority for `organization` (real
@@ -126,7 +128,7 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
                     out["produced_by"] = app_result.produced_by
             except KeyError:
                 pass
-    except (zipfile.BadZipFile, ET.ParseError):
+    except (zipfile.BadZipFile, _XmlParseError):
         pass
     return out
 

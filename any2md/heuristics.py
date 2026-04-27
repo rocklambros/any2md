@@ -531,7 +531,9 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
     reserved/loopback). Timeout: 5s default. Single attempt, no retry.
     """
     import urllib.request
-    import xml.etree.ElementTree as ET
+
+    from defusedxml.ElementTree import ParseError as _XmlParseError
+    from defusedxml.ElementTree import fromstring as _xml_fromstring
 
     url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
 
@@ -568,8 +570,8 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
         return None
 
     try:
-        root = ET.fromstring(data)
-    except ET.ParseError as e:
+        root = _xml_fromstring(data)
+    except _XmlParseError as e:
         _warn(f"arxiv lookup XML parse error for {arxiv_id}: {e}")
         return None
 
