@@ -170,6 +170,16 @@ def main():
         help="Promote pipeline validation warnings to errors (exit 3).",
     )
     parser.add_argument(
+        "--docx-fallback-on-warn",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="DOCX-only. When Docling emits any msword_backend warning "
+        "during conversion, auto-retry the file through mammoth and use "
+        "that output instead. Docling silently drops list items on "
+        "malformed input, so a warning means content is missing. "
+        "Default: enabled. Disable with --no-docx-fallback-on-warn.",
+    )
+    parser.add_argument(
         "--quiet",
         "-q",
         action="store_true",
@@ -272,6 +282,7 @@ def main():
         frontmatter_overrides=overrides or None,
         backend=args.backend,
         arxiv_lookup=not args.no_arxiv_lookup,
+        docx_fallback_on_warn=args.docx_fallback_on_warn,
     )
 
     # CLI-only output controls (not part of PipelineOptions).

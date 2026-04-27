@@ -49,6 +49,15 @@ class PipelineOptions:
     # ``--no-arxiv-lookup`` to disable the network call (airgapped envs
     # or when offline behavior is required).
     arxiv_lookup: bool = True
+    # v1.0.5: DOCX-only. When True (default) and Docling emits any
+    # WARNING from ``docling.backend.msword_backend`` during conversion,
+    # any2md re-runs the file through the mammoth+markdownify lane and
+    # uses that output. Docling silently drops list items in a known
+    # malformed-input path (msword_backend.py:1377/1675), so a Docling
+    # warning means the Markdown is missing content. Disable via
+    # ``--no-docx-fallback-on-warn`` to keep Docling output even when
+    # warnings fire (e.g. when comparing backends explicitly).
+    docx_fallback_on_warn: bool = True
 
 
 Stage = Callable[[str, PipelineOptions], str]

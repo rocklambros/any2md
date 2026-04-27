@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.5] — 2026-04-27
+
+Patch release. Recovers DOCX content that Docling's msword backend
+silently drops on malformed list structures, by auto-retrying
+affected files through the mammoth lane and forwarding the
+captured Docling warnings into any2md's run-level warning bucket.
+Real-world impact observed during validation: a 12,740-word
+Docling output for a policy-template DOCX recovered to 15,566
+words (+22%) when re-rendered via mammoth.
+
+### Added
+- DOCX converter now auto-retries files through the mammoth lane
+  when Docling emits any warning from
+  `docling.backend.msword_backend` during conversion. Docling's
+  DOCX backend silently drops list items in a known
+  malformed-input path (`msword_backend.py:1377/1675` —
+  "Parent element of the list item is not a ListGroup. The list
+  item will be ignored."), so a warning means the Docling
+  Markdown is missing content. On fallback, `extracted_via` is
+  set to `"docling→mammoth (warning fallback)"`, the lane
+  switches to `text`, the captured Docling warnings are
+  forwarded into the run-level warning bucket (so `--strict`
+  still fails), and a `FALLBACK:` line is printed to stderr.
+  Default: enabled. Disable with `--no-docx-fallback-on-warn`
+  (e.g. when comparing backends explicitly).
+- New `PipelineOptions.docx_fallback_on_warn: bool = True`.
+- New CLI flag pair `--docx-fallback-on-warn` /
+  `--no-docx-fallback-on-warn`.
+
+### Tests
+- New `tests/integration/test_docx_fallback_on_warn.py` covers
+  the warning-capture context manager, the default-on fallback
+  path (output swap, `extracted_via`, captured warning forwarded
+  into `collected_warnings()`, user-visible message), the
+  `--no-docx-fallback-on-warn` opt-out, the no-warning
+  fast-path, and the explicit `--backend docling` interaction.
+
 ## [1.0.4] — 2026-04-26
 
 Patch release. Two follow-ups deferred from v1.0.3 (#17): the T7

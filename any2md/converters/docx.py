@@ -9,6 +9,7 @@ produces the markdown body.
 
 from __future__ import annotations
 
+import logging
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
@@ -25,6 +26,46 @@ from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename
+
+
+_DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
+
+
+class _DoclingMswordWarningCapture:
+    """Buffer WARNING+ records from Docling's DOCX backend logger.
+
+    Used as a context manager around a Docling DOCX conversion to detect
+    upstream's silent list-item-drop guard (msword_backend.py:1377/1675).
+    Any captured records signal that Docling's Markdown output is
+    incomplete; ``convert_docx`` consults this to decide whether to
+    auto-retry with the mammoth lane.
+    """
+
+    def __init__(self) -> None:
+        self._records: list[logging.LogRecord] = []
+        self._handler: logging.Handler | None = None
+
+    def __enter__(self) -> _DoclingMswordWarningCapture:
+        records = self._records
+
+        class _BufferHandler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        handler = _BufferHandler(level=logging.WARNING)
+        logging.getLogger(_DOCLING_MSWORD_LOGGER).addHandler(handler)
+        self._handler = handler
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self._handler is not None:
+            logging.getLogger(_DOCLING_MSWORD_LOGGER).removeHandler(self._handler)
+            self._handler = None
+
+    @property
+    def messages(self) -> list[str]:
+        return [r.getMessage() for r in self._records]
+
 
 _NS_CORE = {
     "dc": "http://purl.org/dc/elements/1.1/",
@@ -90,13 +131,19 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
     return out
 
 
-def _extract_via_docling(docx_path: Path) -> tuple[str, str]:
-    """Returns (markdown, 'docling'). Raises on Docling errors."""
+def _extract_via_docling(docx_path: Path) -> tuple[str, str, list[str]]:
+    """Returns (markdown, 'docling', captured_warnings).
+
+    ``captured_warnings`` is the list of WARNING+ messages emitted by
+    Docling's ``msword_backend`` logger during the conversion. It is
+    empty for clean runs. Raises on Docling errors.
+    """
     from docling.document_converter import DocumentConverter
 
     converter = DocumentConverter()
-    result = converter.convert(str(docx_path))
-    return result.document.export_to_markdown(), "docling"
+    with _DoclingMswordWarningCapture() as cap:
+        result = converter.convert(str(docx_path))
+    return result.document.export_to_markdown(), "docling", list(cap.messages)
 
 
 def _extract_via_mammoth(docx_path: Path, options: PipelineOptions) -> tuple[str, str]:
@@ -139,15 +186,18 @@ def convert_docx(
             )
             return False
 
+        docling_warnings: list[str] = []
         if options.backend == "mammoth":
             md_text, extracted_via = _extract_via_mammoth(docx_path, options)
             lane = "text"
         elif options.backend == "docling":
-            md_text, extracted_via = _extract_via_docling(docx_path)
+            md_text, extracted_via, docling_warnings = _extract_via_docling(docx_path)
             lane = "structured"
         elif has_docling():
             try:
-                md_text, extracted_via = _extract_via_docling(docx_path)
+                md_text, extracted_via, docling_warnings = _extract_via_docling(
+                    docx_path
+                )
                 lane = "structured"
             except Exception as e:  # noqa: BLE001 — fall back rather than fail
                 print(
@@ -157,9 +207,33 @@ def convert_docx(
                 )
                 md_text, extracted_via = _extract_via_mammoth(docx_path, options)
                 lane = "text"
+                docling_warnings = []
         else:
             md_text, extracted_via = _extract_via_mammoth(docx_path, options)
             lane = "text"
+
+        # v1.0.5: Docling's DOCX backend silently drops list items in a
+        # known malformed-input path. When any msword_backend warning
+        # fires, swap the Docling output for the mammoth lane (different
+        # parser, generally more permissive). Captured warnings are
+        # forwarded into the run-level warning bucket so --strict still
+        # fails on them.
+        if (
+            docling_warnings
+            and options.docx_fallback_on_warn
+            and extracted_via == "docling"
+        ):
+            print(
+                f"  FALLBACK: {docx_path.name} -- Docling emitted "
+                f"{len(docling_warnings)} msword_backend warning(s); "
+                f"re-running via mammoth (content may have been dropped "
+                f"by Docling).",
+                file=sys.stderr,
+            )
+            md_text, _ = _extract_via_mammoth(docx_path, options)
+            extracted_via = "docling→mammoth (warning fallback)"
+            lane = "text"
+            add_warnings([f"docling.msword_backend: {m}" for m in docling_warnings])
 
         md_text, warnings = pipeline.run(md_text, lane, options)
         add_warnings(warnings)
