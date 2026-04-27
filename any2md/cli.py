@@ -20,6 +20,7 @@ from any2md.converters import (
     set_output_mode,
 )
 from any2md.converters.html import convert_url
+from any2md.frontmatter import filter_reserved_overrides
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename, url_to_filename
 
@@ -170,6 +171,11 @@ def main():
         help="Promote pipeline validation warnings to errors (exit 3).",
     )
     parser.add_argument(
+        "--no-config",
+        action="store_true",
+        help="Skip .any2md.toml auto-discovery (overrides default walk-up).",
+    )
+    parser.add_argument(
         "--docx-fallback-on-warn",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -222,7 +228,7 @@ def main():
     overrides: dict[str, Any] = {}
     auto_id_prefix, auto_id_type_code = "LOCAL", "DOC"
 
-    discovered = discover_config()
+    discovered = None if args.no_config else discover_config()
     if discovered is not None:
         cfg = load_toml(discovered)
         overrides = _deep_merge_overrides(overrides, extract_meta_overrides(cfg))
@@ -249,6 +255,9 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     overrides = _deep_merge_overrides(overrides, cli_meta)
+    overrides = filter_reserved_overrides(
+        overrides, source_label="--meta/--meta-file/.any2md.toml"
+    )
 
     if (
         args.high_fidelity

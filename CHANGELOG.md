@@ -4,6 +4,89 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.6] — 2026-04-27
+
+Security hardening release. Closes 8 actionable findings from the
+2026-04-27 multi-tool audit (semgrep + trivy + gitleaks + bandit +
+pip-audit + manual review by the security-engineer agent + Opus 4.7).
+No public API changes; behavior unchanged for legitimate inputs.
+
+### Security
+
+- **F1 (HIGH)** SSRF: replaced `trafilatura.fetch_url` and the bare
+  `urllib.request.urlopen` paths with a new `any2md/_http.py` module
+  that does manual redirect walking with per-hop revalidation. Defends
+  against DNS-rebinding and redirect-based bypass of the IP-class
+  check. New `validate_url` rejects non-http(s) schemes and
+  private/loopback/link-local/reserved targets. 20 MB body cap, 3-hop
+  redirect cap, redirect-loop detection. Applied to `convert_url`,
+  `_http_last_modified`, and `arxiv_lookup`.
+- **F5 (MED)** `--meta` integrity: `content_hash`, `extracted_via`,
+  `source_file`, `lane`, `token_estimate`, `recommended_chunk_level`
+  are now **reserved** and silently filtered from `--meta` /
+  `--meta-file` / `.any2md.toml` overrides with a stderr `WARN` per
+  drop. Defense-in-depth filter also runs inside `frontmatter.compose`.
+- **F3 (MED)** TOML auto-discovery now stops at the first ancestor
+  containing `.git` / `pyproject.toml` / `setup.py` / `setup.cfg` /
+  `package.json` / `.any2md.toml.boundary`. New `--no-config` flag
+  fully disables discovery.
+- **F4 (MED)** DOCX zip-bomb: `_safe_zip_open` enforces a 1 MB cap on
+  the declared uncompressed size of `core.xml` and `app.xml` before
+  parsing. Oversized members raise `ValueError` → clean per-file FAIL.
+- **F-CVE (MED)** Dependency floors bumped: `lxml>=6.1.0,<7`
+  (CVE-2026-41066), `pillow>=12.2.0,<13` (CVE-2026-25990,
+  CVE-2026-40192), `urllib3>=2.6.3,<3` (CVE-2026-21441). All ranges
+  acquire upper bounds (compat envelope). `requirements.txt` becomes
+  a development/CI lockfile with exact pins.
+- **F6 (LOW)** Atomic writes: new `any2md.utils.atomic_write_text`
+  writes via `tempfile.mkstemp` + `os.replace`. Refuses to overwrite
+  a pre-existing symlink at the output path. Wired through
+  `pdf/docx/html/txt` converters; PDF image extraction adds a symlink
+  check before `pil_image.save`.
+- **F2 (LOW)** Control-char sanitizer strips C0/C1 controls (preserves
+  `\t`, `\n`) from captured Docling `msword_backend` warnings before
+  forwarding them to `collected_warnings()` and stderr. Defends
+  terminals from ANSI-escape spoofing.
+- **F11 (LOW)** PDF image-dir name now goes through `safe_dir_name`
+  (alphanumeric/`_`/`-` only). Closes a `Path.stem == ".."` corner
+  case that co-mingled images with markdown outputs.
+- **XXE defense-in-depth**: migrated `xml.etree.ElementTree` →
+  `defusedxml.ElementTree` in `docx.py` and `heuristics.py`. Stdlib
+  was already safe in Python 3.7+; this silences bandit B405/B314
+  permanently and protects against future stdlib regressions.
+
+### Added
+
+- New module `any2md/_http.py` (`validate_url`, `safe_fetch`).
+- New CLI flag `--no-config`.
+- New helpers `any2md.utils.atomic_write_text` and `safe_dir_name`.
+- New runtime dependency: `defusedxml>=0.7.1,<1`.
+
+### Tests
+
+- 7 new unit-test files (40 new tests): `test_http_safe.py`,
+  `test_meta_reserved_keys.py`, `test_config_walkup.py`,
+  `test_zipbomb_guard.py`, `test_atomic_write.py`,
+  `test_safe_dir_name.py`, `test_log_sanitizer.py`.
+- Existing 290 tests continue to pass.
+- Bandit audit went from **9 findings** (3 medium, 6 low) to **1 low**
+  (legitimate `try/except/pass` in arxiv `_warn`).
+- 5-DOCX regression run reproduces v1.0.5 word counts exactly
+  (978/6726/15566/7811/1477).
+
+### Audit summary
+
+| ID | Title | Severity |
+|----|-------|----------|
+| F1 | SSRF: DNS rebind + redirect bypass | High |
+| F5 | `--meta` clobbers reserved frontmatter | Medium |
+| F3 | TOML discovery walks above project root | Medium |
+| F4 | DOCX zip-bomb amplification | Medium |
+| F-CVE | Transitive deps with known CVEs | Medium |
+| F6 | Symlink-following on output writes | Low |
+| F2 | Control-char passthrough in Docling logs | Low |
+| F11 | PDF stem `..` corner case | Low |
+
 ## [1.0.5] — 2026-04-27
 
 Patch release. Recovers DOCX content that Docling's msword backend

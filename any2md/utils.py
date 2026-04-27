@@ -6,7 +6,9 @@ modules (any2md/frontmatter.py, any2md/pipeline/cleanup.py).
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 import urllib.parse
 from pathlib import Path
 
@@ -43,12 +45,54 @@ def strip_links(text: str) -> str:
     return _LINK_RE.sub(r"\1", text)
 
 
+def atomic_write_text(out_path: Path, content: str) -> None:
+    """Write text atomically; refuse to clobber a symlink target.
+
+    Creates a sibling temp file in ``out_path``'s parent dir, fsyncs,
+    then ``os.replace``s it over ``out_path``. If ``out_path`` is a
+    pre-existing symlink, raises ``ValueError`` rather than overwriting
+    whatever the link points to. Defends against symlink-redirect
+    attacks at the output path and partial-write windows for concurrent
+    readers.
+    """
+    if out_path.is_symlink():
+        raise ValueError(f"refusing to write through symlink: {out_path}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_str = tempfile.mkstemp(
+        prefix=".any2md-", suffix=".tmp", dir=out_path.parent
+    )
+    tmp_path = Path(tmp_str)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, out_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 def read_text_with_fallback(path: Path) -> str:
     """Read a text file, trying utf-8 first then falling back to latin-1."""
     try:
         return path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return path.read_text(encoding="latin-1")
+
+
+def safe_dir_name(name: str) -> str:
+    """Conservative directory-name sanitizer: alphanumeric/_/- only.
+
+    Used for output sub-directories whose name comes from an untrusted
+    input filename stem. Replaces every non-allowed char with ``_``,
+    collapses runs of ``_``, strips leading/trailing ``_``, and falls
+    back to ``"untitled"`` for empty results.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9_-]", "_", name)
+    cleaned = _COLLAPSE_UNDERSCORES_RE.sub("_", cleaned)
+    cleaned = cleaned.strip("_") or "untitled"
+    return cleaned
 
 
 def url_to_filename(url: str) -> str:

@@ -1,7 +1,10 @@
-pymupdf>=1.24.0
-pymupdf4llm>=0.0.17
-mammoth>=1.6.0
-markdownify>=0.13.0
-trafilatura>=1.12.0
-beautifulsoup4>=4.12.0
-lxml>=5.0.0
+pymupdf==1.27.2.3
+pymupdf4llm==0.3.4
+mammoth==1.12.0
+markdownify==1.2.2
+trafilatura==2.0.0
+beautifulsoup4==4.14.3
+lxml==6.1.0
+pillow==12.2.0
+urllib3==2.6.3
+defusedxml==0.7.1

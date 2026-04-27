@@ -10,13 +10,53 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import sys
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date as _date_cls
 from typing import Any, Literal
 
 from any2md import heuristics
 from any2md.pipeline import Lane, PipelineOptions
+
+
+_RESERVED_OVERRIDE_KEYS = frozenset(
+    {
+        "content_hash",
+        "token_estimate",
+        "recommended_chunk_level",
+        "extracted_via",
+        "source_file",
+        "lane",
+    }
+)
+
+
+def filter_reserved_overrides(
+    overrides: Mapping[str, Any] | None,
+    *,
+    source_label: str = "overrides",
+) -> dict[str, Any] | None:
+    """Drop top-level reserved keys; emit stderr WARN per drop.
+
+    Reserved keys are derived from the source document and must not be
+    overridable via ``--meta``, ``--meta-file``, or ``.any2md.toml``.
+    Nested dicts under non-reserved keys are returned untouched.
+    """
+    if overrides is None:
+        return None
+    out: dict[str, Any] = {}
+    for k, v in overrides.items():
+        if k in _RESERVED_OVERRIDE_KEYS:
+            print(
+                f"  WARN: ignoring {source_label} key {k!r} "
+                f"— reserved (derived from source).",
+                file=sys.stderr,
+            )
+            continue
+        out[k] = v
+    return out
 
 
 def compute_content_hash(body: str) -> str:
@@ -329,6 +369,7 @@ def compose(
     4. Emit YAML frontmatter in spec §3.2-3.4 order and concatenate the body.
     """
     body = _normalize_body(body)
+    overrides = filter_reserved_overrides(overrides, source_label="compose()")
     fields = _build_fields(body, meta, options)
     if overrides:
         fields = _deep_merge(fields, overrides)

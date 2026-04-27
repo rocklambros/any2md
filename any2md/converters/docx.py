@@ -10,9 +10,12 @@ produces the markdown body.
 from __future__ import annotations
 
 import logging
+import re
 import sys
-import xml.etree.ElementTree as ET
 import zipfile
+
+from defusedxml.ElementTree import ParseError as _XmlParseError
+from defusedxml.ElementTree import parse as _xml_parse
 from datetime import date
 from pathlib import Path
 
@@ -25,10 +28,43 @@ from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
-from any2md.utils import sanitize_filename
+from any2md.utils import atomic_write_text, sanitize_filename
 
 
 _DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
+
+_LOG_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _sanitize_log_text(s: str) -> str:
+    """Strip ASCII C0/C1 control chars from a log message before re-emission.
+
+    Defends terminals from ANSI-escape spoofing planted in malicious DOCX
+    content that surfaces as a Docling msword_backend warning. ``\\t``
+    and ``\\n`` are preserved (not in the strip class).
+    """
+    return _LOG_CONTROL_CHARS_RE.sub("", s)
+
+
+_MAX_DOCX_METADATA_SIZE = 1 * 1024 * 1024  # 1 MB; core.xml/app.xml are typically <10 KB
+
+
+def _safe_zip_open(
+    z: zipfile.ZipFile, name: str, max_size: int = _MAX_DOCX_METADATA_SIZE
+):
+    """Open a fixed-name DOCX member after a declared-size sanity check.
+
+    Defends against zip-bomb amplification: a malicious DOCX can declare
+    an uncompressed_size of 10 GB for ``core.xml`` and bomb the XML
+    parser. Raises ``ValueError`` (caught by ``convert_docx``'s existing
+    handler -> file fails cleanly).
+    """
+    info = z.getinfo(name)
+    if info.file_size > max_size:
+        raise ValueError(
+            f"{name} declared size {info.file_size} exceeds {max_size}-byte limit"
+        )
+    return z.open(name)
 
 
 class _DoclingMswordWarningCapture:
@@ -89,8 +125,8 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
     try:
         with zipfile.ZipFile(docx_path) as z:
             try:
-                with z.open("docProps/core.xml") as f:
-                    root = ET.parse(f).getroot()
+                with _safe_zip_open(z, "docProps/core.xml") as f:
+                    root = _xml_parse(f).getroot()
                 title = root.findtext("dc:title", namespaces=_NS_CORE)
                 if title:
                     out["title_hint"] = title.strip()
@@ -105,8 +141,8 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
             except KeyError:
                 pass
             try:
-                with z.open("docProps/app.xml") as f:
-                    root = ET.parse(f).getroot()
+                with _safe_zip_open(z, "docProps/app.xml") as f:
+                    root = _xml_parse(f).getroot()
                 company = root.findtext("ext:Company", namespaces=_NS_APP)
                 application = root.findtext("ext:Application", namespaces=_NS_APP)
                 # v1.0.2: Company takes priority for `organization` (real
@@ -126,7 +162,7 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
                     out["produced_by"] = app_result.produced_by
             except KeyError:
                 pass
-    except (zipfile.BadZipFile, ET.ParseError):
+    except (zipfile.BadZipFile, _XmlParseError):
         pass
     return out
 
@@ -233,7 +269,12 @@ def convert_docx(
             md_text, _ = _extract_via_mammoth(docx_path, options)
             extracted_via = "docling→mammoth (warning fallback)"
             lane = "text"
-            add_warnings([f"docling.msword_backend: {m}" for m in docling_warnings])
+            add_warnings(
+                [
+                    f"docling.msword_backend: {_sanitize_log_text(m)}"
+                    for m in docling_warnings
+                ]
+            )
 
         md_text, warnings = pipeline.run(md_text, lane, options)
         add_warnings(warnings)
@@ -260,7 +301,7 @@ def convert_docx(
         full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(full, encoding="utf-8", newline="\n")
+        atomic_write_text(out_path, full)
         wc = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():

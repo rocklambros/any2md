@@ -11,7 +11,7 @@ from any2md import pipeline
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
-from any2md.utils import read_text_with_fallback, sanitize_filename
+from any2md.utils import atomic_write_text, read_text_with_fallback, sanitize_filename
 
 # Existing structurize() heuristic stays in this file from v0.7 — keep it.
 _SEPARATOR_RE = re.compile(r"^([=\-*_~])\1{2,}\s*$")
@@ -199,7 +199,7 @@ def convert_txt(
         full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(full, encoding="utf-8", newline="\n")
+        atomic_write_text(out_path, full)
         word_count = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():

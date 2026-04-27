@@ -22,7 +22,7 @@ from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
-from any2md.utils import sanitize_filename
+from any2md.utils import atomic_write_text, safe_dir_name, sanitize_filename
 
 
 def _parse_pdf_authors(raw: str | None) -> list[str]:
@@ -140,7 +140,7 @@ def _extract_via_docling(
     if options.save_images:
         pictures = getattr(result.document, "pictures", None) or []
         if pictures:
-            images_dir = output_dir / "images" / pdf_path.stem
+            images_dir = output_dir / "images" / safe_dir_name(pdf_path.stem)
             images_dir.mkdir(parents=True, exist_ok=True)
             for i, picture in enumerate(pictures):
                 try:
@@ -148,6 +148,12 @@ def _extract_via_docling(
                     if pil_image is None:
                         continue
                     img_path = images_dir / f"img{i + 1}.png"
+                    if img_path.exists() and img_path.is_symlink():
+                        print(
+                            f"  WARN: skipping image {i + 1}: target is a symlink.",
+                            file=sys.stderr,
+                        )
+                        continue
                     pil_image.save(str(img_path))
                 except Exception as e:  # noqa: BLE001
                     print(
@@ -265,7 +271,7 @@ def convert_pdf(
         full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(full, encoding="utf-8", newline="\n")
+        atomic_write_text(out_path, full)
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
             print(f"  OK: {out_name} ({page_count} pages, via {extracted_via}{suffix})")

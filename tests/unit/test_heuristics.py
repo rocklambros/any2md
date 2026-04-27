@@ -6,9 +6,7 @@ See spec §4 (heuristics module contract) and plan Batch A.
 from __future__ import annotations
 
 import socket
-from io import BytesIO
 from unittest.mock import MagicMock, patch
-from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -427,14 +425,18 @@ class _FakeResponse:
         return self._body
 
 
+def _safe_fetch_returning(
+    body: bytes, headers: dict | None = None, err: str | None = None
+):
+    """Helper: build a stub safe_fetch() returning the given tuple."""
+    return lambda *a, **kw: (body, headers or {}, err)
+
+
 class TestArxivLookup:
     def test_successful_response_returns_metadata(self):
-        with (
-            patch("socket.getaddrinfo", _public_ip_addrinfo),
-            patch(
-                "urllib.request.urlopen",
-                return_value=_FakeResponse(_ARXIV_SAMPLE_XML),
-            ),
+        with patch(
+            "any2md._http.safe_fetch",
+            _safe_fetch_returning(_ARXIV_SAMPLE_XML),
         ):
             result = heuristics.arxiv_lookup("2501.17755")
         assert result is not None
@@ -449,16 +451,11 @@ class TestArxivLookup:
         def fake_add_warnings(ws):
             warnings_collected.append(list(ws))
 
-        err = HTTPError(
-            "https://export.arxiv.org/api/query?id_list=bad",
-            404,
-            "Not Found",
-            {},
-            BytesIO(b""),
-        )
         with (
-            patch("socket.getaddrinfo", _public_ip_addrinfo),
-            patch("urllib.request.urlopen", side_effect=err),
+            patch(
+                "any2md._http.safe_fetch",
+                _safe_fetch_returning(None, None, "HTTP 404"),
+            ),
             patch(
                 "any2md.converters.add_warnings",
                 fake_add_warnings,
@@ -480,10 +477,9 @@ class TestArxivLookup:
             warnings_collected.append(list(ws))
 
         with (
-            patch("socket.getaddrinfo", _public_ip_addrinfo),
             patch(
-                "urllib.request.urlopen",
-                side_effect=URLError("timed out"),
+                "any2md._http.safe_fetch",
+                _safe_fetch_returning(None, None, "fetch error: timed out"),
             ),
             patch(
                 "any2md.converters.add_warnings",
@@ -504,7 +500,7 @@ class TestArxivLookup:
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
 
         with (
-            patch("socket.getaddrinfo", private_addrinfo),
+            patch("any2md._http.socket.getaddrinfo", private_addrinfo),
             patch(
                 "any2md.converters.add_warnings",
                 fake_add_warnings,
@@ -524,10 +520,9 @@ class TestArxivLookup:
             warnings_collected.append(list(ws))
 
         with (
-            patch("socket.getaddrinfo", _public_ip_addrinfo),
             patch(
-                "urllib.request.urlopen",
-                return_value=_FakeResponse(b"<not valid xml"),
+                "any2md._http.safe_fetch",
+                _safe_fetch_returning(b"<not valid xml"),
             ),
             patch(
                 "any2md.converters.add_warnings",
@@ -544,10 +539,9 @@ class TestArxivLookup:
         """Verify that the warning channel is the converters.add_warnings hook."""
         mock_hook = MagicMock()
         with (
-            patch("socket.getaddrinfo", _public_ip_addrinfo),
             patch(
-                "urllib.request.urlopen",
-                side_effect=URLError("boom"),
+                "any2md._http.safe_fetch",
+                _safe_fetch_returning(None, None, "fetch error: boom"),
             ),
             patch(
                 "any2md.converters.add_warnings",

@@ -530,8 +530,8 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
     SSRF-guarded same as html.py (validate IPs against private/
     reserved/loopback). Timeout: 5s default. Single attempt, no retry.
     """
-    import urllib.request
-    import xml.etree.ElementTree as ET
+    from defusedxml.ElementTree import ParseError as _XmlParseError
+    from defusedxml.ElementTree import fromstring as _xml_fromstring
 
     url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
 
@@ -544,32 +544,24 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
         except Exception:  # noqa: BLE001
             pass
 
-    # SSRF guard (lazy import)
+    # Fetch via shared SSRF-safe helper (handles scheme, IP-class
+    # validation, and per-hop revalidation across redirects).
     try:
-        from any2md.converters.html import _validate_url_host
-
-        err = _validate_url_host(url)
-        if err:
-            _warn(f"arxiv lookup blocked: {err}")
-            return None
+        from any2md._http import safe_fetch
     except Exception as e:  # noqa: BLE001
-        _warn(f"arxiv lookup SSRF check failed: {e}")
+        _warn(f"arxiv lookup _http import failed: {e}")
         return None
+    body, _headers, err = safe_fetch(url)
+    if err:
+        _warn(f"arxiv lookup blocked or failed: {err}")
+        return None
+    if body is None:
+        return None
+    data = body
 
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            status = getattr(resp, "status", 200)
-            if status != 200:
-                _warn(f"arxiv lookup HTTP {status} for {arxiv_id}")
-                return None
-            data = resp.read()
-    except Exception as e:  # noqa: BLE001
-        _warn(f"arxiv lookup failed for {arxiv_id}: {e}")
-        return None
-
-    try:
-        root = ET.fromstring(data)
-    except ET.ParseError as e:
+        root = _xml_fromstring(data)
+    except _XmlParseError as e:
         _warn(f"arxiv lookup XML parse error for {arxiv_id}: {e}")
         return None
 

@@ -42,17 +42,31 @@ def load_toml(path: Path) -> dict[str, Any]:
         return {}
 
 
+_PROJECT_BOUNDARY_MARKERS = (
+    ".git",
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "package.json",
+    ".any2md.toml.boundary",
+)
+
+
 def discover_config(start: Path | None = None) -> Path | None:
     """Walk up from ``start`` (default: cwd) looking for ``.any2md.toml``.
 
-    Returns the first match found or ``None`` if no config exists in
-    any ancestor directory.
+    Stops at the first ancestor containing a project boundary marker
+    (``.git``, ``pyproject.toml``, ``setup.py``, ``setup.cfg``,
+    ``package.json``, or ``.any2md.toml.boundary``) so config in
+    unrelated parent directories cannot leak into a project's run.
     """
     cur = (start or Path.cwd()).resolve()
     while True:
         candidate = cur / ".any2md.toml"
         if candidate.is_file():
             return candidate
+        if any((cur / m).exists() for m in _PROJECT_BOUNDARY_MARKERS):
+            return None
         if cur.parent == cur:
             return None
         cur = cur.parent
