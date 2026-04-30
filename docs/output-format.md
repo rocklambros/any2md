@@ -33,8 +33,8 @@ because every field in this document has a derivation rule that's tested.
 
 ## The SAGE connection
 
-any2md's frontmatter is **SAGE-compatible**. SAGE (Structured Security
-Reasoning Markdown) is a documented schema for LLM-consumable security
+any2md's frontmatter is **SAGE-compatible**. SAGE (Security Analysis
+and Guidance Exchange) is a documented schema for LLM-consumable security
 research documents — its primary audience is producers of threat intelligence
 and security guidance who want a stable shape for downstream RAG and LLM
 analysis. SAGE v1.0-RC1 is the version this contract tracks.
