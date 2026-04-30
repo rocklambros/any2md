@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restructure any2md into the v1.0 architecture (centralized frontmatter + pipeline + SourceMeta) and rewire all 4 existing converters through it without changing extraction backends. End state: every output file carries SSRM-compatible frontmatter with deterministic `content_hash`, body is NFC-normalized + LF-ended, and a `1.0.0a1` prerelease lands on TestPyPI.
+**Goal:** Restructure any2md into the v1.0 architecture (centralized frontmatter + pipeline + SourceMeta) and rewire all 4 existing converters through it without changing extraction backends. End state: every output file carries SAGE-compatible frontmatter with deterministic `content_hash`, body is NFC-normalized + LF-ended, and a `1.0.0a1` prerelease lands on TestPyPI.
 
 **Architecture:** Two-lane post-processing pipeline (structured / text), shared cleanup stages always last, single YAML emitter (`frontmatter.py`). In Phase 1 the structured lane is empty (no Docling yet) and the text lane is empty (T1–T6 land in Phase 3); only the shared cleanup C1–C7 runs.
 
@@ -736,7 +736,7 @@ Expected: FAIL with `ModuleNotFoundError: any2md.frontmatter`.
 - [ ] **Step 3: Create `any2md/frontmatter.py` skeleton**
 
 ```python
-"""SSRM-compatible YAML frontmatter emitter.
+"""SAGE-compatible YAML frontmatter emitter.
 
 See spec §3 (frontmatter contract) and §5.0 (SourceMeta dataclass).
 This module is the single producer of the YAML block — converters
@@ -842,7 +842,7 @@ Stage = Callable[[str, "PipelineOptions"], str]
 
 
 def nfc_normalize(text: str, _options: "PipelineOptions") -> str:
-    """C1: NFC unicode normalization. Required by SSRM §5.1 for content_hash."""
+    """C1: NFC unicode normalization. Required by SAGE §5.1 for content_hash."""
     return unicodedata.normalize("NFC", text)
 
 
@@ -1502,7 +1502,7 @@ git commit -m "feat(pipeline): C7 validate (read-only, emits warnings)"
 
 ```python
 # tests/unit/test_content_hash.py
-"""Tests for content_hash determinism (SSRM §5.1)."""
+"""Tests for content_hash determinism (SAGE §5.1)."""
 
 from any2md.frontmatter import compute_content_hash
 
@@ -1557,7 +1557,7 @@ import unicodedata
 
 
 def compute_content_hash(body: str) -> str:
-    """SHA-256 of NFC-normalized, LF-line-ended body. SSRM §5.1.
+    """SHA-256 of NFC-normalized, LF-line-ended body. SAGE §5.1.
 
     The body MUST be the post-pipeline output (after C1–C5). This function
     re-applies NFC and LF normalization defensively so callers can pass any
@@ -1898,7 +1898,7 @@ git commit -m "feat(frontmatter): derive_title with H1/hint/filename fallback ch
 
 ---
 
-## Task 21: Frontmatter `compose()` — full SSRM-compatible YAML emitter
+## Task 21: Frontmatter `compose()` — full SAGE-compatible YAML emitter
 
 **Files:**
 - Modify: `any2md/frontmatter.py`
@@ -1908,7 +1908,7 @@ git commit -m "feat(frontmatter): derive_title with H1/hint/filename fallback ch
 
 ```python
 # tests/unit/test_frontmatter_compose.py
-"""Tests for frontmatter.compose() — SSRM-compatible output."""
+"""Tests for frontmatter.compose() — SAGE-compatible output."""
 
 from datetime import date
 
@@ -1945,7 +1945,7 @@ def _meta(**overrides) -> SourceMeta:
     return SourceMeta(**base)
 
 
-def test_compose_emits_required_ssrm_fields():
+def test_compose_emits_required_sage_fields():
     body = "# Title\n\nbody\n"
     out = compose(body, _meta(), PipelineOptions())
     fm, _ = _split_frontmatter(out)
@@ -2092,7 +2092,7 @@ def _emit_array(values: list[str]) -> str:
 
 
 def compose(body: str, meta: SourceMeta, options: PipelineOptions) -> str:
-    """Build a complete SSRM-compatible Markdown document.
+    """Build a complete SAGE-compatible Markdown document.
 
     Steps:
     1. Normalize body to NFC + LF endings (matches content_hash invariant).
@@ -2117,7 +2117,7 @@ def compose(body: str, meta: SourceMeta, options: PipelineOptions) -> str:
     today = _date_cls.today().isoformat()
     fm_date = meta.date or today
 
-    # 3. Emit YAML in SSRM-defined order
+    # 3. Emit YAML in SAGE-defined order
     lines: list[str] = ["---"]
     lines.append(f"title: {_emit_value(title)}")
     lines.append('document_id: ""')
@@ -2163,7 +2163,7 @@ Expected: all PASS.
 
 ```bash
 git add any2md/frontmatter.py tests/unit/test_frontmatter_compose.py
-git commit -m "feat(frontmatter): compose() SSRM-compatible YAML emitter"
+git commit -m "feat(frontmatter): compose() SAGE-compatible YAML emitter"
 ```
 
 ---
@@ -2283,7 +2283,7 @@ from any2md.cli import main
 from any2md.pipeline import PipelineOptions
 
 
-def test_txt_end_to_end_writes_ssrm_compat_output(fixture_dir, tmp_output_dir, monkeypatch):
+def test_txt_end_to_end_writes_sage_compat_output(fixture_dir, tmp_output_dir, monkeypatch):
     monkeypatch.setattr(
         "sys.argv",
         ["any2md", "-o", str(tmp_output_dir), str(fixture_dir / "ligatures_and_softhyphens.txt")],
@@ -2478,7 +2478,7 @@ def convert_txt(
     force: bool = False,
     strip_links_flag: bool = False,
 ) -> bool:
-    """Convert a plain-text file to v1.0 SSRM-compatible Markdown."""
+    """Convert a plain-text file to v1.0 SAGE-compatible Markdown."""
     if options is None:
         options = PipelineOptions(strip_links=strip_links_flag)
 
@@ -3467,7 +3467,7 @@ echo
 echo "Outputs:"
 ls -la "$OUT_DIR"
 echo
-echo "Inspect each for: SSRM frontmatter, content_hash present, body NFC + LF, no garbled chars."
+echo "Inspect each for: SAGE frontmatter, content_hash present, body NFC + LF, no garbled chars."
 ```
 
 - [ ] **Step 2: Make executable + run**
@@ -3600,12 +3600,12 @@ Replace the `## [Unreleased]` heading and contents with:
 
 This is the first prerelease of any2md v1.0. Phase 1 of 5: foundation only.
 No Docling, no new CLI flags. Output frontmatter has been rewritten to be
-SSRM-compatible — this is a breaking change for downstream consumers
+SAGE-compatible — this is a breaking change for downstream consumers
 parsing v0.7 output. See `docs/superpowers/specs/2026-04-26-any2md-v1-design.md`
 for the full v1.0 design.
 
 ### Added
-- New `any2md/frontmatter.py` module (SSRM-compatible YAML emitter, `SourceMeta`).
+- New `any2md/frontmatter.py` module (SAGE-compatible YAML emitter, `SourceMeta`).
 - New `any2md/pipeline/` package with shared cleanup stages C1–C7
   (NFC normalization, soft-hyphen strip, ligature normalization,
   quote/dash normalization, whitespace collapse, footnote-marker strip,
@@ -3615,7 +3615,7 @@ for the full v1.0 design.
 - pytest test suite covering pipeline, frontmatter, validators, and per-format integration.
 
 ### Changed
-- **BREAKING:** Output frontmatter shape is SSRM-compatible. New required fields:
+- **BREAKING:** Output frontmatter shape is SAGE-compatible. New required fields:
   `document_id` (empty), `version`, `date`, `status: "draft"`, `document_type` (empty),
   `content_domain`, `authors`, `organization`, `generation_metadata`, `content_hash`.
   `source_file`, `pages`, `word_count`, and `type` are retained as any2md
@@ -3715,7 +3715,7 @@ PYTHONPATH=/tmp/any2md_test_install python -m any2md \
 head -20 /tmp/any2md_smoke/web_page.md
 ```
 
-Expected: help text shows; web_page.md has SSRM-compat frontmatter.
+Expected: help text shows; web_page.md has SAGE-compat frontmatter.
 
 - [ ] **Step 8: Final commit (none needed — everything already committed)**
 
@@ -3763,7 +3763,7 @@ Approximate critical path: A → C → D/E → F → G → H → I = 12 sequenti
 ## Self-review summary
 
 Spec coverage:
-- §3 Frontmatter contract → Tasks 8, 16–22 (full SSRM-compat shape, content_hash, all derivation helpers).
+- §3 Frontmatter contract → Tasks 8, 16–22 (full SAGE-compat shape, content_hash, all derivation helpers).
 - §4 Pipeline (C1–C7) → Tasks 9–15. Text/structured lanes registered empty in Task 7 (Phase 2/3 fill them).
 - §5 Per-format converters → Tasks 23–26 (TXT, HTML, DOCX, PDF). Phase 1 PDF is pymupdf4llm only.
 - §6 CLI → Task 27 preserves v0.7 flags routing through new pipeline. New flags are Phase 4.

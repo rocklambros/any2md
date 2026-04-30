@@ -31,22 +31,22 @@ non-empty, single-line, and YAML-escaped. None of those guarantees come free —
 they exist because every any2md output goes through the same final emitter and
 because every field in this document has a derivation rule that's tested.
 
-## The SSRM connection
+## The SAGE connection
 
-any2md's frontmatter is **SSRM-compatible**. SSRM (Structured Security
-Reasoning Markdown) is a documented schema for LLM-consumable security
+any2md's frontmatter is **SAGE-compatible**. SAGE (Security Analysis
+and Guidance Exchange) is a documented schema for LLM-consumable security
 research documents — its primary audience is producers of threat intelligence
 and security guidance who want a stable shape for downstream RAG and LLM
-analysis. SSRM v1.0-RC1 is the version this contract tracks.
+analysis. SAGE v1.0-RC1 is the version this contract tracks.
 
 "Compatible" rather than "strict" because most documents any2md converts are
-not security research. SSRM has fields with controlled vocabularies —
+not security research. SAGE has fields with controlled vocabularies —
 `document_type`, `content_domain`, `tlp`, `frameworks_referenced` — that don't
-have plausible defaults for an arbitrary PDF or web page. Strict SSRM
+have plausible defaults for an arbitrary PDF or web page. Strict SAGE
 validators reject empty or unknown values for those fields. any2md's choice is
 to emit the fields with empty defaults (`""` or `[]`) and `status: "draft"`, so
-the output is machine-readable in the SSRM shape but doesn't claim to be a
-finished SSRM document. If you produce real SSRM-conforming security research,
+the output is machine-readable in the SAGE shape but doesn't claim to be a
+finished SAGE document. If you produce real SAGE-conforming security research,
 populate those fields explicitly via [`--meta` or `.any2md.toml`](cli-reference.md#configuration-meta-and-meta-file).
 
 The fields below are grouped: identity, classification, provenance, integrity,
@@ -134,15 +134,15 @@ records when any2md wrote it).
 
 **auto** | type: `string` (controlled vocabulary)
 
-**Derivation:** Always `"draft"` for converted documents. SSRM allows
+**Derivation:** Always `"draft"` for converted documents. SAGE allows
 non-controlled-vocab values for other fields when `status` is `"draft"`, which
 is why this is the default — it's how an any2md output declares "I have an
-SSRM-compatible shape but I have not been authored as SSRM."
+SAGE-compatible shape but I have not been authored as SAGE."
 
 **Example:** `"draft"`
 
 **Common mistake:** Overriding to `"published"` via `--meta` for documents
-that haven't actually been reviewed. SSRM consumers may treat
+that haven't actually been reviewed. SAGE consumers may treat
 `status: "published"` as a signal that the controlled-vocabulary fields are
 trustworthy. Don't claim a status the content doesn't earn.
 
@@ -150,7 +150,7 @@ trustworthy. Don't claim a status the content doesn't earn.
 
 **user** | type: `string` (controlled vocabulary or empty)
 
-**Derivation:** Empty `""` by default. SSRM defines a controlled vocabulary
+**Derivation:** Empty `""` by default. SAGE defines a controlled vocabulary
 (e.g. `"guidance"`, `"vuln_advisory"`, `"threat_report"`) but any2md cannot
 infer it from a generic document.
 
@@ -161,7 +161,7 @@ infer it from a generic document.
 
 **user** | type: `array<string>`
 
-**Derivation:** Empty `[]` by default. SSRM controlled vocabulary
+**Derivation:** Empty `[]` by default. SAGE controlled vocabulary
 (e.g. `"ai_security"`, `"cloud"`, `"identity"`).
 
 **Example empty:** `[]`
@@ -199,7 +199,7 @@ otherwise empty. User overrides commonly set this for corpus-wide attribution.
 **auto** | type: `object` (`{authored_by: string}` minimum)
 
 **Derivation:** Always emitted with `authored_by: "unknown"` because any2md
-converts content; it does not author it. SSRM's `generation_metadata` block
+converts content; it does not author it. SAGE's `generation_metadata` block
 exists to record who or what produced the document (a human, a model, a
 collaboration). If you ran any2md as part of an authoring workflow, override
 the value via `--meta generation_metadata.authored_by=human`.
@@ -218,8 +218,8 @@ generation_metadata:
 ```
 
 **Common mistake:** Adding fields under `generation_metadata` and expecting
-SSRM validators to accept them. The SSRM schema for this block has its own
-shape — consult the SSRM specification before adding non-standard subfields.
+SAGE validators to accept them. The SAGE schema for this block has its own
+shape — consult the SAGE specification before adding non-standard subfields.
 
 ### `content_hash`
 
@@ -300,7 +300,7 @@ that.
 
 **user** | type: `array<string>` and `string`
 
-**Derivation:** Empty by default. SSRM-specific fields (security frameworks
+**Derivation:** Empty by default. SAGE-specific fields (security frameworks
 the document references; traffic-light-protocol marking). User-supplied via
 `--meta` or `.any2md.toml`.
 
@@ -660,7 +660,7 @@ tampered with after generation.
 This schema describes the v1.0 frontmatter block. Conditional fields
 (`keywords`, `abstract_for_rag`, `pages`, `word_count`, `source_file`,
 `source_url`, `produced_by`) are documented here as optional; they're omitted
-from the frontmatter when not set. SSRM-only fields a user might add (`tlp`,
+from the frontmatter when not set. SAGE-only fields a user might add (`tlp`,
 `frameworks_referenced`, etc.) are listed as additional valid fields.
 
 ```json
@@ -799,7 +799,7 @@ from the frontmatter when not set. SSRM-only fields a user might add (`tlp`,
 
 The schema sets `additionalProperties: true` because users add fields via
 `--meta` and `.any2md.toml` that are not part of the v1.0 contract. A stricter
-schema for SSRM-conforming outputs would set this to `false` and add the SSRM
+schema for SAGE-conforming outputs would set this to `false` and add the SAGE
 controlled-vocabulary constraints to `document_type`, `content_domain`, and
 related fields. Use this schema as a starting point for downstream validation
 and tighten it for your environment.

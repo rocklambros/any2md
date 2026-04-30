@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.7] — 2026-04-29
+
+Branding/rebrand release. The frontmatter contract that any2md emits is
+now described as "SAGE-compatible" (Security Analysis and Guidance
+Exchange) — the upstream specification was renamed from SSRM (Structured
+Security Reasoning Markdown) to SAGE. No functional or schema changes:
+field names, ordering, controlled vocabularies, and `content_hash`
+derivation are byte-identical to v1.0.6. Existing v1.0.6 outputs remain
+valid SAGE-compatible documents without modification.
+
+### Changed
+
+- README, CHANGELOG, and all of `docs/` updated to reference SAGE /
+  Security Analysis and Guidance Exchange.
+- `--auto-id` CLI help text now reads "SAGE-conformant document_id"
+  (previously "SSRM-conformant"). Behavior unchanged.
+- Module/function docstrings in `any2md/frontmatter.py`,
+  `any2md/converters/txt.py`, and `any2md/pipeline/cleanup.py` updated
+  to reference SAGE §3 / §5.1 (same section numbers as the upstream
+  SSRM v1.0-RC1 spec).
+- Two test functions renamed for naming consistency
+  (`test_txt_end_to_end_writes_sage_compat_output`,
+  `test_compose_emits_required_sage_fields`). Pytest auto-discovery is
+  unaffected; assertions unchanged.
+
+### Migration
+
+None required. Public API, CLI flags, frontmatter shape, and
+`content_hash` outputs are all preserved bit-for-bit.
+
 ## [1.0.6] — 2026-04-27
 
 Security hardening release. Closes 8 actionable findings from the
@@ -318,7 +348,7 @@ Patch release. Adds an explicit backend-selection CLI flag.
 First stable release of any2md v1.0. Validated end-to-end against
 real-world documents (a 164-page PDF technical standard via Docling,
 a multi-page academic DOCX, and a Wikipedia article via trafilatura).
-The output contract — SSRM-compatible frontmatter, deterministic
+The output contract — SAGE-compatible frontmatter, deterministic
 `content_hash`, NFC + LF body normalization — is now stable. Downstream
 consumers can rely on this shape.
 
@@ -340,7 +370,7 @@ Phase 4: configuration, polish, and the v1.0 documentation set.
 - `--meta-file PATH` flag plus auto-discovery of `.any2md.toml` (walks up
   from cwd). The `[meta]` table supplies frontmatter overrides; the
   `[document_id]` table supplies `--auto-id` prefix and type code.
-- `--auto-id` flag — generates an SSRM-conformant `document_id` as
+- `--auto-id` flag — generates an SAGE-conformant `document_id` as
   `{PREFIX}-{YYYY}-{TYPE}-{SHA8}`. Defaults to `LOCAL`/`DOC`; override via
   the `[document_id]` table in `.any2md.toml`.
 - `--strict` flag — promotes pipeline validation warnings (heading
@@ -359,7 +389,7 @@ Phase 4: configuration, polish, and the v1.0 documentation set.
 - Comprehensive documentation set:
   - `README.md` rewritten with educational tone — every command preceded
     by why you'd run it and followed by what you'll see.
-  - `docs/output-format.md` — SSRM-compatible field reference and the
+  - `docs/output-format.md` — SAGE-compatible field reference and the
     `content_hash` recomputation recipe.
   - `docs/cli-reference.md` — flag-by-flag reference with use cases and a
     worked-example matrix.
@@ -462,14 +492,14 @@ any2md transparently falls back to pymupdf4llm (PDF) and mammoth (DOCX).
 
 First prerelease of any2md v1.0. Phase 1 of 5: foundation only — no Docling
 backend yet, no new CLI flags. Output frontmatter has been rewritten to be
-SSRM-compatible (Structured Security Reasoning Markdown) — this is a
+SAGE-compatible (Security Analysis and Guidance Exchange) — this is a
 breaking change for downstream consumers parsing v0.7 output. See
 `docs/superpowers/specs/2026-04-26-any2md-v1-design.md` for the full
 v1.0 design and `docs/superpowers/plans/2026-04-26-any2md-v1-phase1-foundation.md`
 for this phase's task plan.
 
 ### Added
-- New `any2md/frontmatter.py` module — SSRM-compatible YAML emitter with the
+- New `any2md/frontmatter.py` module — SAGE-compatible YAML emitter with the
   `SourceMeta` dataclass, deterministic `compute_content_hash`,
   `estimate_tokens`, `recommend_chunk_level`, `extract_abstract`, and
   `derive_title` helpers, plus the central `compose()` function (the only
@@ -495,7 +525,7 @@ for this phase's task plan.
   `reportlab`, `ruff`.
 
 ### Changed
-- **BREAKING:** Output frontmatter shape is now SSRM-compatible. New required
+- **BREAKING:** Output frontmatter shape is now SAGE-compatible. New required
   fields: `document_id` (empty string by default — opt-in via future
   `--auto-id`), `version`, `date`, `status: "draft"`, `document_type` (empty
   for non-security documents), `content_domain` (empty array),
