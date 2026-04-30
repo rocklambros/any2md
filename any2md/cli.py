@@ -200,7 +200,7 @@ def main():
     parser.add_argument(
         "--auto-id",
         action="store_true",
-        help="Generate an SSRM-conformant document_id of the form "
+        help="Generate an SAGE-conformant document_id of the form "
         "{PREFIX}-{YYYY}-{TYPE}-{SHA8}. Defaults: PREFIX=LOCAL, TYPE=DOC. "
         "Override via .any2md.toml [document_id] (publisher_prefix, type_code).",
     )

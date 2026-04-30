@@ -13,30 +13,30 @@
 ### 1.1 Goals
 
 1. **Eliminate conversion artifacts** that currently degrade output quality: garbled / missing text, lost tables and images, erratic reading order in multi-column documents, broken lines from PDF wrap-extraction, font-encoding artifacts (ligatures, soft hyphens, CID-font glyphs).
-2. **Emit SSRM-compatible Markdown** — frontmatter shape and body conventions matching the `template/SSRM-Specification-v1.0-RC1.md` template in this repo, populated according to a documented derivation contract.
+2. **Emit SAGE-compatible Markdown** — frontmatter shape and body conventions matching the `template/SAGE-Specification-v1.0-RC1.md` template in this repo, populated according to a documented derivation contract.
 3. **Optimize the output for RAG and context engineering** — minimize file size and total tokens while remaining lossless on semantically meaningful content.
 4. **Update all GitHub-facing documentation** to be deeply educational, not just reference.
 5. **Ship as `1.0.0`** to PyPI (and TestPyPI for pre-release validation), signaling a stable RAG-ingestion contract.
 
 ### 1.2 Non-goals (deferred)
 
-- SSRM `signature` block (key management out of scope for a CLI tool in v1.0).
+- SAGE `signature` block (key management out of scope for a CLI tool in v1.0).
 - MkDocs / Sphinx site (GitHub-rendered Markdown only).
 - New input formats beyond PDF / DOCX / HTML / URL / TXT (no XLSX, PPTX, EPUB, RTF).
 - LLM-generated `abstract_for_rag` (heuristic is sufficient for v1.0).
-- Strict SSRM conformance for non-security documents (we emit *compatible* shape, not strict validation).
+- Strict SAGE conformance for non-security documents (we emit *compatible* shape, not strict validation).
 - A `--dry-run` mode.
 
 ### 1.3 Locked decisions (from brainstorm Q&A)
 
 | # | Decision | Choice |
 |---|---|---|
-| Q1 | SSRM conformance | **B — SSRM-compatible.** Same field shape; auto-fill what's truthful; leave domain-specific vocab fields empty; emit `status: "draft"`. |
+| Q1 | SAGE conformance | **B — SAGE-compatible.** Same field shape; auto-fill what's truthful; leave domain-specific vocab fields empty; emit `status: "draft"`. |
 | Q2 | PDF backend | **B1 + extras_require.** Docling primary; pymupdf4llm fallback when Docling not installed. Install via `pip install any2md[high-fidelity]`. Clear install hint when artifact-prone PDF detected without Docling. |
 | Q3 | DOCX/HTML/TXT backends | **A.** Per-format best-of-breed: PDF → Docling, DOCX → Docling, HTML/URL → trafilatura, TXT → heuristic. trafilatura output goes through the same shared post-processing as everything else. |
 | Q4 | Image / figure handling | **B by default** (caption only). `--ocr-figures` enables Tesseract OCR inside figures. `--save-images` writes image files to a sidecar dir and links them. |
 | Q5a | Token-minimization aggressiveness | **Aggressive** (default). Lossless cleanup including TOC dedupe and footnote-marker stripping. |
-| Q5b | Auto-derived SSRM fields | Auto: `content_hash`, `token_estimate`, `recommended_chunk_level`, `abstract_for_rag` (≥500 tok docs), `date`, `authors` (when extractable), `status: draft`. Opt-in: `document_id` via `--auto-id`. Empty: `document_type`, `content_domain`, `frameworks_referenced`, `tlp` (controlled vocabulary — not derivable). |
+| Q5b | Auto-derived SAGE fields | Auto: `content_hash`, `token_estimate`, `recommended_chunk_level`, `abstract_for_rag` (≥500 tok docs), `date`, `authors` (when extractable), `status: draft`. Opt-in: `document_id` via `--auto-id`. Empty: `document_type`, `content_domain`, `frameworks_referenced`, `tlp` (controlled vocabulary — not derivable). |
 | Arch | Implementation shape | **Approach 1 + two-lane pipeline.** Functional `str → str` stages composed in fixed order. Two lanes (structured / text) merge into shared cleanup. |
 
 ---
@@ -97,7 +97,7 @@
         └────────────┬────────────┘
                      │
         ┌────────────┴────────────┐
-        │     frontmatter.py      │   SSRM-compatible
+        │     frontmatter.py      │   SAGE-compatible
         │  - merge user overrides │   YAML emitter
         │  - derive title/date/…  │
         │  - compute content_hash │
@@ -114,7 +114,7 @@
 any2md/
   cli.py                         (extended: new flags)
   utils.py                       (slimmed: most logic moves out)
-  frontmatter.py                 (new: SSRM-compat YAML emitter, SourceMeta)
+  frontmatter.py                 (new: SAGE-compat YAML emitter, SourceMeta)
   pipeline/                      (new package)
     __init__.py                  (run(text, lane, options))
     structured.py                (Docling-lane stages)
@@ -126,10 +126,10 @@ any2md/
     docx.py                      (rewritten: Docling primary)
     html.py                      (extended: post-processing applied)
     txt.py                       (extended: cleanup pass added)
-  validators.py                  (new, optional: SSRM-compat sanity warnings)
+  validators.py                  (new, optional: SAGE-compat sanity warnings)
 
 docs/
-  output-format.md               (new — SSRM-compat contract)
+  output-format.md               (new — SAGE-compat contract)
   cli-reference.md               (new — flag-by-flag with use cases)
   architecture.md                (new — pipeline internals)
   troubleshooting.md             (new — symptom → cause → fix)
@@ -153,14 +153,14 @@ pyproject.toml                   (extras_require, version 1.0.0)
 - **Each converter's job shrinks** to: produce raw markdown + a `SourceMeta` object. No frontmatter, no cleanup — both are centralized.
 - **Two pipeline lanes** because Docling-emitted markdown is layout-correct (don't run aggressive line-repair on it; tables would break); trafilatura/TXT/pymupdf4llm output benefits from heavier regex repair.
 - **Shared cleanup runs last on both lanes**, identical for every input format. This is where lossless normalization lives. It is the determinism boundary that makes `content_hash` reproducible.
-- **`frontmatter.py` is the only producer of the YAML block.** Centralizing this is what makes SSRM-compat output consistent across formats.
+- **`frontmatter.py` is the only producer of the YAML block.** Centralizing this is what makes SAGE-compat output consistent across formats.
 - **`SourceMeta` dataclass** carries per-converter signal (page count, word count, mtime, source URL, extracted authors) into `frontmatter.py` — converters no longer touch YAML.
 
 ---
 
-## 3. SSRM-compatible frontmatter contract
+## 3. SAGE-compatible frontmatter contract
 
-### 3.1 Required-by-SSRM, auto-populated
+### 3.1 Required-by-SAGE, auto-populated
 
 | Field | Source | Notes |
 |---|---|---|
@@ -169,12 +169,12 @@ pyproject.toml                   (extras_require, version 1.0.0)
 | `version` | `"1"` for source files (no embedded version found); from PDF metadata if present | String per spec. |
 | `date` | File `mtime` for local; HTTP `Last-Modified` for URL; today for TXT without mtime | ISO-8601 `YYYY-MM-DD`. |
 | `status` | `"draft"` always (locked from Q1 = B) | Conformant value. |
-| `document_type` | Empty `""` (controlled vocab — can't derive) | SSRM validators allow non-conforming when status=draft. |
+| `document_type` | Empty `""` (controlled vocab — can't derive) | SAGE validators allow non-conforming when status=draft. |
 | `content_domain` | Empty array `[]` | Controlled vocab — can't derive. |
 | `authors` | PDF `Author` / DOCX `creator` / HTML `<meta name="author">`; else `[]` | Array even if single author. |
 | `organization` | PDF/DOCX `Company` or HTML `og:site_name`; else `""` | |
 | `generation_metadata.authored_by` | `"unknown"` | Documented extension value with rationale: any2md only converts; original authorship is undetermined. |
-| `content_hash` | SHA-256 of NFC-normalized body, per SSRM §5.1 (LF line endings, NFC, hash bytes after the closing `---\n`) | Always auto-computed. 64-char lowercase hex. |
+| `content_hash` | SHA-256 of NFC-normalized body, per SAGE §5.1 (LF line endings, NFC, hash bytes after the closing `---\n`) | Always auto-computed. 64-char lowercase hex. |
 
 ### 3.2 Optional, auto-populated
 
@@ -186,7 +186,7 @@ pyproject.toml                   (extras_require, version 1.0.0)
 | `token_estimate` | `ceil(len(body_chars) / 4)` — 4 chars/token rough rule, no tiktoken dep |
 | `recommended_chunk_level` | `h3` if any H2 section's body has > 1500 estimated tokens (using the same `ceil(chars/4)` heuristic as `token_estimate`); else `h2` |
 | `abstract_for_rag` | First non-heading paragraph ≥ 80 chars after the H1, truncated to ≤ 400 chars at last sentence boundary. Skip emission if `token_estimate < 500`. |
-| `source_file` / `source_url` | Preserved from any2md's existing convention as **non-SSRM extension fields** in the same frontmatter block — needed for traceability. |
+| `source_file` / `source_url` | Preserved from any2md's existing convention as **non-SAGE extension fields** in the same frontmatter block — needed for traceability. |
 | `type`, `pages`, `word_count` | Retained as v0.7-compatible extension fields for traceability and observability. |
 
 ### 3.3 Worked example
@@ -200,7 +200,7 @@ document_id: ""                      # opt-in via --auto-id
 version: "1"
 date: "2026-03-15"                   # docx core props "modified"
 status: "draft"
-document_type: ""                    # SSRM-compat: empty for non-security docs
+document_type: ""                    # SAGE-compat: empty for non-security docs
 content_domain: []
 authors:
   - "Rock Lambros"                   # docx core props "creator"
@@ -227,7 +227,7 @@ word_count: 14289
 2. **`content_hash` is computed *after* all post-processing is finalized.** Any further edit invalidates the hash.
 3. **Body is NFC-normalized with LF line endings before hashing AND before writing to disk.** This makes recomputed hashes match.
 4. **The emitter is deterministic.** Same input + same flags → byte-identical output.
-5. **Field order in YAML matches SSRM §3.2 → §3.4 ordering.** Grouped: identity → classification → provenance → integrity → optional. Aids human diff/review.
+5. **Field order in YAML matches SAGE §3.2 → §3.4 ordering.** Grouped: identity → classification → provenance → integrity → optional. Aids human diff/review.
 6. **YAML escaping** is applied to every string field (existing `escape_yaml_string` covers it).
 7. **Empty arrays appear as `[]`, empty strings as `""`.** Never omit a required-by-shape field, even when value is empty (it's part of the contract).
 
@@ -257,8 +257,8 @@ Docling produces correctly-laid-out markdown — multi-column flow is already re
 |---|---|---|---|
 | S1 | `lift_figure_captions` | Convert Docling's `<figure>` blocks to `*Figure N: caption*` italic lines. Drops the `<img>` reference unless `--save-images` is set. | Caption-only mode (Q4 default = B). With `--ocr-figures`, append OCR'd text below the caption. |
 | S2 | `compact_tables` | Strip per-cell padding spaces inside GFM tables. Saves 5–8% on table-heavy docs. | Skip header alignment row to keep columns valid. |
-| S3 | `normalize_citations` | Coalesce `[1] [2]` → `[1][2]`; ensure citations live at clause-end before punctuation, per SSRM §4.3. | Light-touch; only acts on existing bracket numerals. |
-| S4 | `enforce_heading_hierarchy` | Guarantee single H1 (promote first heading if missing; demote subsequent H1s to H2). Ensure no skipped levels (H2 → H4 becomes H2 → H3 → H4). | Per SSRM §4.4. Emits validator warning when changes were applied. |
+| S3 | `normalize_citations` | Coalesce `[1] [2]` → `[1][2]`; ensure citations live at clause-end before punctuation, per SAGE §4.3. | Light-touch; only acts on existing bracket numerals. |
+| S4 | `enforce_heading_hierarchy` | Guarantee single H1 (promote first heading if missing; demote subsequent H1s to H2). Ensure no skipped levels (H2 → H4 becomes H2 → H3 → H4). | Per SAGE §4.4. Emits validator warning when changes were applied. |
 
 ### 4.2 TEXT lane (trafilatura, TXT, pymupdf4llm fallback, mammoth fallback)
 
@@ -275,11 +275,11 @@ This output may contain raw line-wrap artifacts, soft-hyphenation, web boilerpla
 
 ### 4.3 SHARED CLEANUP (always last; both lanes)
 
-Lossless normalization. Required by the SSRM `content_hash` invariant — the body must be NFC + LF before hashing.
+Lossless normalization. Required by the SAGE `content_hash` invariant — the body must be NFC + LF before hashing.
 
 | # | Stage | Purpose |
 |---|---|---|
-| C1 | `nfc_normalize` | `unicodedata.normalize("NFC", text)` — required by SSRM §5.1. |
+| C1 | `nfc_normalize` | `unicodedata.normalize("NFC", text)` — required by SAGE §5.1. |
 | C2 | `strip_soft_hyphens` | Remove U+00AD globally. Frequent PDF artifact, invisible but token-costly. |
 | C3 | `normalize_ligatures` | NFKC pass *only on letter-presentation forms*: `ﬁ→fi, ﬂ→fl, ﬃ→ffi, ﬄ→ffl`, plus ` →' '` (NBSP). Whitelist-driven. |
 | C4 | `normalize_quotes_dashes` | Smart quotes → straight; en/em-dash retained (semantic); ellipsis `…` → `...`. Saves ~1% on prose docs. |
@@ -704,7 +704,7 @@ Tone rule: every command in the README is preceded by *why you'd run it* and fol
 ### 7.3 docs/output-format.md sections
 
 - Why a contract.
-- The SSRM connection — what SSRM is, why we're compatible-not-strict, link to upstream spec.
+- The SAGE connection — what SAGE is, why we're compatible-not-strict, link to upstream spec.
 - Field-by-field reference (every field: meaning, type, derivation, when empty, example, common-mistake callout).
 - Body shape — single-H1 rule, citations, tables, footnotes; worked example showing 50-page PDF → markdown.
 - `content_hash` semantics — exact normalization recipe; 6-line Python snippet that recomputes it.
@@ -856,7 +856,7 @@ Five phases. Each ends with a TestPyPI alpha/beta tag. User can pause between an
 
 | Phase | Scope | Tag | TestPyPI? | PyPI? |
 |---|---|---|---|---|
-| **1 — Foundation** | New module layout (`frontmatter.py`, `pipeline/`); `SourceMeta` dataclass; all shared cleanup stages C1-C7; rewire all 4 converters through new pipeline (no Docling yet); SSRM-compat frontmatter for all formats; content_hash + token_estimate + chunk_level + abstract derivation; existing CLI flags continue to work; **`.gitignore` adds `template/` and `test_docs/`** | `1.0.0a1` | ✓ | — |
+| **1 — Foundation** | New module layout (`frontmatter.py`, `pipeline/`); `SourceMeta` dataclass; all shared cleanup stages C1-C7; rewire all 4 converters through new pipeline (no Docling yet); SAGE-compat frontmatter for all formats; content_hash + token_estimate + chunk_level + abstract derivation; existing CLI flags continue to work; **`.gitignore` adds `template/` and `test_docs/`** | `1.0.0a1` | ✓ | — |
 | **2 — Docling backend** | `extras_require = {"high-fidelity": ["docling>=2.0"]}`; PDF/DOCX Docling primary path; `pdf_looks_complex` heuristic; install-hint message; `--high-fidelity` flag; structured-lane stages S1-S4; integration tests skipped when Docling not installed | `1.0.0a2` | ✓ | — |
 | **3 — Figures / OCR / TXT cleanup** | Figure caption lift; `--ocr-figures`; `--save-images`; trafilatura post-processing wired; TXT lane through cleanup; metadata extraction (DOCX core props, PDF metadata, trafilatura `bare_extraction`, HTTP `Last-Modified`) | `1.0.0a3` | ✓ | — |
 | **4 — Polish, configuration, docs** | `--meta`, `--meta-file`, `.any2md.toml` discovery, `--auto-id`, `--strict`, `--quiet`, `--verbose`; new exit codes; full doc rewrite (README + 6 `docs/*.md` + CONTRIBUTING + 2 issue templates); CHANGELOG 1.0.0; editorial review pass | `1.0.0rc1` | ✓ | — |
@@ -917,12 +917,12 @@ None. All five clarifying questions and the architectural fork were resolved dur
 
 | Decision | Choice |
 |---|---|
-| SSRM conformance | B — SSRM-compatible |
+| SAGE conformance | B — SAGE-compatible |
 | PDF backend | B1 + extras_require |
 | DOCX/HTML/TXT backends | A (per-format best-of-breed) + uniform post-processing |
 | Image / figure handling | B default; `--ocr-figures` for C; `--save-images` for D |
 | Token minimization | Aggressive |
-| SSRM derived fields | Recommended defaults |
+| SAGE derived fields | Recommended defaults |
 | Implementation shape | Approach 1 + two-lane pipeline |
 | Version bump | MAJOR (0.7.0 → 1.0.0) |
 | Documentation requirement | All GitHub-facing docs deeply educational |

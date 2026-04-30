@@ -19,7 +19,7 @@ The full design rationale lives in [docs/superpowers/specs/2026-04-26-v1.0.3-emp
 
 ## What this is
 
-any2md ingests heterogeneous source documents and emits Markdown with a fixed YAML frontmatter contract. The frontmatter shape is SSRM-compatible (Structured Security Reasoning Markdown — a documented schema for LLM-consumable documents), so retrieval pipelines, embeddings jobs, and chunking utilities downstream can rely on field names, types, and a deterministic `content_hash` for cache invalidation. The body is NFC-normalized with LF line endings, and the heading hierarchy is guaranteed to start at H1 and not skip levels. The goal is one stable shape, regardless of whether a document started life as a scanned PDF, a Word doc, a Wikipedia page, or a plain text dump.
+any2md ingests heterogeneous source documents and emits Markdown with a fixed YAML frontmatter contract. The frontmatter shape is SAGE-compatible (Security Analysis and Guidance Exchange — a documented schema for LLM-consumable documents), so retrieval pipelines, embeddings jobs, and chunking utilities downstream can rely on field names, types, and a deterministic `content_hash` for cache invalidation. The body is NFC-normalized with LF line endings, and the heading hierarchy is guaranteed to start at H1 and not skip levels. The goal is one stable shape, regardless of whether a document started life as a scanned PDF, a Word doc, a Wikipedia page, or a plain text dump.
 
 ## Quick start
 
@@ -111,8 +111,8 @@ document_id: ""                                    # empty unless you pass --aut
 version: "1"                                       # "1" for source files without an embedded version
 date: "2026-03-15"                                 # docx core props "modified" → ISO-8601
 status: "draft"                                    # always "draft" for converted documents
-document_type: ""                                  # SSRM controlled vocab — empty for non-security docs
-content_domain: []                                 # SSRM controlled vocab — empty array when unknown
+document_type: ""                                  # SAGE controlled vocab — empty for non-security docs
+content_domain: []                                 # SAGE controlled vocab — empty array when unknown
 authors:                                           # extracted from docProps/core.xml dc:creator
   - "Rock Lambros"
 organization: ""                                   # docProps/app.xml Company; empty when absent
@@ -133,7 +133,7 @@ produced_by: "Microsoft® Word for Microsoft 365"   # software that produced the
 ---
 ```
 
-Fields under `# any2md extension field` are retained from v0.7 for traceability and observability — they're not part of the SSRM contract proper, but they live in the same frontmatter block. See [docs/output-format.md](docs/output-format.md) for the full field reference.
+Fields under `# any2md extension field` are retained from v0.7 for traceability and observability — they're not part of the SAGE contract proper, but they live in the same frontmatter block. See [docs/output-format.md](docs/output-format.md) for the full field reference.
 
 ### Before / after
 
@@ -329,7 +329,7 @@ You'll see the OK lines as if the conversion were fresh; previously-written outp
 
 ## The output format
 
-Every file converted by any2md has the same frontmatter shape, regardless of source format. The shape is **SSRM-compatible** — it matches the field names, types, and ordering of the Structured Security Reasoning Markdown specification, but values aren't required to match SSRM's controlled vocabularies (most converted documents aren't security research). Fields that require a controlled vocabulary (`document_type`, `content_domain`, `tlp`) are emitted empty unless you supply them via `--meta` or `.any2md.toml`.
+Every file converted by any2md has the same frontmatter shape, regardless of source format. The shape is **SAGE-compatible** — it matches the field names, types, and ordering of the Security Analysis and Guidance Exchange specification, but values aren't required to match SAGE's controlled vocabularies (most converted documents aren't security research). Fields that require a controlled vocabulary (`document_type`, `content_domain`, `tlp`) are emitted empty unless you supply them via `--meta` or `.any2md.toml`.
 
 ### Field auto-fill summary
 
@@ -374,7 +374,7 @@ You'll see the OK line as usual. The frontmatter of `Text/paper.md` will have `o
 
 ### `.any2md.toml`
 
-You'd use this when you have a stable set of frontmatter defaults that should apply to every conversion in a project. The file is auto-discovered by walking up from the current working directory, so you can drop one at the root of your corpus repo and forget about it. Worked example for a security-research org producing SSRM-conforming outputs:
+You'd use this when you have a stable set of frontmatter defaults that should apply to every conversion in a project. The file is auto-discovered by walking up from the current working directory, so you can drop one at the root of your corpus repo and forget about it. Worked example for a security-research org producing SAGE-conforming outputs:
 
 ```toml
 [meta]
@@ -528,7 +528,7 @@ The two-lane design exists because Docling output is layout-correct (running agg
 
 ## Migrating from v0.7
 
-v1.0 emits SSRM-compatible frontmatter — that's the one intended breaking change. v0.7's small frontmatter (`title`, `source_file`, `pages`, `type`, `word_count`) becomes a fuller block with `document_id`, `version`, `date`, `status`, `content_hash`, `token_estimate`, `authors`, and several other fields. The v0.7 fields are retained as any2md extension fields in the same block, so traceability is preserved, but downstream parsers that expected the old fixed shape will need to update. The body is now NFC-normalized with LF line endings, which means `content_hash` is reproducible. If you need bit-for-bit v0.7 output, pin `any2md==0.7.0`. The full field-by-field migration guide and behavior-change list lives in [docs/upgrading-from-0.7.md](docs/upgrading-from-0.7.md).
+v1.0 emits SAGE-compatible frontmatter — that's the one intended breaking change. v0.7's small frontmatter (`title`, `source_file`, `pages`, `type`, `word_count`) becomes a fuller block with `document_id`, `version`, `date`, `status`, `content_hash`, `token_estimate`, `authors`, and several other fields. The v0.7 fields are retained as any2md extension fields in the same block, so traceability is preserved, but downstream parsers that expected the old fixed shape will need to update. The body is now NFC-normalized with LF line endings, which means `content_hash` is reproducible. If you need bit-for-bit v0.7 output, pin `any2md==0.7.0`. The full field-by-field migration guide and behavior-change list lives in [docs/upgrading-from-0.7.md](docs/upgrading-from-0.7.md).
 
 ## Security
 

@@ -176,7 +176,7 @@ def convert_txt(
     force: bool = False,
     strip_links_flag: bool = False,
 ) -> bool:
-    """Convert a plain-text file to v1.0 SSRM-compatible Markdown."""
+    """Convert a plain-text file to v1.0 SAGE-compatible Markdown."""
     if options is None:
         options = PipelineOptions(strip_links=strip_links_flag)
 

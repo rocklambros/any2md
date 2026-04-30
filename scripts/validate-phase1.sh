@@ -29,4 +29,4 @@ echo
 echo "Outputs:"
 ls -la "$OUT_DIR"
 echo
-echo "Inspect each for: SSRM frontmatter, content_hash present, body NFC + LF, no garbled chars."
+echo "Inspect each for: SAGE frontmatter, content_hash present, body NFC + LF, no garbled chars."

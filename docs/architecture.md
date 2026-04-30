@@ -167,7 +167,7 @@ normalizations that any well-formed markdown can absorb without harm:
 Centralizing these means `content_hash` is byte-deterministic: the same
 post-cleanup body produces the same hash regardless of which lane ran first,
 because the cleanup is the last thing that touched the bytes. This is the
-determinism boundary the SSRM contract relies on.
+determinism boundary the SAGE contract relies on.
 
 ## Stage catalog
 
@@ -244,7 +244,7 @@ order.
 
 | Run order | ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
 |---|---|---|---|---|---|---|---|
-| 1 | C1 | `nfc_normalize` | shared | Any unicode text | NFC-normalized text | Already-NFC text | Required by SSRM `content_hash` invariant |
+| 1 | C1 | `nfc_normalize` | shared | Any unicode text | NFC-normalized text | Already-NFC text | Required by SAGE `content_hash` invariant |
 | 2 | C2 | `strip_soft_hyphens` | shared | Text containing U+00AD (`­`) | Text without U+00AD | No soft hyphens | Soft hyphens are invisible but token-costly |
 | 3 | C3 | `normalize_ligatures` | shared | Text containing presentation-form ligatures (`ﬁ`, `ﬂ`, `ﬃ`, `ﬄ`, `ﬅ`, `ﬆ`, `ﬀ`) and NBSP | Text with whitelist-expanded ligatures and regular spaces | None of the whitelist characters present | Whitelist-only — does not run blanket NFKC, which would fold superscripts and CJK compatibility characters |
 | 4 | C4 | `normalize_quotes_dashes` | shared | Smart quotes (`“”‘’`) and ellipsis (`…`) | Straight quotes (`""''`) and three-dot ellipsis | No smart quotes or ellipsis | En-dash and em-dash are preserved (semantic) |
@@ -305,7 +305,7 @@ class SourceMeta:
 
 ### Field-by-field
 
-| Field | Filled by | Required for SSRM contract |
+| Field | Filled by | Required for SAGE contract |
 |---|---|---|
 | `title_hint` | All converters when source metadata has a title (PDF `/Title`, DOCX `dc:title`, HTML `<title>`, otherwise `None`) | No — `frontmatter.derive_title` falls back to first H1, then filename |
 | `authors` | PDF (`/Author` parsed), DOCX (`dc:creator`), HTML (`<meta name="author">`), TXT (always `[]`). v1.0.2 adds body-text extraction and an arxiv API enrichment via `heuristics.extract_authors`. | No — empty `[]` is valid |
@@ -318,11 +318,11 @@ class SourceMeta:
 | `source_file` | All file inputs; URL inputs `None` | No — extension field |
 | `source_url` | URL inputs only; file inputs `None` | No — extension field |
 | `doc_type` | All converters | Yes — emitted as `type` in the YAML |
-| `extracted_via` | All converters | Yes — non-SSRM extension but required for traceability |
+| `extracted_via` | All converters | Yes — non-SAGE extension but required for traceability |
 | `lane` | All converters | Yes — drives pipeline routing |
 
 The four "required" fields above are required for the v1.0 contract to be
-fillable, not for SSRM strict conformance. Strict SSRM has a different
+fillable, not for SAGE strict conformance. Strict SAGE has a different
 required-fields list — see [output-format.md](output-format.md) for that
 distinction.
 

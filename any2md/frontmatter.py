@@ -1,4 +1,4 @@
-"""SSRM-compatible YAML frontmatter emitter.
+"""SAGE-compatible YAML frontmatter emitter.
 
 See spec §3 (frontmatter contract) and §5.0 (SourceMeta dataclass).
 This module is the single producer of the YAML block — converters
@@ -60,7 +60,7 @@ def filter_reserved_overrides(
 
 
 def compute_content_hash(body: str) -> str:
-    """SHA-256 of NFC-normalized, LF-line-ended body. SSRM §5.1.
+    """SHA-256 of NFC-normalized, LF-line-ended body. SAGE §5.1.
 
     The body MUST be the post-pipeline output (after C1-C5). This function
     re-applies NFC and LF normalization defensively so callers can pass any
@@ -74,7 +74,7 @@ def compute_content_hash(body: str) -> str:
 def generate_document_id(
     body: str, prefix: str = "LOCAL", type_code: str = "DOC"
 ) -> str:
-    """Generate an SSRM-conformant ``document_id`` from body content.
+    """Generate an SAGE-conformant ``document_id`` from body content.
 
     Pattern: ``{PREFIX}-{YYYY}-{TYPE}-{SHA8}``.
 
@@ -227,7 +227,7 @@ def _normalize_body(body: str) -> str:
 def _build_fields(
     body: str, meta: SourceMeta, options: PipelineOptions
 ) -> dict[str, Any]:
-    """Build the ordered field map for the SSRM frontmatter block.
+    """Build the ordered field map for the SAGE frontmatter block.
 
     Returns an insertion-ordered dict matching spec §3.2-3.4. Only fields
     that should be emitted are present; conditional fields (e.g. ``pages``,
@@ -333,7 +333,7 @@ def _emit_field(key: str, value: Any, lines: list[str]) -> None:
             lines.append(f"  {subkey}: {_emit_value(subval)}")
         return
     if isinstance(value, list):
-        # Only string-lists are supported for now (matches SSRM §3 fields).
+        # Only string-lists are supported for now (matches SAGE §3 fields).
         lines.append(f"{key}: {_emit_array([str(v) for v in value])}")
         return
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -359,7 +359,7 @@ def compose(
     options: PipelineOptions,
     overrides: dict[str, Any] | None = None,
 ) -> str:
-    """Build a complete SSRM-compatible Markdown document.
+    """Build a complete SAGE-compatible Markdown document.
 
     Steps:
     1. Normalize body to NFC + LF endings (matches content_hash invariant).

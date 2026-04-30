@@ -1,4 +1,4 @@
-"""Tests for frontmatter.compose() — SSRM-compatible output."""
+"""Tests for frontmatter.compose() — SAGE-compatible output."""
 
 import yaml
 
@@ -38,7 +38,7 @@ def _meta(**overrides) -> SourceMeta:
     return SourceMeta(**base)
 
 
-def test_compose_emits_required_ssrm_fields():
+def test_compose_emits_required_sage_fields():
     body = "# Title\n\nbody\n"
     out = compose(body, _meta(), PipelineOptions())
     fm, _ = _split_frontmatter(out)

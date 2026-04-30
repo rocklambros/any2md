@@ -255,7 +255,7 @@ def test_custom_prefix_and_type_code():
 from datetime import date as _date_cls
 
 def generate_document_id(body: str, prefix: str = "LOCAL", type_code: str = "DOC") -> str:
-    """Generate an SSRM-conformant document_id from body content.
+    """Generate an SAGE-conformant document_id from body content.
 
     Pattern: {PREFIX}-{YYYY}-{TYPE}-{SHA8}
     Used by --auto-id. The SHA8 is the first 8 hex chars of the
@@ -642,12 +642,12 @@ Skeleton with section-by-section directives (the implementer fills with prose):
 1. **Title + tagline** (2 lines).
 2. **One-paragraph what+why** (4 sentences max). Explain RAG framing: "structured, machine-consumable Markdown for downstream retrieval pipelines."
 3. **Quick start** (3 commands, copy-paste): install, convert a file, convert a URL. Show the YAML frontmatter snippet of an output file.
-4. **Why any2md** section. The RAG ingestion problem in one paragraph (heterogeneous source formats; LLMs need stable shape; ad-hoc converters lose tables/structure). What "structured, machine-consumable Markdown" means here (SSRM-compatible frontmatter, deterministic content_hash, chunk-friendly heading hierarchy). Honest comparison table vs unstructured.io / pdfplumber / pandoc — ~3-4 rows, no marketing.
+4. **Why any2md** section. The RAG ingestion problem in one paragraph (heterogeneous source formats; LLMs need stable shape; ad-hoc converters lose tables/structure). What "structured, machine-consumable Markdown" means here (SAGE-compatible frontmatter, deterministic content_hash, chunk-friendly heading hierarchy). Honest comparison table vs unstructured.io / pdfplumber / pandoc — ~3-4 rows, no marketing.
 5. **What you get** section. Annotated frontmatter example: a real output file with one-line comments after each frontmatter field explaining what it is and why. Before/after example: snippet of a multi-column PDF as raw extraction (pymupdf4llm-style) vs as any2md output (Docling structured lane). Token-estimate / chunking guidance: "we recommend `recommended_chunk_level: h2` when sections are < 1500 tokens; `h3` otherwise."
 6. **Installation** section. Two paths: `pip install any2md` (lightweight: pymupdf4llm fallback only) vs `pip install "any2md[high-fidelity]"` (Docling: ~2 GB ML models, 3-10× slower, far better tables/multi-column). "When do I need high-fidelity?" 3-question decision tree (does my corpus have tables? multi-column? scanned PDFs?).
 7. **Usage by source type** section. Subsections for PDFs (digital vs scanned subsection), DOCX, HTML/URL (with the SSRF + size limits noted), TXT, batch/directory mode (with `-r` recursive). Each subsection: "why you'd use this" + command + "what you'll see".
-8. **The output format** subsection. Brief summary of SSRM-compat. Field auto-fill table (which fields are derived; which need user input). Link to `docs/output-format.md` for full reference.
-9. **Configuration** section. `--meta KEY=VAL` and `.any2md.toml` worked example. Show a 10-line `.any2md.toml` for a security-research org producing SSRM-conforming outputs.
+8. **The output format** subsection. Brief summary of SAGE-compat. Field auto-fill table (which fields are derived; which need user input). Link to `docs/output-format.md` for full reference.
+9. **Configuration** section. `--meta KEY=VAL` and `.any2md.toml` worked example. Show a 10-line `.any2md.toml` for a security-research org producing SAGE-conforming outputs.
 10. **Troubleshooting (link)** with 5 most common artifacts as one-line entries.
 11. **Architecture (link)** with the two-lane pipeline diagram inline (ASCII art from spec §2.1).
 12. **Migrating from v0.7** (link to docs/upgrading-from-0.7.md) with one-paragraph migration summary.
@@ -666,7 +666,7 @@ Commit: `docs: Rewrite README for v1.0 with educational tone and full output doc
 **File:** `docs/output-format.md`. Sections per spec §7.3:
 
 - **Why a contract.** RAG pipelines need a stable schema; cost of ad-hoc.
-- **The SSRM connection.** What SSRM is. Why we're compatible-not-strict (most converted docs aren't security research). Link to upstream SSRM-Specification-v1.0-RC1 (note: it lives in this repo's `template/` dir but `template/` is gitignored locally; reference by URL once SSRM is published, or embed the relevant section here).
+- **The SAGE connection.** What SAGE is. Why we're compatible-not-strict (most converted docs aren't security research). Link to upstream SAGE-Specification-v1.0-RC1 (note: it lives in this repo's `template/` dir but `template/` is gitignored locally; reference by URL once SAGE is published, or embed the relevant section here).
 - **Field-by-field reference.** Every required + optional + extension field. Per field: meaning, type, derivation rule (or "user-provided"), when it's empty, an example value, a "common mistake" callout. Use a definition list or a table.
 - **The body shape.** Single-H1 rule, no skipped levels, citation `[1][2]` format, table format, footnote conventions. Worked example: short input, full output.
 - **`content_hash` semantics.** Exact normalization recipe (NFC, LF, post-pipeline). 6-line Python snippet that recomputes it given a `.md` file:
@@ -694,7 +694,7 @@ ok = check_content_hash_round_trip(body, frontmatter_hash)
 
 - **JSON Schema** for the frontmatter. Auto-generated or hand-written; ~80-100 lines.
 
-Commit: `docs: docs/output-format.md - SSRM-compat field reference and content_hash semantics`
+Commit: `docs: docs/output-format.md - SAGE-compat field reference and content_hash semantics`
 
 ---
 
@@ -727,7 +727,7 @@ Commit: `docs: docs/cli-reference.md - flag-by-flag reference with use cases`
 - High-level pipeline diagram (ASCII art, same as spec §2.1).
 - Why two lanes — concrete damage example: "Running text-lane line-wrap repair on Docling table output produces this kind of corruption: …" with 5-line before/after.
 - Stage catalog — every stage's contract (one row per stage in a table: name, lane, input shape, output shape, no-op cases, edge cases).
-- The `SourceMeta` dataclass — what each field means, which converters populate it, which are required for the SSRM contract.
+- The `SourceMeta` dataclass — what each field means, which converters populate it, which are required for the SAGE contract.
 - Adding a new converter — step-by-step, ending in "the converter must produce raw markdown + SourceMeta and declare a lane. Frontmatter and cleanup are not its job."
 - Adding a new pipeline stage — where to insert (which file/lane), naming convention, test requirements.
 - Performance model — where time goes per format. Why Docling is slower (ML models). Where the optimization opportunities are.
@@ -760,13 +760,13 @@ Commit: `docs: docs/troubleshooting.md - symptom-cause-fix triage guide`
 
 **File:** `docs/upgrading-from-0.7.md`. Sections per spec §7.7:
 
-1. **TL;DR.** v1.0 emits SSRM-compatible frontmatter. Body is NFC + LF normalized. Pin v0.7 if you need the old shape.
+1. **TL;DR.** v1.0 emits SAGE-compatible frontmatter. Body is NFC + LF normalized. Pin v0.7 if you need the old shape.
 2. **Frontmatter field map** — table of v0.7 keys → v1.0 keys with notes:
 
 | v0.7 | v1.0 | Notes |
 |---|---|---|
 | `title` | `title` | unchanged |
-| `source_file` | `source_file` (extension) | retained as non-SSRM extension |
+| `source_file` | `source_file` (extension) | retained as non-SAGE extension |
 | `source_url` | `source_url` (extension) | retained, URL inputs only |
 | `pages` | `pages` (extension) | retained, PDF only |
 | `word_count` | `word_count` (extension) | retained |
@@ -832,7 +832,7 @@ Phase 4: configuration, polish, and the v1.0 documentation set.
 ### Added
 - `--meta KEY=VAL` repeatable flag for frontmatter overrides.
 - `--meta-file PATH` flag plus auto-discovery of `.any2md.toml` (walks up from cwd).
-- `--auto-id` flag — generates SSRM-conformant `document_id` as `LOCAL-{YYYY}-DOC-{SHA8}`. Override prefix/type via `[document_id]` table in `.any2md.toml`.
+- `--auto-id` flag — generates SAGE-conformant `document_id` as `LOCAL-{YYYY}-DOC-{SHA8}`. Override prefix/type via `[document_id]` table in `.any2md.toml`.
 - `--strict` flag — promotes pipeline validation warnings to errors.
 - `--quiet` / `-q` and `--verbose` / `-v` flags.
 - New exit code contract: 0 success, 1 usage/install error, 2 file failure, 3 strict-mode warning.
@@ -840,7 +840,7 @@ Phase 4: configuration, polish, and the v1.0 documentation set.
 - New module `any2md/config.py` for TOML config discovery and parsing.
 - Comprehensive documentation set under `docs/`:
   - `README.md` (rewritten)
-  - `docs/output-format.md` — SSRM-compat field reference and content_hash recipe.
+  - `docs/output-format.md` — SAGE-compat field reference and content_hash recipe.
   - `docs/cli-reference.md` — flag-by-flag with use cases.
   - `docs/architecture.md` — pipeline internals and contributor guide.
   - `docs/troubleshooting.md` — symptom-cause-fix table.

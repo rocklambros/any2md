@@ -268,7 +268,7 @@ that defines what each key means.
 
 ### `--auto-id`
 
-Generate an SSRM-conformant `document_id` of the form
+Generate an SAGE-conformant `document_id` of the form
 `{PREFIX}-{YYYY}-{TYPE}-{SHA8}`. Defaults: `PREFIX=LOCAL`, `TYPE=DOC`. Override
 via `[document_id]` in `.any2md.toml` (`publisher_prefix`, `type_code`).
 

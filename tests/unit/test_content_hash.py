@@ -1,4 +1,4 @@
-"""Tests for content_hash determinism (SSRM §5.1)."""
+"""Tests for content_hash determinism (SAGE §5.1)."""
 
 from any2md.frontmatter import compute_content_hash
 

@@ -6,7 +6,7 @@ from any2md.converters.txt import convert_txt
 from any2md.pipeline import PipelineOptions
 
 
-def test_txt_end_to_end_writes_ssrm_compat_output(fixture_dir, tmp_output_dir):
+def test_txt_end_to_end_writes_sage_compat_output(fixture_dir, tmp_output_dir):
     ok = convert_txt(
         fixture_dir / "ligatures_and_softhyphens.txt",
         tmp_output_dir,

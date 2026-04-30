@@ -17,7 +17,7 @@ surface, see [cli-reference.md](cli-reference.md).
 
 ## TL;DR
 
-- v1.0 emits **SSRM-compatible frontmatter**. The v0.7 frontmatter
+- v1.0 emits **SAGE-compatible frontmatter**. The v0.7 frontmatter
   (`title`, `source_file`, `pages`, `type`, `word_count`) becomes a fuller
   block with `document_id`, `version`, `date`, `status`, `content_hash`,
   `token_estimate`, `authors`, `organization`, `generation_metadata`,
@@ -48,10 +48,10 @@ v0.7 are listed in the second table.
 | v0.7 | v1.0 | Notes |
 |---|---|---|
 | `title` | `title` | Unchanged in semantics. v1.0 derivation is more robust: first H1, then source metadata title, then cleaned filename. |
-| `source_file` | `source_file` (extension) | Retained as a non-SSRM extension field for traceability. Conditional — emitted only for file inputs, not URLs. |
-| `source_url` | `source_url` (extension) | Retained as a non-SSRM extension field. Conditional — emitted only for URL inputs. |
-| `pages` | `pages` (extension) | Retained as a non-SSRM extension field. PDF inputs only; absent otherwise. |
-| `word_count` | `word_count` (extension) | Retained as a non-SSRM extension field. Set for DOCX, HTML, TXT; absent for PDF. |
+| `source_file` | `source_file` (extension) | Retained as a non-SAGE extension field for traceability. Conditional — emitted only for file inputs, not URLs. |
+| `source_url` | `source_url` (extension) | Retained as a non-SAGE extension field. Conditional — emitted only for URL inputs. |
+| `pages` | `pages` (extension) | Retained as a non-SAGE extension field. PDF inputs only; absent otherwise. |
+| `word_count` | `word_count` (extension) | Retained as a non-SAGE extension field. Set for DOCX, HTML, TXT; absent for PDF. |
 | `type` | `type` (extension) | Retained. v1.0 values are still `pdf` / `docx` / `html` / `txt`. |
 
 ### Keys new in v1.0
@@ -62,8 +62,8 @@ v0.7 are listed in the second table.
 | `version` | string | Always `"1"` for v1.0. Reserved for future revisions. |
 | `date` | string | ISO-8601 `YYYY-MM-DD`. Source-side metadata first, then file mtime, then today. |
 | `status` | string | Always `"draft"` for converted documents. |
-| `document_type` | string | Empty by default. SSRM controlled vocabulary; user-provided. |
-| `content_domain` | array | Empty `[]` by default. SSRM controlled vocabulary; user-provided. |
+| `document_type` | string | Empty by default. SAGE controlled vocabulary; user-provided. |
+| `content_domain` | array | Empty `[]` by default. SAGE controlled vocabulary; user-provided. |
 | `authors` | array | Auto-extracted from source metadata when present. Always an array, possibly `[]`. |
 | `organization` | string | Auto-extracted from source metadata when present. |
 | `generation_metadata` | object | At minimum `{authored_by: "unknown"}` for converted documents. |
@@ -74,8 +74,8 @@ v0.7 are listed in the second table.
 | `keywords` | array | Conditional — emitted only when at least one keyword was extracted. |
 | `extracted_via` | string | Records which backend produced the markdown (`docling`, `pymupdf4llm`, `mammoth+markdownify`, `trafilatura`, `trafilatura+bs4_fallback`, `heuristic`). |
 | `produced_by` | string | **New in v1.0.2.** Software that produced the source file (PDF `Creator`, DOCX `Application`). Conditional — emitted only when set, and typically empty when the source has a real `organization`. Distinct from `extracted_via`, which records the any2md backend. |
-| `frameworks_referenced` | array | Empty by default. SSRM extension; user-provided via `--meta`. |
-| `tlp` | string | Empty by default. SSRM marking; user-provided via `--meta`. |
+| `frameworks_referenced` | array | Empty by default. SAGE extension; user-provided via `--meta`. |
+| `tlp` | string | Empty by default. SAGE marking; user-provided via `--meta`. |
 
 For derivation rules and field semantics, see
 [output-format.md](output-format.md).

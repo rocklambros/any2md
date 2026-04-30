@@ -14,7 +14,7 @@ Stage = Callable[[str, "PipelineOptions"], str]
 
 
 def nfc_normalize(text: str, _options: "PipelineOptions") -> str:
-    """C1: NFC unicode normalization. Required by SSRM §5.1 for content_hash."""
+    """C1: NFC unicode normalization. Required by SAGE §5.1 for content_hash."""
     return unicodedata.normalize("NFC", text)
 
 
