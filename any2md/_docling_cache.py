@@ -299,7 +299,13 @@ def release_models() -> None:
     processes (services, notebooks, batch workers) to free Docling
     model state between workloads. CLI users typically don't need it
     — process exit is sufficient.
+
+    Short-circuits when no singleton exists yet — avoids phantom
+    `register_at_fork` callbacks from constructing a ConverterCache
+    just to clear an empty store.
     """
+    if _INSTANCE is None:
+        return
     _get_instance().clear()
 
 
@@ -328,5 +334,10 @@ def stats() -> CacheStats:
         from any2md._docling_cache import stats
         print(stats())
     A CLI flag (`--debug-cache-stats`) lands in v1.2.0.
+
+    Short-circuits to a zero-valued snapshot when no singleton exists
+    yet — same rationale as ``release_models``.
     """
+    if _INSTANCE is None:
+        return CacheStats()
     return _get_instance().stats()
