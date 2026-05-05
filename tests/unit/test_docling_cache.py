@@ -548,6 +548,60 @@ def test_get_pdf_converter_uses_cache(monkeypatch):
     assert len(builds) == 1
 
 
+def test_get_pdf_converter_uses_cache_without_pydantic(monkeypatch):
+    """Pydantic-free version of test_get_pdf_converter_uses_cache.
+    Uses a stub class with a `model_dump` method so the test runs
+    in CI's [dev] tier where pydantic is not installed.
+    """
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    builds = []
+
+    class FakeDocConverter:
+        def __init__(self, *args, **kwargs):
+            builds.append(self)
+
+    class FakeFormatOption:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class FakeInputFormat:
+        PDF = "PDF"
+
+    fake_docling = type(sys)("docling")
+    fake_docling.datamodel = type(sys)("docling.datamodel")
+    fake_docling.datamodel.base_models = type(sys)("docling.datamodel.base_models")
+    fake_docling.datamodel.base_models.InputFormat = FakeInputFormat
+    fake_docling.document_converter = type(sys)("docling.document_converter")
+    fake_docling.document_converter.DocumentConverter = FakeDocConverter
+    fake_docling.document_converter.PdfFormatOption = FakeFormatOption
+    monkeypatch.setitem(sys.modules, "docling", fake_docling)
+    monkeypatch.setitem(sys.modules, "docling.datamodel", fake_docling.datamodel)
+    monkeypatch.setitem(
+        sys.modules, "docling.datamodel.base_models",
+        fake_docling.datamodel.base_models,
+    )
+    monkeypatch.setitem(
+        sys.modules, "docling.document_converter",
+        fake_docling.document_converter,
+    )
+
+    class StubOpts:
+        """Minimal stand-in for a Pydantic model — must implement
+        model_dump(mode='json') for _hash_opts."""
+        def model_dump(self, mode="json"):
+            return {"do_ocr": False, "do_table_structure": True}
+
+    opts = StubOpts()
+
+    a = cm.get_pdf_converter(opts)
+    b = cm.get_pdf_converter(opts)
+
+    assert a is b
+    assert len(builds) == 1
+
+
 def test_get_docx_converter_uses_cache(monkeypatch):
     import any2md._docling_cache as cm
     monkeypatch.setattr(cm, "_INSTANCE", None)

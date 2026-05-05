@@ -348,13 +348,13 @@ def stats() -> CacheStats:
 def get_pdf_converter(pipeline_opts) -> Any:
     """Return a cached DocumentConverter for the given PDF pipeline options.
 
-    The build callback is constructed lazily so that callers don't pay
-    the import cost when the cache hits.
+    Docling imports happen INSIDE the build closure so callers pay
+    the import cost only on cache miss (when ``_build`` actually
+    runs). This honors the lazy-import contract for cache-hit paths.
     """
-    from docling.datamodel.base_models import InputFormat
-    from docling.document_converter import DocumentConverter, PdfFormatOption
-
     def _build():
+        from docling.datamodel.base_models import InputFormat
+        from docling.document_converter import DocumentConverter, PdfFormatOption
         return DocumentConverter(
             format_options={
                 InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)
@@ -365,10 +365,13 @@ def get_pdf_converter(pipeline_opts) -> Any:
 
 
 def get_docx_converter() -> Any:
-    """Return a cached DocumentConverter for DOCX (no pipeline options today)."""
-    from docling.document_converter import DocumentConverter
+    """Return a cached DocumentConverter for DOCX (no pipeline options today).
 
+    Docling import happens INSIDE the build closure so callers pay
+    the import cost only on cache miss.
+    """
     def _build():
+        from docling.document_converter import DocumentConverter
         return DocumentConverter()
 
     return _get_instance().get_or_build("docx", None, _build)
