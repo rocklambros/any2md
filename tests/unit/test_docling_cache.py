@@ -433,3 +433,59 @@ def test_lazy_init_thread_safety(monkeypatch):
 
     assert len(instances) == 16
     assert all(inst is instances[0] for inst in instances)
+
+
+# ---------------------------------------------------------------------------
+# Task 8: release_models, docling_session, stats (public API)
+# ---------------------------------------------------------------------------
+
+
+def test_release_models_clears_cache(monkeypatch):
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    inst = cm._get_instance()
+    inst.get_or_build("pdf", None, lambda: object())
+    assert len(inst._store) == 1
+
+    cm.release_models()
+    assert len(inst._store) == 0
+
+
+def test_docling_session_releases_on_normal_exit(monkeypatch):
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    with cm.docling_session():
+        inst = cm._get_instance()
+        inst.get_or_build("pdf", None, lambda: object())
+        assert len(inst._store) == 1
+
+    assert len(inst._store) == 0
+
+
+def test_docling_session_releases_on_exception(monkeypatch):
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    inst_holder = []
+
+    with pytest.raises(RuntimeError, match="body raises"):
+        with cm.docling_session():
+            inst = cm._get_instance()
+            inst.get_or_build("pdf", None, lambda: object())
+            inst_holder.append(inst)
+            raise RuntimeError("body raises")
+
+    assert len(inst_holder[0]._store) == 0
+
+
+def test_module_level_stats_returns_snapshot(monkeypatch):
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    inst = cm._get_instance()
+    inst.get_or_build("pdf", None, lambda: object())
+
+    s = cm.stats()
+    assert s.model_loads == 1

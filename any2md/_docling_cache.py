@@ -288,3 +288,45 @@ def _get_instance() -> ConverterCache:
             if _INSTANCE is None:  # double-check after acquiring lock
                 _INSTANCE = ConverterCache()
     return _INSTANCE
+
+
+# ---- Public API surface (re-exported via any2md/__init__.py) ----
+
+def release_models() -> None:
+    """Release all cached DocumentConverter instances.
+
+    Stability: experimental for v1.1.0. Use this in long-running
+    processes (services, notebooks, batch workers) to free Docling
+    model state between workloads. CLI users typically don't need it
+    — process exit is sufficient.
+    """
+    _get_instance().clear()
+
+
+@contextmanager
+def docling_session() -> Iterator[None]:
+    """Context manager that releases cached converters on exit.
+
+    Stability: experimental for v1.1.0. Preferred shape for library
+    use; guarantees release on `__exit__` even if the body raises.
+
+        from any2md import docling_session, convert_file
+        with docling_session():
+            convert_file("a.pdf", out_dir)
+            convert_file("b.pdf", out_dir)
+        # models freed here
+    """
+    try:
+        yield
+    finally:
+        release_models()
+
+
+def stats() -> CacheStats:
+    """Public read of the in-process counters. For debug visibility
+    in v1.1.0:
+        from any2md._docling_cache import stats
+        print(stats())
+    A CLI flag (`--debug-cache-stats`) lands in v1.2.0.
+    """
+    return _get_instance().stats()
