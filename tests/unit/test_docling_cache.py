@@ -356,3 +356,39 @@ def test_maxsize_1_evicts_old_keeps_new():
     assert cache.stats().cache_evictions >= 1
     # Only one entry remains
     assert len(cache._store) == 1
+
+
+# ---------------------------------------------------------------------------
+# Task 6: evict and evict_and_record_failure
+# ---------------------------------------------------------------------------
+
+
+def test_evict_returns_true_when_present_false_when_absent():
+    cache = ConverterCache()
+    cache.get_or_build("pdf", None, lambda: object())
+
+    assert cache.evict("pdf", None) is True
+    assert cache.evict("pdf", None) is False  # already evicted
+    assert cache.stats().cache_evictions == 1
+
+
+def test_evict_and_record_failure_atomic():
+    cache = ConverterCache()
+    cache.get_or_build("pdf", None, lambda: object())
+    assert cache.stats().model_loads == 1
+    assert cache.stats().convert_failures == 0
+
+    cache.evict_and_record_failure("pdf", None)
+    assert cache.stats().convert_failures == 1
+    assert cache.stats().cache_evictions == 1
+    assert len(cache._store) == 0
+
+
+def test_evict_and_record_failure_increments_counter_even_when_absent():
+    """Per spec: 'we observed a convert failure even if the slot
+    was already evicted by a concurrent caller.'"""
+    cache = ConverterCache()
+    cache.evict_and_record_failure("pdf", None)
+    # No slot existed, but failure is recorded
+    assert cache.stats().convert_failures == 1
+    assert cache.stats().cache_evictions == 0  # nothing to evict
