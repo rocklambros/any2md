@@ -651,3 +651,28 @@ def test_evict_on_convert_failure_swallows_internal_exceptions(monkeypatch):
 
     # Should NOT raise
     cm.evict_on_convert_failure("pdf", None)
+
+
+# ---------------------------------------------------------------------------
+# Task 10: Wire cache into any2md/__init__.py (version bump + __all__)
+# ---------------------------------------------------------------------------
+
+
+def test_public_api_reexported_from_any2md():
+    """Verify release_models and docling_session are accessible from
+    the top-level any2md package, and that __all__ lists them."""
+    import any2md
+
+    assert hasattr(any2md, "release_models")
+    assert hasattr(any2md, "docling_session")
+    assert callable(any2md.release_models)
+    assert callable(any2md.docling_session)
+
+    assert "release_models" in any2md.__all__
+    assert "docling_session" in any2md.__all__
+    assert "__version__" in any2md.__all__
+
+
+def test_version_bumped_to_1_1_0():
+    import any2md
+    assert any2md.__version__ == "1.1.0"
