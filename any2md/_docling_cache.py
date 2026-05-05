@@ -123,3 +123,42 @@ def _cache_disabled() -> bool:
     the documented public surface.
     """
     return os.environ.get(_CACHE_DISABLED_ENV, "").lower() in {"0", "off", "false"}
+
+
+class ConverterCache:
+    """Thread-safe LRU cache of DocumentConverter instances.
+
+    Build runs OUTSIDE the lock so two distinct keys can construct in
+    parallel; double-check on insert prevents racing same-key builds
+    from polluting the cache (one of the two builds is discarded).
+    """
+
+    def __init__(self, maxsize: int = _MAX_RESIDENT) -> None:
+        assert maxsize >= 1, "maxsize must be >= 1"
+        self._lock = threading.Lock()
+        self._store: OrderedDict[_Key, Any] = OrderedDict()
+        self._maxsize = maxsize
+        self._stats = CacheStats()
+        self._first_load_announced = False
+        # POSIX-only: Windows has no fork(2). Guard so module imports
+        # cleanly on Windows.
+        if hasattr(os, "register_at_fork"):
+            os.register_at_fork(after_in_child=self._after_fork)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+    def stats(self) -> CacheStats:
+        with self._lock:
+            return CacheStats(**vars(self._stats))
+
+    def _after_fork(self) -> None:
+        # Reassign lock (parent's may be in held state) and clear all
+        # per-process state — including stats counters, since AC#1
+        # uses exact equality (`model_loads == 1`) and child must
+        # start fresh.
+        self._lock = threading.Lock()
+        self._store.clear()
+        self._stats = CacheStats()
+        self._first_load_announced = False

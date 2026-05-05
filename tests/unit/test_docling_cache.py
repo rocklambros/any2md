@@ -8,6 +8,7 @@ pytest.mark.skipif(not has_docling()).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -159,3 +160,62 @@ def test_cache_disabled_env_var(monkeypatch):
     for value in ("1", "on", "true", "yes", "", "no", "n", "disabled"):
         monkeypatch.setenv("ANY2MD_DOCLING_CACHE", value)
         assert _cache_disabled() is False
+
+
+# ---------------------------------------------------------------------------
+# Task 4: ConverterCache.__init__, clear, stats, _after_fork
+# ---------------------------------------------------------------------------
+from any2md._docling_cache import ConverterCache
+
+
+def test_converter_cache_init_empty():
+    cache = ConverterCache()
+    assert len(cache._store) == 0
+    assert cache.stats().model_loads == 0
+
+
+def test_converter_cache_init_rejects_zero_maxsize():
+    with pytest.raises(AssertionError, match="maxsize"):
+        ConverterCache(maxsize=0)
+
+
+def test_converter_cache_clear():
+    cache = ConverterCache()
+    cache._store[_Key(fmt="pdf", digest=b"\x00" * 32)] = object()
+    assert len(cache._store) == 1
+    cache.clear()
+    assert len(cache._store) == 0
+
+
+def test_converter_cache_stats_returns_snapshot():
+    cache = ConverterCache()
+    cache._stats.model_loads = 7
+    snap = cache.stats()
+    assert snap.model_loads == 7
+    # Mutating the snapshot must not affect the cache's stats
+    snap.model_loads = 999
+    assert cache.stats().model_loads == 7
+
+
+def test_after_fork_resets_all_state():
+    cache = ConverterCache()
+    cache._stats.model_loads = 5
+    cache._stats.cache_hits = 3
+    cache._first_load_announced = True
+    cache._store[_Key(fmt="pdf", digest=b"\x00" * 32)] = object()
+
+    cache._after_fork()
+
+    assert cache._stats.model_loads == 0
+    assert cache._stats.cache_hits == 0
+    assert cache._first_load_announced is False
+    assert len(cache._store) == 0
+
+
+def test_register_at_fork_optional_on_windows(monkeypatch):
+    """ConverterCache must construct cleanly when register_at_fork is
+    unavailable (Windows). Spec L195: hasattr-guard."""
+    monkeypatch.delattr(os, "register_at_fork", raising=False)
+    cache = ConverterCache()
+    assert cache is not None
+    assert len(cache._store) == 0
