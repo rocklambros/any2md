@@ -392,3 +392,44 @@ def test_evict_and_record_failure_increments_counter_even_when_absent():
     # No slot existed, but failure is recorded
     assert cache.stats().convert_failures == 1
     assert cache.stats().cache_evictions == 0  # nothing to evict
+
+
+# ---------------------------------------------------------------------------
+# Task 7: _get_instance lazy singleton with module-level lock
+# ---------------------------------------------------------------------------
+
+
+def test_get_instance_returns_singleton(monkeypatch):
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    a = cm._get_instance()
+    b = cm._get_instance()
+    assert a is b
+
+
+def test_lazy_init_thread_safety(monkeypatch):
+    """16 threads racing the first _get_instance() must observe
+    exactly one ConverterCache. Without _INSTANCE_LOCK, two threads
+    could each construct a cache, leaking a fork callback."""
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    instances = []
+    instances_lock = threading.Lock()
+    barrier = threading.Barrier(16)
+
+    def grab():
+        barrier.wait()
+        inst = cm._get_instance()
+        with instances_lock:
+            instances.append(inst)
+
+    threads = [threading.Thread(target=grab) for _ in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(instances) == 16
+    assert all(inst is instances[0] for inst in instances)

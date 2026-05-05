@@ -254,3 +254,21 @@ class ConverterCache:
             return True
         print("  Loading Docling models (one-time)...", file=sys.stderr)
         return True
+
+
+_INSTANCE: ConverterCache | None = None
+_INSTANCE_LOCK = threading.Lock()
+
+
+def _get_instance() -> ConverterCache:
+    """Lock-serialized lazy init. Without the lock, two threads
+    racing first-call could each construct a ConverterCache; the
+    losing instance's `register_at_fork` callback remains registered
+    and runs on stale state at the next fork.
+    """
+    global _INSTANCE
+    if _INSTANCE is None:
+        with _INSTANCE_LOCK:
+            if _INSTANCE is None:  # double-check after acquiring lock
+                _INSTANCE = ConverterCache()
+    return _INSTANCE
