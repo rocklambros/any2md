@@ -14,6 +14,7 @@ no-op'ing — likely a future-Docling field with default_factory
 randomness has slipped past _canonicalize. Investigate _hash_opts
 output across calls.
 """
+
 from __future__ import annotations
 
 import sys
@@ -58,9 +59,11 @@ def main() -> int:
 
     s = stats()
     print()
-    print(f"  stats: model_loads={s.model_loads}, cache_hits={s.cache_hits}, "
-          f"cache_evictions={s.cache_evictions}, "
-          f"convert_failures={s.convert_failures}")
+    print(
+        f"  stats: model_loads={s.model_loads}, cache_hits={s.cache_hits}, "
+        f"cache_evictions={s.cache_evictions}, "
+        f"convert_failures={s.convert_failures}"
+    )
     print()
 
     # Assertion 1: exactly one model load

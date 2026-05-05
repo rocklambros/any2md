@@ -7,6 +7,7 @@ Stability: experimental for v1.1.0. Public API surface:
 
 Other names in this module are internal and may change.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,8 +21,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 _MAX_RESIDENT = 2  # Empirically: pdf + docx are the only construction
-                   # sites; 2 slots covers 99% of mixed batches with
-                   # bounded RSS (~1GB extra steady-state worst case).
+# sites; 2 slots covers 99% of mixed batches with
+# bounded RSS (~1GB extra steady-state worst case).
 
 _CACHE_DISABLED_ENV = "ANY2MD_DOCLING_CACHE"
 
@@ -69,8 +70,9 @@ class _Key:
     space alone is not unique across formats (e.g., `_hash_opts(None)`
     produces the same zero bytes for both PDF and DOCX call sites).
     """
-    fmt: str         # "pdf" | "docx"
-    digest: bytes    # 32-byte sha256 of canonical opts json (or zeros for None)
+
+    fmt: str  # "pdf" | "docx"
+    digest: bytes  # 32-byte sha256 of canonical opts json (or zeros for None)
 
 
 @dataclass
@@ -83,6 +85,7 @@ class CacheStats:
     snapshots are not transactionally coherent. Acceptable for
     debug/observability use, not for control logic.
     """
+
     model_loads: int = 0
     cache_hits: int = 0
     cache_evictions: int = 0
@@ -163,9 +166,7 @@ class ConverterCache:
         self._stats = CacheStats()
         self._first_load_announced = False
 
-    def get_or_build(
-        self, fmt: str, opts: Any | None, build: Callable[[], Any]
-    ) -> Any:
+    def get_or_build(self, fmt: str, opts: Any | None, build: Callable[[], Any]) -> Any:
         if _cache_disabled():
             return build()  # bypass entirely
         key = _Key(fmt, _hash_opts(opts))
@@ -229,9 +230,7 @@ class ConverterCache:
         with self._lock:
             return self._evict_unlocked(key)
 
-    def evict_and_record_failure(
-        self, fmt: str, opts: Any | None
-    ) -> None:
+    def evict_and_record_failure(self, fmt: str, opts: Any | None) -> None:
         """Atomic counterpart to `evict()` that also increments the
         convert-failure counter inside the same lock acquisition.
         Always increments (we observed a convert failure even if the
@@ -257,6 +256,7 @@ class ConverterCache:
         # imports from this module, so we resolve is_quiet() at call
         # time when both modules are fully initialized.
         from any2md.converters import is_quiet
+
         if is_quiet() or not sys.stderr.isatty():
             return True
         print("  Loading Docling models (one-time)...", file=sys.stderr)
@@ -298,6 +298,7 @@ def _get_instance() -> ConverterCache:
 
 
 # ---- Public API surface (re-exported via any2md/__init__.py) ----
+
 
 def release_models() -> None:
     """Release all cached DocumentConverter instances.
@@ -352,6 +353,7 @@ def stats() -> CacheStats:
 
 # ---- Internal accessors used by converters ----
 
+
 def get_pdf_converter(pipeline_opts) -> Any:
     """Return a cached DocumentConverter for the given PDF pipeline options.
 
@@ -359,9 +361,11 @@ def get_pdf_converter(pipeline_opts) -> Any:
     the import cost only on cache miss (when ``_build`` actually
     runs). This honors the lazy-import contract for cache-hit paths.
     """
+
     def _build():
         from docling.datamodel.base_models import InputFormat
         from docling.document_converter import DocumentConverter, PdfFormatOption
+
         return DocumentConverter(
             format_options={
                 InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)
@@ -377,8 +381,10 @@ def get_docx_converter() -> Any:
     Docling import happens INSIDE the build closure so callers pay
     the import cost only on cache miss.
     """
+
     def _build():
         from docling.document_converter import DocumentConverter
+
         return DocumentConverter()
 
     return _get_instance().get_or_build("docx", None, _build)

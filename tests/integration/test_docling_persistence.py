@@ -3,6 +3,7 @@
 Gated by `pytest.mark.skipif(not has_docling())` per existing pattern
 in `tests/integration/test_pdf_docling.py`.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -53,9 +54,7 @@ def test_mixed_format_batch(fixture_dir, tmp_output_dir):
     assert s.model_loads == 2, f"expected 2 model loads, got {s.model_loads}"
 
 
-def test_convert_failure_evicts_and_rebuilds(
-    fixture_dir, tmp_output_dir, monkeypatch
-):
+def test_convert_failure_evicts_and_rebuilds(fixture_dir, tmp_output_dir, monkeypatch):
     """AC#3: a convert() exception triggers slot eviction; next call
     rebuilds. Verified by stats counters."""
     pdf = fixture_dir / "multi_column.pdf"
@@ -69,6 +68,7 @@ def test_convert_failure_evicts_and_rebuilds(
     # Monkeypatch convert() on the cached instance to raise once.
     from any2md._docling_cache import _get_instance, _hash_opts, _Key
     from docling.datamodel.pipeline_options import PdfPipelineOptions
+
     pipeline_opts = PdfPipelineOptions(
         do_ocr=options.ocr_figures,
         do_table_structure=True,

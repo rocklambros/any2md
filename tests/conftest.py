@@ -37,6 +37,7 @@ def _reset_docling_cache():
     Docling integration tests = ~15s added CI time. Acceptable.
     """
     from any2md import release_models
+
     release_models()
     yield
     release_models()

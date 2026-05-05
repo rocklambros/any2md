@@ -5,6 +5,7 @@ Docling library is NOT required — Docling integration tests live in
 tests/integration/test_docling_persistence.py and are gated by
 pytest.mark.skipif(not has_docling()).
 """
+
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ import pytest
 
 from any2md._docling_cache import (
     CacheStats,
+    ConverterCache,
     _Key,
     _cache_disabled,
     _canonicalize,
@@ -138,10 +140,16 @@ def test_hash_opts_set_field_stable_across_processes():
         print(_hash_opts(m).hex())
     """)
     r1 = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True,
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     r2 = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True,
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     assert r1.stdout.strip() == r2.stdout.strip(), (
         "Hash diverged across cold processes — canonicalizer is not "
@@ -166,7 +174,6 @@ def test_cache_disabled_env_var(monkeypatch):
 # ---------------------------------------------------------------------------
 # Task 4: ConverterCache.__init__, clear, stats, _after_fork
 # ---------------------------------------------------------------------------
-from any2md._docling_cache import ConverterCache
 
 
 def test_converter_cache_init_empty():
@@ -401,6 +408,7 @@ def test_evict_and_record_failure_increments_counter_even_when_absent():
 
 def test_get_instance_returns_singleton(monkeypatch):
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     a = cm._get_instance()
@@ -413,6 +421,7 @@ def test_lazy_init_thread_safety(monkeypatch):
     exactly one ConverterCache. Without _INSTANCE_LOCK, two threads
     could each construct a cache, leaking a fork callback."""
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     instances = []
@@ -442,6 +451,7 @@ def test_lazy_init_thread_safety(monkeypatch):
 
 def test_release_models_clears_cache(monkeypatch):
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     inst = cm._get_instance()
@@ -454,6 +464,7 @@ def test_release_models_clears_cache(monkeypatch):
 
 def test_docling_session_releases_on_normal_exit(monkeypatch):
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     with cm.docling_session():
@@ -466,6 +477,7 @@ def test_docling_session_releases_on_normal_exit(monkeypatch):
 
 def test_docling_session_releases_on_exception(monkeypatch):
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     inst_holder = []
@@ -482,6 +494,7 @@ def test_docling_session_releases_on_exception(monkeypatch):
 
 def test_module_level_stats_returns_snapshot(monkeypatch):
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     inst = cm._get_instance()
@@ -499,9 +512,9 @@ def test_module_level_stats_returns_snapshot(monkeypatch):
 def test_get_pdf_converter_uses_cache(monkeypatch):
     """Mock out Docling so we don't need it installed for unit tests."""
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
-    sentinel = object()
     builds = []
 
     class FakeDocConverter:
@@ -525,11 +538,13 @@ def test_get_pdf_converter_uses_cache(monkeypatch):
     monkeypatch.setitem(sys.modules, "docling", fake_docling)
     monkeypatch.setitem(sys.modules, "docling.datamodel", fake_docling.datamodel)
     monkeypatch.setitem(
-        sys.modules, "docling.datamodel.base_models",
+        sys.modules,
+        "docling.datamodel.base_models",
         fake_docling.datamodel.base_models,
     )
     monkeypatch.setitem(
-        sys.modules, "docling.document_converter",
+        sys.modules,
+        "docling.document_converter",
         fake_docling.document_converter,
     )
 
@@ -554,6 +569,7 @@ def test_get_pdf_converter_uses_cache_without_pydantic(monkeypatch):
     in CI's [dev] tier where pydantic is not installed.
     """
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     builds = []
@@ -579,17 +595,20 @@ def test_get_pdf_converter_uses_cache_without_pydantic(monkeypatch):
     monkeypatch.setitem(sys.modules, "docling", fake_docling)
     monkeypatch.setitem(sys.modules, "docling.datamodel", fake_docling.datamodel)
     monkeypatch.setitem(
-        sys.modules, "docling.datamodel.base_models",
+        sys.modules,
+        "docling.datamodel.base_models",
         fake_docling.datamodel.base_models,
     )
     monkeypatch.setitem(
-        sys.modules, "docling.document_converter",
+        sys.modules,
+        "docling.document_converter",
         fake_docling.document_converter,
     )
 
     class StubOpts:
         """Minimal stand-in for a Pydantic model — must implement
         model_dump(mode='json') for _hash_opts."""
+
         def model_dump(self, mode="json"):
             return {"do_ocr": False, "do_table_structure": True}
 
@@ -604,6 +623,7 @@ def test_get_pdf_converter_uses_cache_without_pydantic(monkeypatch):
 
 def test_get_docx_converter_uses_cache(monkeypatch):
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     builds = []
@@ -628,6 +648,7 @@ def test_evict_on_convert_failure_short_circuits_when_disabled(monkeypatch):
     """Per spec: when ANY2MD_DOCLING_CACHE=0, the helper must NOT
     lazily construct a ConverterCache solely to bump a counter."""
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
     monkeypatch.setenv("ANY2MD_DOCLING_CACHE", "0")
 
@@ -640,13 +661,16 @@ def test_evict_on_convert_failure_swallows_internal_exceptions(monkeypatch):
     """Helper is called during exception handling; it MUST NOT raise
     and mask the original exception."""
     import any2md._docling_cache as cm
+
     monkeypatch.setattr(cm, "_INSTANCE", None)
     monkeypatch.delenv("ANY2MD_DOCLING_CACHE", raising=False)
 
     # Force evict_and_record_failure to raise
     inst = cm._get_instance()
+
     def boom(*args, **kwargs):
         raise RuntimeError("internal cache bug")
+
     monkeypatch.setattr(inst, "evict_and_record_failure", boom)
 
     # Should NOT raise
@@ -675,4 +699,5 @@ def test_public_api_reexported_from_any2md():
 
 def test_version_bumped_to_1_1_0():
     import any2md
+
     assert any2md.__version__ == "1.1.0"
