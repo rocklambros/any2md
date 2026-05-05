@@ -680,11 +680,14 @@ linear in the number of fields. For a typical document, this phase is under
 
 In rough order of impact:
 
-1. **Docling model warmup.** First-invocation latency includes 2–10 seconds
-   of model load. For batch conversions, this is amortized; for single-file
-   invocations, it dominates. A long-running daemon that holds Docling open
-   between conversions would eliminate this. Out of scope for v1.0 (the
-   project is a CLI, not a service).
+1. **Docling model warmup (v1.1.0+: amortized).** First-invocation latency
+   on CPU is ~2.5s; warm calls are ~0.9s. On Mac MPS: ~2.8s cold, ~0.15s
+   warm. From v1.1.0 onward, the `DocumentConverter` is constructed once
+   per process and reused across all PDF/DOCX files in a batch (see
+   `any2md/_docling_cache.py`). For library/embedder use, call
+   `any2md.release_models()` or use `with any2md.docling_session():` to
+   free model state between workloads. Disable the cache entirely with
+   `ANY2MD_DOCLING_CACHE=0`.
 2. **Parallel batch processing.** Currently sequential. Adding multiprocess
    parallelism for batch mode would scale linearly with cores for the
    pymupdf4llm path; for the Docling path, GPU contention may limit
