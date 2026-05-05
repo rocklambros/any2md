@@ -41,6 +41,15 @@ def _canonicalize(obj: Any) -> Any:
     Docling 2.x `PdfPipelineOptions`). If a future field requires
     order preservation, switch this canonicalizer to a tagged form
     (e.g., wrap ordered lists in a sentinel) and update this docstring.
+
+    Input contract: ``obj`` must be the output of Pydantic
+    ``model_dump(mode="json")`` or equivalent JSON-clean structure
+    (string-keyed dicts, JSON-scalar leaves). Non-string dict keys or
+    non-JSON types (e.g., ``bytes``) are NOT supported — they will
+    raise downstream from ``json.dumps`` rather than here. Callers
+    that pass arbitrary user data must validate first; the cache's
+    only call site (``_hash_opts``) goes through ``model_dump`` so the
+    contract is upheld.
     """
     if isinstance(obj, dict):
         return {k: _canonicalize(obj[k]) for k in sorted(obj)}

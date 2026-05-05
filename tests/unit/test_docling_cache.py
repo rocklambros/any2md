@@ -17,8 +17,10 @@ from any2md._docling_cache import _canonicalize
 def test_canonicalize_passes_through_scalars():
     assert _canonicalize(None) is None
     assert _canonicalize(42) == 42
+    assert _canonicalize(3.14) == 3.14
     assert _canonicalize("hello") == "hello"
     assert _canonicalize(True) is True
+    assert _canonicalize(False) is False
 
 
 def test_canonicalize_sorts_dict_keys():
