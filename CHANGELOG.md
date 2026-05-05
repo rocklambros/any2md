@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] — 2026-05-04
+
+Performance and library-mode hygiene release.
+
+### Added
+
+- `any2md.release_models()` — imperative escape hatch to free
+  cached Docling `DocumentConverter` instances. Stability:
+  experimental for v1.1.0.
+- `any2md.docling_session()` — contextmanager (preferred shape
+  for library use). Stability: experimental for v1.1.0.
+- `ANY2MD_DOCLING_CACHE=0` env-var to disable the persistent
+  converter cache (per-call construction, equivalent to v1.0.x
+  behavior).
+- `__all__` declared on `any2md/__init__.py` (formalizes the
+  public surface).
+- New benchmark `scripts/bench_docling_cache.py` for maintainer
+  pre-release verification.
+
+### Changed
+
+- `DocumentConverter` is now constructed once per process and
+  reused across all files in a batch (was: once per file). New
+  one-time stderr line `Loading Docling models (one-time)...`
+  printed on first PDF/DOCX in non-quiet TTY runs.
+- `.github/workflows/ci.yml` now runs `pytest tests/unit` on each
+  push and PR (was: lint + import smoke + pip-audit only).
+
+### Performance
+
+- Measured: CPU first-call ~2.47s (model load), warm calls ~0.87s
+  (vs prior ~2.47s per file in v1.0.x). Mac MPS first-call ~2.77s,
+  warm ~0.14s. RSS floor +535 MB sustained for the process lifetime
+  (see `docs/troubleshooting.md` for `release_models()` mitigation).
+
+### Migration
+
+- None required for CLI users. The `Loading Docling models...`
+  stderr line is the only user-visible default-output change.
+- Library/embedder users holding any2md across long-running
+  processes should call `any2md.release_models()` or use
+  `with any2md.docling_session():` to free model state between
+  workloads.
+- Test/instrumentation code that monkey-patches
+  `docling.document_converter.DocumentConverter` AFTER any2md's
+  first call will see no effect on subsequent calls (cache returns
+  the pre-patch instance). Workaround: call `release_models()`
+  after applying the patch, or set `ANY2MD_DOCLING_CACHE=0` in the
+  test environment.
+
+### Stability notice
+
+The new public APIs (`release_models`, `docling_session`) are
+marked experimental for v1.1.0; their shape may change in
+subsequent v1.x releases without a major bump until promoted to
+stable in a later release.
+
+### Known limitations
+
+- HF Hub outages during cold-start now cause N retries instead of
+  one silent fallback (the v1.0.x failure-cache behavior was
+  rejected on quality grounds). Bounded retry-with-backoff
+  deferred to a future hardening PR.
+- Forking a process (`multiprocessing` with `fork` start method)
+  after the first `convert()` call inherits torch/CUDA state
+  unsafely regardless of cache. Use
+  `multiprocessing.set_start_method("spawn")` or call
+  `release_models()` before fork.
+- `os.register_at_fork` is POSIX-only; on Windows the fork-reset
+  path is dead code (no fork on Windows). Cache works normally
+  on Windows.
+
 ## [1.0.7] — 2026-04-29
 
 Branding/rebrand release. The frontmatter contract that any2md emits is

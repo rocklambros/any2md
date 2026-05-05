@@ -119,10 +119,18 @@ def _extract_via_docling(
 
     When ``options.save_images`` is True, extracted picture images are
     written to ``<output_dir>/images/<pdf_stem>/imgN.png``.
+
+    v1.1.0: uses the persistent ConverterCache rather than constructing
+    a fresh DocumentConverter per call. On any convert exception the
+    offending cache slot is evicted (guards against torch internal-
+    state contamination from a malformed input).
     """
-    from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions
-    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    from any2md._docling_cache import (
+        evict_on_convert_failure,
+        get_pdf_converter,
+    )
 
     pipeline_opts = PdfPipelineOptions(
         do_ocr=options.ocr_figures,
@@ -130,12 +138,12 @@ def _extract_via_docling(
         generate_picture_images=options.save_images,
     )
 
-    converter = DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts),
-        }
-    )
-    result = converter.convert(str(pdf_path))
+    converter = get_pdf_converter(pipeline_opts)
+    try:
+        result = converter.convert(str(pdf_path))
+    except Exception:
+        evict_on_convert_failure("pdf", pipeline_opts)
+        raise
 
     if options.save_images:
         pictures = getattr(result.document, "pictures", None) or []

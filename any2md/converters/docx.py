@@ -173,12 +173,24 @@ def _extract_via_docling(docx_path: Path) -> tuple[str, str, list[str]]:
     ``captured_warnings`` is the list of WARNING+ messages emitted by
     Docling's ``msword_backend`` logger during the conversion. It is
     empty for clean runs. Raises on Docling errors.
-    """
-    from docling.document_converter import DocumentConverter
 
-    converter = DocumentConverter()
+    v1.1.0: uses the persistent ConverterCache rather than constructing
+    a fresh DocumentConverter per call. On any convert exception the
+    offending cache slot is evicted (guards against torch internal-
+    state contamination from a malformed input).
+    """
+    from any2md._docling_cache import (
+        evict_on_convert_failure,
+        get_docx_converter,
+    )
+
+    converter = get_docx_converter()
     with _DoclingMswordWarningCapture() as cap:
-        result = converter.convert(str(docx_path))
+        try:
+            result = converter.convert(str(docx_path))
+        except Exception:
+            evict_on_convert_failure("docx", None)
+            raise
     return result.document.export_to_markdown(), "docling", list(cap.messages)
 
 

@@ -327,6 +327,15 @@ any2md -f -r ./corpus/
 
 You'll see the OK lines as if the conversion were fresh; previously-written outputs are overwritten.
 
+> **v1.1.0+:** when processing PDFs or DOCX files via the Docling
+> backend, the converter (and its loaded model weights) is constructed
+> once on the first PDF/DOCX in an invocation and reused for all
+> subsequent files; subsequent files extract in ~0.5–1s rather than
+> re-paying the ~2.5s cold-load tax. Library users embedding any2md
+> in long-running processes should call `any2md.release_models()` or
+> use `with any2md.docling_session():` — see
+> `docs/troubleshooting.md`.
+
 ## The output format
 
 Every file converted by any2md has the same frontmatter shape, regardless of source format. The shape is **SAGE-compatible** — it matches the field names, types, and ordering of the Security Analysis and Guidance Exchange specification, but values aren't required to match SAGE's controlled vocabularies (most converted documents aren't security research). Fields that require a controlled vocabulary (`document_type`, `content_domain`, `tlp`) are emitted empty unless you supply them via `--meta` or `.any2md.toml`.

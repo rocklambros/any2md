@@ -486,3 +486,79 @@ typically the minimum needed to reproduce.
   diagnosing why a particular artifact appeared.
 - [upgrading-from-0.7.md](upgrading-from-0.7.md) — for users seeing
   v0.7-vs-v1.0 differences after an upgrade.
+
+## Memory use in long-running processes
+
+From v1.1.0, any2md keeps the Docling `DocumentConverter` (and its
+loaded model weights) resident across the lifetime of the Python
+process. This is intentional: it eliminates the ~2.5s cold-load tax
+on every file in a batch. The trade-off is a sustained RSS floor of
+roughly +535 MB once Docling has been imported (and more once a model
+has actually loaded).
+
+**For CLI users:** no action needed. The process exits when the batch
+finishes; memory is freed.
+
+**For library / embedder users** (importing any2md inside a
+long-running service, notebook, batch worker):
+
+```python
+import any2md
+from any2md.converters import convert_file
+
+# Preferred: contextmanager
+with any2md.docling_session():
+    convert_file(some_pdf, out_dir)
+    # ... more work ...
+# Models freed here.
+
+# Or imperative:
+any2md.release_models()
+```
+
+Note: in v1.1.0 only `release_models` and `docling_session` are
+re-exported from the top-level `any2md` package; `convert_file`
+remains under `any2md.converters`.
+
+`release_models()` is best-effort under thread contention — a thread
+that starts a Docling build before `release_models()` returns may
+re-populate the cache moments later. `docling_session()` is fine in
+single-threaded contexts (the dominant library use case).
+
+**To disable the cache entirely** (revert to v1.0.x per-call
+construction behavior):
+
+```bash
+ANY2MD_DOCLING_CACHE=0 any2md ...
+```
+
+Note this trades ~2.5s per file for zero sustained memory beyond
+each call's transient. Use it as a same-day workaround if the cache
+is somehow misbehaving in your environment; if you reach for it
+durably, please open an issue.
+
+**Debugging cache hits/misses (v1.1.0):**
+
+```python
+from any2md._docling_cache import stats
+print(stats())  # CacheStats(model_loads=N, cache_hits=N, ...)
+```
+
+A CLI flag (`--debug-cache-stats`) is planned for v1.2.0.
+
+**Maintainer pre-release check:**
+
+```bash
+python scripts/bench_docling_cache.py
+```
+
+Asserts exactly one model load and a >=2x speedup on the second call.
+Detects silent cache no-op (would be caused by a hypothetical future
+Docling field with `default_factory` randomness).
+
+**Fork after first convert is unsafe upstream.** Forking a process
+after `convert()` has triggered model load inherits torch state via
+shared file descriptors and process memory. The cache's `_after_fork`
+hook resets cache structures but cannot heal torch's internal state.
+Use `multiprocessing.set_start_method("spawn")` (the macOS default)
+or call `release_models()` before fork.

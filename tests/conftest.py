@@ -23,3 +23,21 @@ def tmp_output_dir(tmp_path) -> Path:
     out = tmp_path / "output"
     out.mkdir()
     return out
+
+
+@pytest.fixture(autouse=True)
+def _reset_docling_cache():
+    """Project-wide: clear the persistent DocumentConverter cache
+    BEFORE and AFTER every test, ensuring no state leaks across
+    tests in either direction.
+
+    Bidirectional cleanup: pre-yield handles state left by a prior
+    aborted session; post-yield handles state set by the current
+    test for the next one. Cost on the release path: ~2.47s × ~6
+    Docling integration tests = ~15s added CI time. Acceptable.
+    """
+    from any2md import release_models
+
+    release_models()
+    yield
+    release_models()
