@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 
 import pytest
 
@@ -219,3 +220,139 @@ def test_register_at_fork_optional_on_windows(monkeypatch):
     cache = ConverterCache()
     assert cache is not None
     assert len(cache._store) == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 5: get_or_build and _announce_first_load_if_needed
+# ---------------------------------------------------------------------------
+
+
+def test_get_or_build_caches_on_first_call_and_returns_same_object():
+    cache = ConverterCache()
+    sentinel = object()
+    builds = []
+
+    def build():
+        builds.append(sentinel)
+        return sentinel
+
+    a = cache.get_or_build("pdf", None, build)
+    b = cache.get_or_build("pdf", None, build)
+
+    assert a is sentinel
+    assert b is sentinel
+    assert a is b
+    assert len(builds) == 1
+    assert cache.stats().model_loads == 1
+    assert cache.stats().cache_hits == 1
+
+
+def test_get_or_build_distinct_keys_distinct_builds():
+    cache = ConverterCache()
+    sa, sb = object(), object()
+
+    a = cache.get_or_build("pdf", None, lambda: sa)
+    b = cache.get_or_build("docx", None, lambda: sb)
+
+    assert a is sa
+    assert b is sb
+    assert cache.stats().model_loads == 2
+
+
+def test_env_var_disables_cache(monkeypatch):
+    monkeypatch.setenv("ANY2MD_DOCLING_CACHE", "0")
+    cache = ConverterCache()
+    builds = []
+
+    def build():
+        o = object()
+        builds.append(o)
+        return o
+
+    a = cache.get_or_build("pdf", None, build)
+    b = cache.get_or_build("pdf", None, build)
+
+    assert a is not b  # Different builds — cache bypassed
+    assert cache.stats().model_loads == 0  # Counter not incremented
+    assert len(builds) == 2
+
+
+def test_build_raises_rolls_back_announce_flag():
+    cache = ConverterCache()
+
+    def failing_build():
+        raise RuntimeError("simulated HF 503")
+
+    with pytest.raises(RuntimeError, match="simulated"):
+        cache.get_or_build("pdf", None, failing_build)
+
+    # Flag rolled back so a subsequent successful build re-announces
+    assert cache._first_load_announced is False
+    assert cache.stats().model_loads == 0
+    assert len(cache._store) == 0
+
+
+def test_announce_returns_true_only_on_first_call():
+    cache = ConverterCache()
+    assert cache._announce_first_load_if_needed() is True
+    assert cache._announce_first_load_if_needed() is False
+    assert cache._announce_first_load_if_needed() is False
+
+
+def test_maxsize_enforcement_evicts_lru():
+    cache = ConverterCache(maxsize=2)
+    sa, sb, sc = object(), object(), object()
+
+    cache.get_or_build("pdf", None, lambda: sa)
+    cache.get_or_build("docx", None, lambda: sb)
+    # Third distinct key — must evict pdf (LRU)
+    cache.get_or_build("xfmt", None, lambda: sc)
+
+    assert cache.stats().cache_evictions >= 1
+    # pdf re-build = miss (was evicted)
+    sa2 = object()
+    result = cache.get_or_build("pdf", None, lambda: sa2)
+    assert result is sa2  # New build
+    assert cache.stats().model_loads == 4
+
+
+def test_two_thread_same_key_race_returns_same_object():
+    cache = ConverterCache(maxsize=2)
+    barrier = threading.Barrier(8)
+    results = []
+    results_lock = threading.Lock()
+
+    def build():
+        return object()
+
+    def worker():
+        barrier.wait()
+        result = cache.get_or_build("pdf", None, build)
+        with results_lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # All 8 callers must receive the same converter
+    assert all(r is results[0] for r in results)
+    # Only one entry actually stored
+    assert len(cache._store) == 1
+
+
+def test_maxsize_1_evicts_old_keeps_new():
+    cache = ConverterCache(maxsize=1)
+    sa, sb = object(), object()
+
+    a = cache.get_or_build("pdf", None, lambda: sa)
+    b = cache.get_or_build("docx", None, lambda: sb)
+
+    assert a is sa
+    assert b is sb
+    assert cache.stats().model_loads == 2
+    assert cache.stats().cache_evictions >= 1
+    # Only one entry remains
+    assert len(cache._store) == 1

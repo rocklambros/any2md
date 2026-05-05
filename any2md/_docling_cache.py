@@ -162,3 +162,61 @@ class ConverterCache:
         self._store.clear()
         self._stats = CacheStats()
         self._first_load_announced = False
+
+    def get_or_build(
+        self, fmt: str, opts: Any | None, build: Callable[[], Any]
+    ) -> Any:
+        if _cache_disabled():
+            return build()  # bypass entirely
+        key = _Key(fmt, _hash_opts(opts))
+        with self._lock:
+            if key in self._store:
+                self._stats.cache_hits += 1
+                self._store.move_to_end(key)
+                return self._store[key]
+        # Build outside lock; rollback announce-flag if build raises so
+        # a subsequent successful build still announces.
+        announced_now = self._announce_first_load_if_needed()
+        try:
+            conv = build()
+        except Exception:
+            if announced_now:
+                with self._lock:
+                    self._first_load_announced = False
+            raise
+        with self._lock:
+            self._stats.model_loads += 1
+            if key not in self._store:
+                self._store[key] = conv
+                self._store.move_to_end(key)
+                while len(self._store) > self._maxsize:
+                    self._store.popitem(last=False)
+                    self._stats.cache_evictions += 1
+            # Defensive `.get(key, conv)` rather than `[key]`: the
+            # current control flow guarantees presence (insert +
+            # move_to_end places our key at MRU position; eviction
+            # only pops LRU), but a future maintainer reordering
+            # eviction-before-insert or moving the eviction loop
+            # outside this lock would otherwise raise KeyError here.
+            return self._store.get(key, conv)
+
+    def _announce_first_load_if_needed(self) -> bool:
+        """Returns True if THIS call performed the announcement (so
+        the caller can roll back the flag on build failure). Returns
+        False if announcement had already happened.
+
+        Compare-and-set inside the lock so two racing first-loaders
+        don't both print. I/O happens outside the lock.
+        """
+        with self._lock:
+            if self._first_load_announced:
+                return False
+            self._first_load_announced = True
+        # Lazy import avoids a load-time cycle: any2md.converters
+        # imports from this module, so we resolve is_quiet() at call
+        # time when both modules are fully initialized.
+        from any2md.converters import is_quiet
+        if is_quiet() or not sys.stderr.isatty():
+            return True
+        print("  Loading Docling models (one-time)...", file=sys.stderr)
+        return True
