@@ -260,6 +260,22 @@ _INSTANCE: ConverterCache | None = None
 _INSTANCE_LOCK = threading.Lock()
 
 
+def _reset_module_lock_after_fork() -> None:
+    """Reassign the module-level lazy-init lock in the child process
+    after fork. If a parent thread held `_INSTANCE_LOCK` at fork
+    time, the child would inherit a permanently-locked Lock;
+    reassigning gives the child a fresh, unlocked one. Mirrors the
+    instance-level treatment in ``ConverterCache._after_fork``.
+    """
+    global _INSTANCE_LOCK
+    _INSTANCE_LOCK = threading.Lock()
+
+
+# POSIX-only; matches the hasattr-guard pattern in ConverterCache.__init__.
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_module_lock_after_fork)
+
+
 def _get_instance() -> ConverterCache:
     """Lock-serialized lazy init. Without the lock, two threads
     racing first-call could each construct a ConverterCache; the
