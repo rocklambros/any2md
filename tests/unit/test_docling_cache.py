@@ -54,3 +54,114 @@ def test_canonicalize_recurses_into_nested_lists_of_dicts():
     a = _canonicalize([{"b": 2}, {"a": 1}])
     b = _canonicalize([{"a": 1}, {"b": 2}])
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+
+
+import subprocess
+import sys
+import textwrap
+
+from any2md._docling_cache import (
+    CacheStats,
+    _Key,
+    _cache_disabled,
+    _hash_opts,
+)
+
+
+def test_key_is_frozen_and_hashable():
+    k1 = _Key(fmt="pdf", digest=b"\x00" * 32)
+    k2 = _Key(fmt="pdf", digest=b"\x00" * 32)
+    assert k1 == k2
+    assert hash(k1) == hash(k2)
+    # Frozen — assignment must raise
+    with pytest.raises(Exception):
+        k1.fmt = "docx"  # type: ignore
+
+
+def test_cache_stats_default_zero():
+    s = CacheStats()
+    assert s.model_loads == 0
+    assert s.cache_hits == 0
+    assert s.cache_evictions == 0
+    assert s.convert_failures == 0
+    assert s.fallback_count == 0
+
+
+def test_hash_opts_none_returns_zero_bytes():
+    assert _hash_opts(None) == b"\x00" * 32
+
+
+def test_hash_opts_stable_for_same_input():
+    """Test with a synthetic Pydantic model so we don't need Docling."""
+    pydantic = pytest.importorskip("pydantic")
+
+    class M(pydantic.BaseModel):
+        a: int = 1
+        b: str = "x"
+
+    h1 = _hash_opts(M())
+    h2 = _hash_opts(M())
+    assert h1 == h2
+    assert len(h1) == 32  # sha256 raw bytes
+
+
+def test_hash_opts_different_for_different_input():
+    pydantic = pytest.importorskip("pydantic")
+
+    class M(pydantic.BaseModel):
+        a: int = 1
+
+    h1 = _hash_opts(M(a=1))
+    h2 = _hash_opts(M(a=2))
+    assert h1 != h2
+
+
+def test_hash_opts_set_field_stable_across_processes():
+    """The whole reason _canonicalize exists: Pydantic serializes
+    set/frozenset to list with PYTHONHASHSEED-randomized order.
+    Two cold processes must produce the same hash.
+
+    Pydantic is NOT in the [dev] extra (only in [high-fidelity] via
+    transitive docling), so this test is skipped in the CI tests job
+    that installs only [dev]. The subprocess imports pydantic
+    directly; without the importorskip guard, subprocess.run(check=True)
+    would raise ModuleNotFoundError and pytest would report ERROR.
+    """
+    pytest.importorskip("pydantic")
+    code = textwrap.dedent("""
+        from pydantic import BaseModel
+        from any2md._docling_cache import _hash_opts
+
+        class M(BaseModel):
+            s: set[str] = set()
+
+        m = M(s={"a", "b", "c", "d", "e"})
+        print(_hash_opts(m).hex())
+    """)
+    r1 = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True,
+    )
+    r2 = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True,
+    )
+    assert r1.stdout.strip() == r2.stdout.strip(), (
+        "Hash diverged across cold processes — canonicalizer is not "
+        "sorting list contents (likely a regression in _canonicalize)."
+    )
+
+
+def test_cache_disabled_env_var(monkeypatch):
+    monkeypatch.delenv("ANY2MD_DOCLING_CACHE", raising=False)
+    assert _cache_disabled() is False
+
+    for value in ("0", "off", "OFF", "FALSE", "false"):
+        monkeypatch.setenv("ANY2MD_DOCLING_CACHE", value)
+        assert _cache_disabled() is True
+
+    for value in ("1", "on", "true", "yes", ""):
+        monkeypatch.setenv("ANY2MD_DOCLING_CACHE", value)
+        # Empty string treated as "not disabled" per spec semantics
+        if value == "":
+            assert _cache_disabled() is False
+        else:
+            assert _cache_disabled() is False

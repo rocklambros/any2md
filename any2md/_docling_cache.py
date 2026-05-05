@@ -61,3 +61,60 @@ def _canonicalize(obj: Any) -> Any:
             key=lambda v: json.dumps(v, sort_keys=True),
         )
     return obj
+
+
+@dataclass(frozen=True)
+class _Key:
+    """Composite cache key. `fmt` is load-bearing for safety: digest
+    space alone is not unique across formats (e.g., `_hash_opts(None)`
+    produces the same zero bytes for both PDF and DOCX call sites).
+    """
+    fmt: str         # "pdf" | "docx"
+    digest: bytes    # 32-byte sha256 of canonical opts json (or zeros for None)
+
+
+@dataclass
+class CacheStats:
+    """In-process counters. No persistence, no telemetry, no opt-in.
+    Exposed via the module-level `stats()` function (NOT
+    `ConverterCache.stats()`, which is an instance method).
+
+    Counters are eventually-consistent under thread contention;
+    snapshots are not transactionally coherent. Acceptable for
+    debug/observability use, not for control logic.
+    """
+    model_loads: int = 0
+    cache_hits: int = 0
+    cache_evictions: int = 0
+    convert_failures: int = 0
+    fallback_count: int = 0
+
+
+def _hash_opts(opts: Any | None) -> bytes:
+    """Canonical content-hash of Docling pipeline options.
+
+    Uses Pydantic `model_dump(mode="json")` then a recursive
+    canonicalizer (sorts dicts AND lists) to produce a process-stable
+    digest. Non-JSON-representable types raise from `model_dump` with
+    `mode="json"` — that is the desired loud-failure behavior.
+
+    Known limitation: if a future Docling field uses
+    `default_factory=lambda: random_value()` (unique per construction),
+    the cache becomes a silent no-op for that field — different digest
+    every call. Acceptance criterion #1 (`model_loads == 1` across two
+    same-options calls) is the canary; the maintainer benchmark script
+    `scripts/bench_docling_cache.py` is the periodic verifier.
+    """
+    if opts is None:
+        return b"\x00" * 32
+    canonical = _canonicalize(opts.model_dump(mode="json"))
+    payload = json.dumps(canonical, sort_keys=True).encode()
+    return hashlib.sha256(payload).digest()
+
+
+def _cache_disabled() -> bool:
+    """Read the env var on every call (intentional — supports test
+    harnesses that toggle it). Cost is one `os.environ.get` per
+    `get_or_build`; negligible vs the work the cache guards.
+    """
+    return os.environ.get(_CACHE_DISABLED_ENV, "").lower() in {"0", "off", "false"}
