@@ -200,6 +200,17 @@ class ConverterCache:
             # outside this lock would otherwise raise KeyError here.
             return self._store.get(key, conv)
 
+    def _evict_unlocked(self, key: _Key) -> bool:
+        """Drop ``key`` from the store and increment cache_evictions.
+        Returns True if a slot was removed, False if the key wasn't
+        present. MUST be called with ``self._lock`` already held.
+        """
+        if key in self._store:
+            del self._store[key]
+            self._stats.cache_evictions += 1
+            return True
+        return False
+
     def evict(self, fmt: str, opts: Any | None) -> bool:
         """Remove the cache entry matching (fmt, opts). Returns True
         if a slot was actually removed.
@@ -209,11 +220,7 @@ class ConverterCache:
         """
         key = _Key(fmt, _hash_opts(opts))
         with self._lock:
-            if key in self._store:
-                del self._store[key]
-                self._stats.cache_evictions += 1
-                return True
-            return False
+            return self._evict_unlocked(key)
 
     def evict_and_record_failure(
         self, fmt: str, opts: Any | None
@@ -224,9 +231,7 @@ class ConverterCache:
         slot was already evicted by a concurrent caller)."""
         key = _Key(fmt, _hash_opts(opts))
         with self._lock:
-            if key in self._store:
-                del self._store[key]
-                self._stats.cache_evictions += 1
+            self._evict_unlocked(key)
             self._stats.convert_failures += 1
 
     def _announce_first_load_if_needed(self) -> bool:
