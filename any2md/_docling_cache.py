@@ -215,8 +215,15 @@ class ConverterCache:
         """Remove the cache entry matching (fmt, opts). Returns True
         if a slot was actually removed.
 
-        Called by converters after `convert()` raises, to guard against
-        torch internal-state contamination from a malformed input.
+        For converters: prefer the module-level
+        ``evict_on_convert_failure(fmt, opts)`` helper instead of
+        calling this method directly. The helper short-circuits when
+        the cache is disabled and atomically increments the
+        ``convert_failures`` counter via ``evict_and_record_failure``.
+        Direct ``evict()`` calls skip both behaviors.
+
+        Use this method only for explicit eviction (e.g., test
+        cleanup, library users releasing a specific format slot).
         """
         key = _Key(fmt, _hash_opts(opts))
         with self._lock:
