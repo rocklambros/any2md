@@ -504,16 +504,21 @@ long-running service, notebook, batch worker):
 
 ```python
 import any2md
+from any2md.converters import convert_file
 
 # Preferred: contextmanager
 with any2md.docling_session():
-    any2md.convert_file(some_pdf, out_dir)
+    convert_file(some_pdf, out_dir)
     # ... more work ...
 # Models freed here.
 
 # Or imperative:
 any2md.release_models()
 ```
+
+Note: in v1.1.0 only `release_models` and `docling_session` are
+re-exported from the top-level `any2md` package; `convert_file`
+remains under `any2md.converters`.
 
 `release_models()` is best-effort under thread contention — a thread
 that starts a Docling build before `release_models()` returns may

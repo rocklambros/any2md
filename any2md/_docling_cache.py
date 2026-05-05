@@ -149,8 +149,20 @@ class ConverterCache:
             os.register_at_fork(after_in_child=self._after_fork)
 
     def clear(self) -> None:
+        """Release all cached converters AND reset stats + announce
+        flag.
+
+        Resetting stats is intentional: ``release_models()`` is the
+        public release verb and the autouse test-isolation fixture; if
+        ``clear()`` only emptied ``_store``, callers asserting exact
+        counter values (e.g. ``stats().model_loads == 1``) would
+        observe leakage from prior tests/sessions. Mirrors the state
+        reset performed by ``_after_fork``.
+        """
         with self._lock:
             self._store.clear()
+            self._stats = CacheStats()
+            self._first_load_announced = False
 
     def stats(self) -> CacheStats:
         with self._lock:
@@ -324,11 +336,16 @@ def docling_session() -> Iterator[None]:
     Stability: experimental for v1.1.0. Preferred shape for library
     use; guarantees release on `__exit__` even if the body raises.
 
-        from any2md import docling_session, convert_file
+        from any2md import docling_session
+        from any2md.converters import convert_file
         with docling_session():
             convert_file("a.pdf", out_dir)
             convert_file("b.pdf", out_dir)
         # models freed here
+
+    Note: ``convert_file`` lives in ``any2md.converters``; only
+    ``docling_session`` and ``release_models`` are re-exported from
+    the top-level ``any2md`` package in v1.1.0.
     """
     try:
         yield
@@ -408,4 +425,10 @@ def evict_on_convert_failure(fmt: str, opts: Any | None) -> None:
     try:
         _get_instance().evict_and_record_failure(fmt, opts)
     except Exception:
+        # Intentional: this helper is invoked from converter `except`
+        # blocks during convert failure. Re-raising here would mask
+        # the original Docling exception (the one the caller is
+        # already handling) and prevent the upstream
+        # pymupdf4llm/mammoth fallback path. See spec
+        # "Error handling" table.
         pass
