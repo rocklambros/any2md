@@ -116,5 +116,10 @@ def _cache_disabled() -> bool:
     """Read the env var on every call (intentional — supports test
     harnesses that toggle it). Cost is one `os.environ.get` per
     `get_or_build`; negligible vs the work the cache guards.
+
+    Accepted disable values (case-insensitive): ``0``, ``off``,
+    ``false``. Other values (including ``no``, ``n``, ``disabled``)
+    do NOT disable the cache. Set ``ANY2MD_DOCLING_CACHE=0`` per
+    the documented public surface.
     """
     return os.environ.get(_CACHE_DISABLED_ENV, "").lower() in {"0", "off", "false"}

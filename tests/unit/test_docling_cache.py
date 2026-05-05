@@ -8,10 +8,19 @@ pytest.mark.skipif(not has_docling()).
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
-from any2md._docling_cache import _canonicalize
+from any2md._docling_cache import (
+    CacheStats,
+    _Key,
+    _cache_disabled,
+    _canonicalize,
+    _hash_opts,
+)
 
 
 def test_canonicalize_passes_through_scalars():
@@ -56,25 +65,13 @@ def test_canonicalize_recurses_into_nested_lists_of_dicts():
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
-import subprocess
-import sys
-import textwrap
-
-from any2md._docling_cache import (
-    CacheStats,
-    _Key,
-    _cache_disabled,
-    _hash_opts,
-)
-
-
 def test_key_is_frozen_and_hashable():
     k1 = _Key(fmt="pdf", digest=b"\x00" * 32)
     k2 = _Key(fmt="pdf", digest=b"\x00" * 32)
     assert k1 == k2
     assert hash(k1) == hash(k2)
-    # Frozen — assignment must raise
-    with pytest.raises(Exception):
+    # Frozen — assignment must raise AttributeError (frozen dataclass behavior)
+    with pytest.raises(AttributeError):
         k1.fmt = "docx"  # type: ignore
 
 
@@ -158,10 +155,7 @@ def test_cache_disabled_env_var(monkeypatch):
         monkeypatch.setenv("ANY2MD_DOCLING_CACHE", value)
         assert _cache_disabled() is True
 
-    for value in ("1", "on", "true", "yes", ""):
+    # Empty string and any non-disable token must NOT disable
+    for value in ("1", "on", "true", "yes", "", "no", "n", "disabled"):
         monkeypatch.setenv("ANY2MD_DOCLING_CACHE", value)
-        # Empty string treated as "not disabled" per spec semantics
-        if value == "":
-            assert _cache_disabled() is False
-        else:
-            assert _cache_disabled() is False
+        assert _cache_disabled() is False
