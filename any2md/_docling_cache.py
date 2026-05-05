@@ -341,3 +341,55 @@ def stats() -> CacheStats:
     if _INSTANCE is None:
         return CacheStats()
     return _get_instance().stats()
+
+
+# ---- Internal accessors used by converters ----
+
+def get_pdf_converter(pipeline_opts) -> Any:
+    """Return a cached DocumentConverter for the given PDF pipeline options.
+
+    The build callback is constructed lazily so that callers don't pay
+    the import cost when the cache hits.
+    """
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    def _build():
+        return DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)
+            }
+        )
+
+    return _get_instance().get_or_build("pdf", pipeline_opts, _build)
+
+
+def get_docx_converter() -> Any:
+    """Return a cached DocumentConverter for DOCX (no pipeline options today)."""
+    from docling.document_converter import DocumentConverter
+
+    def _build():
+        return DocumentConverter()
+
+    return _get_instance().get_or_build("docx", None, _build)
+
+
+def evict_on_convert_failure(fmt: str, opts: Any | None) -> None:
+    """Convenience for converters: drop the cache slot after a
+    convert exception AND increment the failure counter, atomically.
+
+    Short-circuits when ``ANY2MD_DOCLING_CACHE=0`` is set — the
+    env-var disables the cache entirely, so we don't lazily
+    construct a `ConverterCache` singleton (with its `register_at_fork`
+    side-effect) just to bump a counter that the user has chosen not
+    to consume.
+
+    Wrapped in a broad except so this helper, called during exception
+    handling, cannot itself raise and mask the original exception.
+    """
+    if _cache_disabled():
+        return
+    try:
+        _get_instance().evict_and_record_failure(fmt, opts)
+    except Exception:
+        pass

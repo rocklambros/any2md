@@ -489,3 +489,111 @@ def test_module_level_stats_returns_snapshot(monkeypatch):
 
     s = cm.stats()
     assert s.model_loads == 1
+
+
+# ---------------------------------------------------------------------------
+# Task 9: get_pdf_converter, get_docx_converter, evict_on_convert_failure
+# ---------------------------------------------------------------------------
+
+
+def test_get_pdf_converter_uses_cache(monkeypatch):
+    """Mock out Docling so we don't need it installed for unit tests."""
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    sentinel = object()
+    builds = []
+
+    class FakeDocConverter:
+        def __init__(self, *args, **kwargs):
+            builds.append(self)
+
+    class FakeFormatOption:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class FakeInputFormat:
+        PDF = "PDF"
+
+    fake_docling = type(sys)("docling")
+    fake_docling.datamodel = type(sys)("docling.datamodel")
+    fake_docling.datamodel.base_models = type(sys)("docling.datamodel.base_models")
+    fake_docling.datamodel.base_models.InputFormat = FakeInputFormat
+    fake_docling.document_converter = type(sys)("docling.document_converter")
+    fake_docling.document_converter.DocumentConverter = FakeDocConverter
+    fake_docling.document_converter.PdfFormatOption = FakeFormatOption
+    monkeypatch.setitem(sys.modules, "docling", fake_docling)
+    monkeypatch.setitem(sys.modules, "docling.datamodel", fake_docling.datamodel)
+    monkeypatch.setitem(
+        sys.modules, "docling.datamodel.base_models",
+        fake_docling.datamodel.base_models,
+    )
+    monkeypatch.setitem(
+        sys.modules, "docling.document_converter",
+        fake_docling.document_converter,
+    )
+
+    pydantic = pytest.importorskip("pydantic")
+
+    class FakeOpts(pydantic.BaseModel):
+        do_ocr: bool = False
+        do_table_structure: bool = True
+
+    opts = FakeOpts()
+
+    a = cm.get_pdf_converter(opts)
+    b = cm.get_pdf_converter(opts)
+
+    assert a is b
+    assert len(builds) == 1
+
+
+def test_get_docx_converter_uses_cache(monkeypatch):
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+
+    builds = []
+
+    class FakeDocConverter:
+        def __init__(self):
+            builds.append(self)
+
+    fake_docling_dc = type(sys)("docling.document_converter")
+    fake_docling_dc.DocumentConverter = FakeDocConverter
+    monkeypatch.setitem(sys.modules, "docling", type(sys)("docling"))
+    monkeypatch.setitem(sys.modules, "docling.document_converter", fake_docling_dc)
+
+    a = cm.get_docx_converter()
+    b = cm.get_docx_converter()
+
+    assert a is b
+    assert len(builds) == 1
+
+
+def test_evict_on_convert_failure_short_circuits_when_disabled(monkeypatch):
+    """Per spec: when ANY2MD_DOCLING_CACHE=0, the helper must NOT
+    lazily construct a ConverterCache solely to bump a counter."""
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+    monkeypatch.setenv("ANY2MD_DOCLING_CACHE", "0")
+
+    # Should not construct _INSTANCE
+    cm.evict_on_convert_failure("pdf", None)
+    assert cm._INSTANCE is None
+
+
+def test_evict_on_convert_failure_swallows_internal_exceptions(monkeypatch):
+    """Helper is called during exception handling; it MUST NOT raise
+    and mask the original exception."""
+    import any2md._docling_cache as cm
+    monkeypatch.setattr(cm, "_INSTANCE", None)
+    monkeypatch.delenv("ANY2MD_DOCLING_CACHE", raising=False)
+
+    # Force evict_and_record_failure to raise
+    inst = cm._get_instance()
+    def boom(*args, **kwargs):
+        raise RuntimeError("internal cache bug")
+    monkeypatch.setattr(inst, "evict_and_record_failure", boom)
+
+    # Should NOT raise
+    cm.evict_on_convert_failure("pdf", None)
