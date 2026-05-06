@@ -1,5 +1,8 @@
 name: Release to PyPI
 
+permissions:
+  contents: read
+
 on:
   release:
     types: [published]
@@ -84,7 +87,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          attestations: false
+          attestations: true
 
   publish-pypi:
     name: Publish to PyPI
@@ -104,4 +107,4 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
         with:
-          attestations: false
+          attestations: true
