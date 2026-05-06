@@ -35,7 +35,8 @@ def test_both_publish_steps_have_attestations_true(workflow):
     for job_name in ("publish-testpypi", "publish-pypi"):
         job = workflow["jobs"][job_name]
         publish_step = next(
-            s for s in job["steps"]
+            s
+            for s in job["steps"]
             if "pypa/gh-action-pypi-publish" in s.get("uses", "")
         )
         assert publish_step["with"]["attestations"] is True, (

@@ -33,6 +33,4 @@ def test_lockfile_contains_every_base_dep():
 
 def test_lockfile_has_hashes():
     text = (ROOT / ".devcontainer" / "requirements.lock").read_text()
-    assert "--hash=sha256:" in text, (
-        "lockfile must be generated with --generate-hashes"
-    )
+    assert "--hash=sha256:" in text, "lockfile must be generated with --generate-hashes"

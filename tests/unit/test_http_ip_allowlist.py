@@ -21,17 +21,17 @@ def _gai_result(ip: str):
         ("8.8.8.8", True),
         ("1.1.1.1", True),
         ("169.254.169.254", False),  # link-local (AWS metadata)
-        ("10.0.0.1", False),          # RFC1918
-        ("172.16.0.1", False),        # RFC1918
-        ("192.168.1.1", False),       # RFC1918
-        ("127.0.0.1", False),         # loopback
-        ("0.0.0.0", False),           # unspecified
-        ("224.0.0.1", False),         # IPv4 multicast
-        ("100.64.0.1", False),        # CGNAT
-        ("192.0.0.1", False),         # IETF reserved
-        ("::1", False),               # IPv6 loopback
-        ("ff02::1", False),           # IPv6 multicast
-        ("fe80::1", False),           # IPv6 link-local
+        ("10.0.0.1", False),  # RFC1918
+        ("172.16.0.1", False),  # RFC1918
+        ("192.168.1.1", False),  # RFC1918
+        ("127.0.0.1", False),  # loopback
+        ("0.0.0.0", False),  # unspecified
+        ("224.0.0.1", False),  # IPv4 multicast
+        ("100.64.0.1", False),  # CGNAT
+        ("192.0.0.1", False),  # IETF reserved
+        ("::1", False),  # IPv6 loopback
+        ("ff02::1", False),  # IPv6 multicast
+        ("fe80::1", False),  # IPv6 link-local
     ],
 )
 def test_validate_url_ip_allowlist(ip, allowed, monkeypatch):
@@ -46,11 +46,13 @@ def test_validate_url_ip_allowlist(ip, allowed, monkeypatch):
 
 def test_validate_url_rejects_multi_record_if_any_bad(monkeypatch):
     """If any A record is private, reject (deny-on-any)."""
+
     def gai(*a, **kw):
         return [
             (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 0)),
             (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("10.0.0.1", 0)),
         ]
+
     monkeypatch.setattr(socket, "getaddrinfo", gai)
     err = validate_url("https://example.com/")
     assert err is not None and "disallowed" in err
