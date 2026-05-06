@@ -98,17 +98,57 @@ def safe_dir_name(name: str) -> str:
 def url_to_filename(url: str) -> str:
     """Convert a URL to a sanitized .md filename.
 
-    Uses the netloc and path components, replacing dots and slashes
-    with underscores and collapsing duplicates.
+    Uses the hostname and path components (userinfo and port excluded),
+    replacing dots and slashes with underscores and collapsing duplicates.
 
     Example::
 
         >>> url_to_filename("https://example.com/blog/my-post")
         'example_com_blog_my-post.md'
     """
-    parsed = urllib.parse.urlparse(url)
-    raw = parsed.netloc + parsed.path
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    raw = host + parsed.path
     raw = raw.replace(".", "_").replace("/", "_")
     raw = raw.strip("_")
     raw = _COLLAPSE_UNDERSCORES_RE.sub("_", raw)
     return raw + ".md"
+
+
+_SECRET_PARAM_RE = re.compile(
+    r"^(token|api[_-]?key|access[_-]?token|bearer|signature|sig|password|secret|aws[_-]?session[_-]?token)$",
+    re.IGNORECASE,
+)
+
+
+def scrub_url_credentials(url: str) -> tuple[str, list[str]]:
+    """Strip userinfo and sensitive query params from a URL.
+
+    Returns ``(scrubbed_url, warnings)``. Each warning names the kind
+    that was stripped — ``"credentials"`` for userinfo, or the
+    parameter key for sensitive query params. Values are NEVER echoed.
+
+    IPv6 hosts have brackets reconstructed (``urlsplit().hostname``
+    returns the bracketless form).
+    """
+    parsed = urllib.parse.urlsplit(url)
+    warnings: list[str] = []
+
+    if parsed.username or parsed.password:
+        warnings.append("credentials")
+        host = parsed.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        netloc = host + (f":{parsed.port}" if parsed.port else "")
+        parsed = parsed._replace(netloc=netloc)
+
+    pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    kept = []
+    for k, v in pairs:
+        if _SECRET_PARAM_RE.match(k):
+            warnings.append(k)
+        else:
+            kept.append((k, v))
+    parsed = parsed._replace(query=urllib.parse.urlencode(kept))
+
+    return urllib.parse.urlunsplit(parsed), warnings

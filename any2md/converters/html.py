@@ -11,7 +11,7 @@ import markdownify
 import trafilatura
 from bs4 import BeautifulSoup
 
-from any2md import pipeline
+from any2md import _logging, pipeline
 from any2md._http import safe_fetch
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
@@ -20,6 +20,7 @@ from any2md.utils import (
     atomic_write_text,
     read_text_with_fallback,
     sanitize_filename,
+    scrub_url_credentials,
     url_to_filename,
 )
 
@@ -208,6 +209,13 @@ def convert_url(
     strip_links_flag: bool = False,
 ) -> bool:
     """Convenience wrapper: fetch a URL and convert to Markdown."""
+    scrubbed_url, warnings = scrub_url_credentials(url)
+    for w in warnings:
+        if w == "credentials":
+            _logging.warn("stripped credentials from URL")
+        else:
+            _logging.warn(f"stripped sensitive query parameter '{w}' from URL")
+    url = scrubbed_url
     html_content, err = fetch_url(url)
     if err:
         print(f"  FAIL: {url} -- {err}", file=sys.stderr)

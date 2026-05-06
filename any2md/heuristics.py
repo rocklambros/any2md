@@ -14,6 +14,7 @@ import html
 import re
 from typing import NamedTuple
 
+from any2md import _logging
 from any2md.pipeline import Profile  # type alias
 
 
@@ -549,11 +550,11 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
     try:
         from any2md._http import safe_fetch
     except Exception as e:  # noqa: BLE001
-        _warn(f"arxiv lookup _http import failed: {e}")
+        _warn(_logging.safe_oneline(f"arxiv lookup _http import failed: {e}"))
         return None
     body, _headers, err = safe_fetch(url)
     if err:
-        _warn(f"arxiv lookup blocked or failed: {err}")
+        _warn(_logging.safe_oneline(f"arxiv lookup blocked or failed: {err}"))
         return None
     if body is None:
         return None
@@ -562,13 +563,13 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
     try:
         root = _xml_fromstring(data)
     except _XmlParseError as e:
-        _warn(f"arxiv lookup XML parse error for {arxiv_id}: {e}")
+        _warn(_logging.safe_oneline(f"arxiv lookup XML parse error for {arxiv_id}: {e}"))
         return None
 
     ns = {"atom": "http://www.w3.org/2005/Atom"}
     entry = root.find("atom:entry", ns)
     if entry is None:
-        _warn(f"arxiv lookup: no entry for {arxiv_id}")
+        _warn(_logging.safe_oneline(f"arxiv lookup: no entry for {arxiv_id}"))
         return None
 
     title_el = entry.find("atom:title", ns)
@@ -585,7 +586,7 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
     authors = [(a.text or "").strip() for a in author_els if a.text]
 
     if not title and not authors and not abstract:
-        _warn(f"arxiv lookup: empty schema for {arxiv_id}")
+        _warn(_logging.safe_oneline(f"arxiv lookup: empty schema for {arxiv_id}"))
         return None
 
     return {
