@@ -9,6 +9,8 @@ beyond surfacing the requested backend in extracted_via.
 
 from __future__ import annotations
 
+import errno
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -16,7 +18,7 @@ from pathlib import Path
 import pymupdf
 import pymupdf4llm
 
-from any2md import pipeline
+from any2md import _logging, pipeline
 from any2md._docling import has_docling, install_hint
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
@@ -60,6 +62,27 @@ def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
             k.strip() for k in (meta.get("keywords") or "").split(",") if k.strip()
         ],
     }
+
+
+def _save_image_safely(img_path: Path, pil_image) -> None:
+    """Save ``pil_image`` to ``img_path`` refusing to follow symlinks.
+
+    Uses ``O_EXCL|O_NOFOLLOW`` to defuse a TOCTOU race between an
+    is_symlink() check and the actual write. On EEXIST we skip
+    (image already saved this run); on ELOOP we warn and skip.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(img_path, flags, 0o644)
+    except FileExistsError:
+        return  # already exists — leave it
+    except OSError as e:
+        if getattr(e, "errno", None) in (errno.ELOOP, errno.EMLINK):
+            _logging.warn(f"refusing to write through symlink at {img_path}")
+            return
+        raise
+    with os.fdopen(fd, "wb") as fp:
+        pil_image.save(fp, format="PNG")
 
 
 def pdf_looks_complex(pdf_path: Path) -> bool:
@@ -156,13 +179,7 @@ def _extract_via_docling(
                     if pil_image is None:
                         continue
                     img_path = images_dir / f"img{i + 1}.png"
-                    if img_path.exists() and img_path.is_symlink():
-                        print(
-                            f"  WARN: skipping image {i + 1}: target is a symlink.",
-                            file=sys.stderr,
-                        )
-                        continue
-                    pil_image.save(str(img_path))
+                    _save_image_safely(img_path, pil_image)
                 except Exception as e:  # noqa: BLE001
                     print(
                         f"  WARN: failed to save image {i}: {e}",
