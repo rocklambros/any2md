@@ -45,8 +45,15 @@ def safe_oneline(s: str) -> str:
 
 
 def warn(msg: str, *, prefix: str = "WARN") -> None:
-    """Write ``f'  {prefix}: {sanitized}\\n'`` to stderr."""
-    sys.stderr.write(f"  {prefix}: {_sanitize_log_text(msg)}\n")
+    """Write ``f'  {prefix}: {sanitized}\\n'`` to stderr.
+
+    Applies ``safe_oneline`` to ``msg`` so embedded newlines/CRs in
+    interpolated values (filenames, exception text, URL components)
+    cannot forge additional log lines. The output is a single line.
+    For multi-line output (e.g., a full traceback), call
+    ``sys.stderr.write`` directly with ``_sanitize_log_text``.
+    """
+    sys.stderr.write(f"  {prefix}: {safe_oneline(msg)}\n")
 
 
 def fail(msg: str, *, prefix: str = "FAIL") -> None:
