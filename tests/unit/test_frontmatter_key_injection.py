@@ -40,9 +40,18 @@ def test_rejects_nested_invalid_key():
 
 def test_compose_rejects_injection_via_overrides():
     meta = SourceMeta(
-        title_hint="t", authors=[], organization=None, date="2026-01-01",
-        keywords=[], pages=None, word_count=0, source_file=None, source_url=None,
-        doc_type="text", extracted_via="test", lane="text",
+        title_hint="t",
+        authors=[],
+        organization=None,
+        date="2026-01-01",
+        keywords=[],
+        pages=None,
+        word_count=0,
+        source_file=None,
+        source_url=None,
+        doc_type="text",
+        extracted_via="test",
+        lane="text",
     )
     options = PipelineOptions()
     overrides = {"innocent\nmalicious_key": "evil"}

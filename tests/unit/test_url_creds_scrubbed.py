@@ -6,7 +6,9 @@ from any2md.utils import scrub_url_credentials, url_to_filename
 
 
 def test_strips_userinfo():
-    scrubbed, warns = scrub_url_credentials("https://alice:s3cret@example.com/blog/post")
+    scrubbed, warns = scrub_url_credentials(
+        "https://alice:s3cret@example.com/blog/post"
+    )
     assert scrubbed == "https://example.com/blog/post"
     assert warns == ["credentials"]
 

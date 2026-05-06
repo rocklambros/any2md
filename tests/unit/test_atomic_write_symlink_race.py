@@ -9,7 +9,9 @@ import pytest
 
 from any2md.utils import atomic_write_text
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="symlink test POSIX-only")
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="symlink test POSIX-only"
+)
 
 
 def test_refuses_symlink_target(tmp_path):
