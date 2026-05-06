@@ -10,7 +10,6 @@ produces the markdown body.
 from __future__ import annotations
 
 import logging
-import re
 import sys
 import zipfile
 
@@ -24,6 +23,7 @@ import markdownify
 
 from any2md import pipeline
 from any2md._docling import has_docling
+from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
@@ -32,19 +32,6 @@ from any2md.utils import atomic_write_text, sanitize_filename
 
 
 _DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
-
-_LOG_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
-
-
-def _sanitize_log_text(s: str) -> str:
-    """Strip ASCII C0/C1 control chars from a log message before re-emission.
-
-    Defends terminals from ANSI-escape spoofing planted in malicious DOCX
-    content that surfaces as a Docling msword_backend warning. ``\\t``
-    and ``\\n`` are preserved (not in the strip class).
-    """
-    return _LOG_CONTROL_CHARS_RE.sub("", s)
-
 
 _MAX_DOCX_METADATA_SIZE = 1 * 1024 * 1024  # 1 MB; core.xml/app.xml are typically <10 KB
 
