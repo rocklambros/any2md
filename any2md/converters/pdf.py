@@ -73,7 +73,7 @@ def _save_image_safely(img_path: Path, pil_image) -> None:
     """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     try:
-        fd = os.open(img_path, flags, 0o644)
+        fd = os.open(img_path, flags, 0o600)
     except FileExistsError:
         return  # already exists — leave it
     except OSError as e:
