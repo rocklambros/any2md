@@ -81,3 +81,25 @@ If you operate any2md in a hardened environment:
 
 No publicly disclosed vulnerabilities to date. Future advisories will
 appear at https://github.com/rocklambros/any2md/security/advisories.
+
+## Trust boundaries
+
+`any2md` is an operator-trusted CLI distributed via PyPI for desktop and CI use.
+
+**Trusted:** the operator, their filesystem, their `--output-dir`, and the Python interpreter they invoke. CLI flags and `--meta key=val` arguments are operator-controlled.
+
+**Untrusted:**
+- URLs passed to `any2md` (may resolve to internal IPs, redirect, or carry credentials in userinfo/query).
+- Documents (PDF/DOCX/HTML) passed for conversion (may embed crafted images, control characters, malicious metadata).
+- `.any2md.toml` config files discovered via cwd-walking (an attacker who can drop a file in any ancestor directory can inject frontmatter overrides).
+- HTTP responses from URLs (may carry hostile redirects, oversized bodies, control characters in headers).
+
+**Out of scope:** multi-tenant service hosting; running `any2md` against attacker-supplied output directories; supply-chain compromise of pinned dependencies; protection against an operator who has chosen `--output-dir` pointing at a shared/symlinked directory.
+
+## Dependency-drift policy
+
+If `pip-audit` reports a NEW HIGH/CRITICAL vulnerability between baseline and release-cut, the policy is:
+
+1. Bump the dep within its compatible range (regenerate `.devcontainer/requirements.lock` and `requirements.txt`) and re-cut the rc.
+2. If no compatible fix exists, document in CHANGELOG `## Known issues` and ship only if the codepath is mitigated by other code (e.g., XXE blocked by `defusedxml`).
+3. If neither is possible, hold the release until upstream lands a fix.

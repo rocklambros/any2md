@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.1] — 2026-05-DD
+
+Security patch release. Closes 10 findings from a comprehensive scan
+(bandit, snyk-code, gitleaks, pip-audit, trivy, manual review) plus
+a 5-round adversarial review of the implementation plan.
+
+### Security
+
+- **SSRF intra-hop DNS-rebind**: `safe_fetch` now resolves the
+  hostname once, validates the IP against an allowlist, and passes
+  the validated IP through to `socket.create_connection` via a
+  custom `HTTPSConnection`. Defeats attacks that return a public IP
+  to a validator and a private IP (e.g., `169.254.169.254`) to the
+  connector. `ProxyHandler({})` explicitly suppresses
+  `HTTP_PROXY`/`HTTPS_PROXY` env vars that would otherwise route
+  traffic past the validator.
+- **IP allowlist**: switched from a four-flag denylist
+  (`is_private | is_reserved | is_loopback | is_link_local`) to an
+  allowlist (`is_global and not is_multicast and not is_unspecified`).
+  **Breaking** for users on multicast / CGNAT / IETF-reserved
+  networks fetching same-network resources; pre-fetch with `curl`
+  and pass `--from-file` as a workaround.
+- **Frontmatter override-key validation**: keys must now match
+  `^[A-Za-z_][A-Za-z0-9_-]*$`. Defends against newline-injection in
+  TOML basic-string keys that produced split YAML lines.
+  **Breaking** for TOML configs with quoted keys containing
+  whitespace or punctuation.
+- **URL credentials and sensitive query parameters** in `userinfo`
+  and matching `(?i)(token|api[_-]?key|access[_-]?token|bearer|signature|sig|password|secret|aws[_-]?session[_-]?token)$`
+  are scrubbed before any logging, persistence, or filename
+  derivation. IPv6 host brackets preserved across the scrub.
+- **Docling image saves** use `O_EXCL|O_NOFOLLOW` to refuse symlink
+  TOCTOU.
+- **`atomic_write_text`** tightens the symlink-check window via
+  `os.lstat` immediately before `os.replace`. Parent-dir hardening
+  deferred to v1.2 per the operator-trusted threat model.
+- **Stderr/stdout sanitizer** extended with Unicode bidi
+  (U+202A–E, U+2066–9), zero-width chars (U+200B–F, U+FEFF), and
+  the BOM. New `any2md._logging` module; `_sanitize_log_text`
+  re-exported from `any2md.converters.docx` for one release.
+- **`publish.yml` workflow**: top-level `permissions: contents: read`;
+  both publish jobs flip to `attestations: true` for PEP 740 sigstore
+  provenance.
+
+### Fixed
+
+- `wikipedia.org` heuristic host check no longer matches
+  `evilwikipedia.org`. Pure correctness fix; impact was incorrect
+  text formatting only, not a security boundary.
+- `_USER_AGENT` no longer hardcoded to `any2md/1.0.6`; derives from
+  `__version__`.
+
+### Changed
+
+- `requirements.txt` is now a generated artifact; canonical source
+  is `.devcontainer/requirements.lock` with hashes
+  (`--require-hashes` enforced in `.devcontainer/devcontainer.json`).
+  See `CONTRIBUTING.md` for the dep-update workflow.
+- `load_toml()` now warns to stderr on parse error rather than
+  silently returning `{}`.
+- `.devcontainer/` is now tracked in git (was previously ignored)
+  so the security-critical Codespace bootstrap config is
+  version-controlled.
+
 ## [1.1.0] — 2026-05-04
 
 Performance and library-mode hygiene release.
