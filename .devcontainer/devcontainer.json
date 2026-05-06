@@ -1,0 +1,14 @@
+{
+  "name": "mdconv",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12",
+  "features": {},
+  "postCreateCommand": "pip install --require-hashes -r .devcontainer/requirements.lock",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  }
+}

@@ -131,6 +131,24 @@ The flow:
 Don't tag and release directly without the PR — CI gates exist for a
 reason.
 
+## Updating dependencies
+
+Dependencies are declared in `pyproject.toml` and locked into both:
+
+- `.devcontainer/requirements.lock` — hash-locked, used by Codespace `postCreateCommand` (`pip install --require-hashes`).
+- `requirements.txt` — non-hash form, kept for backwards compatibility with `pip install -r requirements.txt` consumers.
+
+To add or update a dep:
+
+1. Edit `pyproject.toml` `[project] dependencies` (or the relevant `[project.optional-dependencies]` group).
+2. Regenerate both lockfiles in a venv with `pip-tools` installed:
+
+       pip-compile pyproject.toml --generate-hashes --resolver=backtracking \
+         -o .devcontainer/requirements.lock
+       pip-compile pyproject.toml --resolver=backtracking -o requirements.txt
+
+3. Commit all three files together.
+
 ## Pull request process
 
 - Branch off `main` (or off a phase branch like `v1.0` if one is open for
