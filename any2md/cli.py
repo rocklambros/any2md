@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from any2md import _logging
 from any2md.config import (
     discover_config,
     extract_document_id_settings,
@@ -236,7 +237,9 @@ def main():
 
     if args.meta_file is not None:
         if not args.meta_file.is_file():
-            print(f"Error: --meta-file not found: {args.meta_file}", file=sys.stderr)
+            sys.stderr.write(
+                f"Error: --meta-file not found: {_logging.safe_oneline(str(args.meta_file))}\n"
+            )
             sys.exit(1)
         cfg = load_toml(args.meta_file)
         overrides = _deep_merge_overrides(overrides, extract_meta_overrides(cfg))
@@ -252,7 +255,7 @@ def main():
     try:
         cli_meta = parse_meta_args(args.meta)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        sys.stderr.write(f"Error: {_logging.safe_oneline(str(e))}\n")
         sys.exit(1)
     overrides = _deep_merge_overrides(overrides, cli_meta)
     overrides = filter_reserved_overrides(
@@ -319,7 +322,7 @@ def main():
             if not p.is_absolute():
                 p = Path.cwd() / p
             if not p.exists():
-                print(f"  NOT FOUND: {f}", file=sys.stderr)
+                _logging.fail(f"{f}", prefix="NOT FOUND")
                 continue
             if p.is_dir():
                 glob_method = p.rglob if args.recursive else p.glob
@@ -332,12 +335,14 @@ def main():
                 )
                 continue
             if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
-                print(f"  UNSUPPORTED FORMAT: {f}", file=sys.stderr)
+                _logging.fail(f"{f}", prefix="UNSUPPORTED FORMAT")
                 continue
             file_paths.append(p)
     elif args.input_dir:
         if not args.input_dir.is_dir():
-            print(f"Error: not a directory: {args.input_dir}", file=sys.stderr)
+            sys.stderr.write(
+                f"Error: not a directory: {_logging.safe_oneline(str(args.input_dir))}\n"
+            )
             sys.exit(1)
         glob_method = args.input_dir.rglob if args.recursive else args.input_dir.glob
         file_paths = sorted(
@@ -393,7 +398,7 @@ def main():
         try:
             file_size = file_path.stat().st_size
         except OSError as e:
-            print(f"  FAIL: {file_path.name} -- {e}", file=sys.stderr)
+            _logging.fail(f"{file_path.name} -- {e}")
             fail += 1
             continue
 

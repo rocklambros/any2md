@@ -110,14 +110,15 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
 
 def _build_pinned_opener(pinned_ip: str, scheme: str) -> urllib.request.OpenerDirector:
     """Build an opener that:
-       - suppresses HTTP_PROXY/HTTPS_PROXY env (ProxyHandler({}))
-       - disables urllib's auto-redirect (we walk hops manually)
-       - pins HTTP/S connections to the validated IP
+    - suppresses HTTP_PROXY/HTTPS_PROXY env (ProxyHandler({}))
+    - disables urllib's auto-redirect (we walk hops manually)
+    - pins HTTP/S connections to the validated IP
     """
     proxy_handler = urllib.request.ProxyHandler({})
     no_redirect = _NoFollowRedirect()
 
     if scheme == "https":
+
         class _Handler(urllib.request.HTTPSHandler):
             def https_open(self, req):  # noqa: D401
                 return self.do_open(
@@ -126,8 +127,10 @@ def _build_pinned_opener(pinned_ip: str, scheme: str) -> urllib.request.OpenerDi
                     ),
                     req,
                 )
+
         pinned_handler = _Handler()
     else:
+
         class _Handler(urllib.request.HTTPHandler):
             def http_open(self, req):  # noqa: D401
                 return self.do_open(
@@ -136,6 +139,7 @@ def _build_pinned_opener(pinned_ip: str, scheme: str) -> urllib.request.OpenerDi
                     ),
                     req,
                 )
+
         pinned_handler = _Handler()
 
     return urllib.request.build_opener(proxy_handler, no_redirect, pinned_handler)

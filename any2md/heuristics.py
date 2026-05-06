@@ -563,7 +563,9 @@ def arxiv_lookup(arxiv_id: str, *, timeout: float = 5.0) -> dict | None:
     try:
         root = _xml_fromstring(data)
     except _XmlParseError as e:
-        _warn(_logging.safe_oneline(f"arxiv lookup XML parse error for {arxiv_id}: {e}"))
+        _warn(
+            _logging.safe_oneline(f"arxiv lookup XML parse error for {arxiv_id}: {e}")
+        )
         return None
 
     ns = {"atom": "http://www.w3.org/2005/Atom"}

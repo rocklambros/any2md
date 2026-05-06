@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
-import sys
 from datetime import date
 from pathlib import Path
 
-from any2md import pipeline
+from any2md import _logging, pipeline
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
@@ -189,7 +188,7 @@ def convert_txt(
     try:
         raw_text = read_text_with_fallback(txt_path)
         if not raw_text.strip():
-            print(f"  FAIL: {txt_path.name} -- empty file", file=sys.stderr)
+            _logging.fail(f"{txt_path.name} -- empty file")
             return False
 
         md_text = structurize(raw_text)
@@ -207,5 +206,5 @@ def convert_txt(
         return True
 
     except (OSError, ValueError) as e:
-        print(f"  FAIL: {txt_path.name} -- {e}", file=sys.stderr)
+        _logging.fail(f"{txt_path.name} -- {e}")
         return False

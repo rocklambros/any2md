@@ -73,9 +73,7 @@ def atomic_write_text(out_path: Path, content: str) -> None:
             pass  # target doesn't exist — fine
         else:
             if (st.st_mode & 0o170000) == 0o120000:  # S_IFLNK
-                raise ValueError(
-                    f"refusing to write through symlink: {out_path}"
-                )
+                raise ValueError(f"refusing to write through symlink: {out_path}")
         os.replace(tmp_path, out_path)
     except Exception:
         tmp_path.unlink(missing_ok=True)

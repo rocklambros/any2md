@@ -303,5 +303,5 @@ def convert_pdf(
         return True
 
     except (OSError, ValueError, RuntimeError) as e:
-        print(f"  FAIL: {pdf_path.name} -- {e}", file=sys.stderr)
+        _logging.fail(f"{pdf_path.name} -- {e}")
         return False

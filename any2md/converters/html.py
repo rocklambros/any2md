@@ -136,7 +136,9 @@ def convert_html(
         out_name = sanitize_filename(html_path.name)
         name_for_error = html_path.name
     else:
-        print("  FAIL: source_url or html_path required", file=sys.stderr)
+        print(
+            "  FAIL: source_url or html_path required", file=sys.stderr
+        )  # log-safe: literal
         return False
 
     out_path = output_dir / out_name
@@ -158,7 +160,9 @@ def convert_html(
                 return False
             raw_html = read_text_with_fallback(html_path)
         else:
-            print("  FAIL: html_content or html_path required", file=sys.stderr)
+            print(
+                "  FAIL: html_content or html_path required", file=sys.stderr
+            )  # log-safe: literal
             return False
 
         md_text, extracted_via = _extract(raw_html)
@@ -197,7 +201,7 @@ def convert_html(
         return True
 
     except (OSError, ValueError, TypeError) as e:
-        print(f"  FAIL: {name_for_error} -- {e}", file=sys.stderr)
+        _logging.fail(f"{name_for_error} -- {e}")
         return False
 
 
@@ -218,7 +222,7 @@ def convert_url(
     url = scrubbed_url
     html_content, err = fetch_url(url)
     if err:
-        print(f"  FAIL: {url} -- {err}", file=sys.stderr)
+        _logging.fail(f"{url} -- {err}")
         return False
     return convert_html(
         None,

@@ -271,7 +271,9 @@ class ConverterCache:
 
         if is_quiet() or not sys.stderr.isatty():
             return True
-        print("  Loading Docling models (one-time)...", file=sys.stderr)
+        print(
+            "  Loading Docling models (one-time)...", file=sys.stderr
+        )  # log-safe: literal
         return True
 
 
