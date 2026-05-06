@@ -48,12 +48,11 @@ def strip_links(text: str) -> str:
 def atomic_write_text(out_path: Path, content: str) -> None:
     """Write text atomically; refuse to clobber a symlink target.
 
-    Creates a sibling temp file in ``out_path``'s parent dir, fsyncs,
-    then ``os.replace``s it over ``out_path``. If ``out_path`` is a
-    pre-existing symlink, raises ``ValueError`` rather than overwriting
-    whatever the link points to. Defends against symlink-redirect
-    attacks at the output path and partial-write windows for concurrent
-    readers.
+    Defends against the symlink-redirect attack at the output path with
+    a tight TOCTOU window: ``os.lstat`` runs immediately before
+    ``os.replace`` so the check-and-replace race shrinks to a single
+    syscall pair. Parent-directory symlink hardening is operator-trust
+    (deferred to v1.2 per SECURITY.md).
     """
     if out_path.is_symlink():
         raise ValueError(f"refusing to write through symlink: {out_path}")
@@ -67,6 +66,16 @@ def atomic_write_text(out_path: Path, content: str) -> None:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
+        # Tight re-check immediately before replace
+        try:
+            st = os.lstat(out_path)
+        except FileNotFoundError:
+            pass  # target doesn't exist — fine
+        else:
+            if (st.st_mode & 0o170000) == 0o120000:  # S_IFLNK
+                raise ValueError(
+                    f"refusing to write through symlink: {out_path}"
+                )
         os.replace(tmp_path, out_path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
