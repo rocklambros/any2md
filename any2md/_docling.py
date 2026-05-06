@@ -33,5 +33,5 @@ def install_hint() -> None:
     global _hint_emitted
     if _hint_emitted:
         return
-    print(f"  WARN: {INSTALL_HINT_MSG}", file=sys.stderr)
+    print(f"  WARN: {INSTALL_HINT_MSG}", file=sys.stderr)  # log-safe: literal
     _hint_emitted = True

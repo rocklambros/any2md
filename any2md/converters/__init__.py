@@ -1,8 +1,8 @@
 """Converter dispatcher for any2md."""
 
-import sys
 from pathlib import Path
 
+from any2md import _logging
 from any2md.pipeline import PipelineOptions
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".html", ".htm", ".txt"}
@@ -84,5 +84,5 @@ def convert_file(
         from any2md.converters.txt import convert_txt
 
         return convert_txt(file_path, output_dir, options=options, force=force)
-    print(f"  UNSUPPORTED: {file_path.name} (no converter for {ext})", file=sys.stderr)
+    _logging.fail(f"{file_path.name} (no converter for {ext})", prefix="UNSUPPORTED")
     return False

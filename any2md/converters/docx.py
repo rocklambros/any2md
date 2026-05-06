@@ -21,7 +21,7 @@ from pathlib import Path
 import mammoth
 import markdownify
 
-from any2md import pipeline
+from any2md import _logging, pipeline
 from any2md._docling import has_docling
 from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
 from any2md.converters import add_warnings, is_quiet
@@ -308,5 +308,5 @@ def convert_docx(
         return True
 
     except (OSError, ValueError) as e:
-        print(f"  FAIL: {docx_path.name} -- {e}", file=sys.stderr)
+        _logging.fail(f"{docx_path.name} -- {e}")
         return False
