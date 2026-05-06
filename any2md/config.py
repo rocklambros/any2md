@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from any2md import _logging
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - exercised only on Python 3.10
@@ -38,7 +40,10 @@ def load_toml(path: Path) -> dict[str, Any]:
     try:
         with open(path, "rb") as f:
             return tomllib.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return {}  # silent — discovery walks ancestors and most won't have one
+    except (OSError, ValueError) as e:
+        _logging.warn(f"failed to parse {path}: {e}")
         return {}
 
 
