@@ -181,10 +181,7 @@ def _extract_via_docling(
                     img_path = images_dir / f"img{i + 1}.png"
                     _save_image_safely(img_path, pil_image)
                 except Exception as e:  # noqa: BLE001
-                    print(
-                        f"  WARN: failed to save image {i}: {e}",
-                        file=sys.stderr,
-                    )
+                    _logging.warn(f"failed to save image {i}: {e}")
 
     md = result.document.export_to_markdown()
     return md, "docling"

@@ -29,6 +29,7 @@ dependencies = [
     "pillow>=12.2.0,<13",    # CVE-2026-25990, CVE-2026-40192 fix
     "urllib3>=2.6.3,<3",     # CVE-2026-21441 fix
     "defusedxml>=0.7.1,<1",  # XXE defense-in-depth (Task P2)
+    "tomli>=2.0.0; python_version < '3.11'",  # stdlib tomllib is 3.11+; needed by config.load_toml on 3.10
 ]
 
 [project.optional-dependencies]
