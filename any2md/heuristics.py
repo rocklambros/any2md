@@ -206,7 +206,7 @@ def refine_title(
             host = (urlparse(source_url).hostname or "").lower()
         except Exception:  # noqa: BLE001
             host = ""
-        if host.endswith("wikipedia.org"):
+        if host == "wikipedia.org" or host.endswith(".wikipedia.org"):
             for prefix in ("Wikipedia:", "WP:"):
                 if refined.startswith(prefix):
                     stripped = refined[len(prefix) :].strip()
