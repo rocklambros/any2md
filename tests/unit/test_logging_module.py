@@ -67,3 +67,19 @@ def test_warn_sanitizes_input(capsys):
 def test_warn_custom_prefix(capsys):
     warn("note", prefix="INFO")
     assert capsys.readouterr().err == "  INFO: note\n"
+
+
+def test_warn_collapses_newlines_to_prevent_log_forging(capsys):
+    """warn/fail must produce a single log line — embedded newlines in
+    interpolated values (e.g., exception text, attacker filenames) must
+    not split into multiple lines that look like additional log entries."""
+    warn("first\nFAIL: forged second line")
+    captured = capsys.readouterr()
+    assert captured.err.count("\n") == 1, "must produce exactly one log line"
+    assert captured.err == "  WARN: first FAIL: forged second line\n"
+
+
+def test_fail_collapses_carriage_returns(capsys):
+    fail("a\rb\nc")
+    captured = capsys.readouterr()
+    assert captured.err == "  FAIL: a b c\n"
