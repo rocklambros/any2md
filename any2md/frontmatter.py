@@ -32,6 +32,22 @@ _RESERVED_OVERRIDE_KEYS = frozenset(
     }
 )
 
+_VALID_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+
+
+def _validate_keys(d: Mapping, *, path: str = "") -> None:
+    """Recursively validate that every key matches ``_VALID_KEY_RE``.
+
+    Raises ``ValueError`` on the first invalid key. ``path`` is the
+    dotted prefix used to identify nested keys in the error message.
+    """
+    for k, v in d.items():
+        full = f"{path}{k!r}"
+        if not isinstance(k, str) or not _VALID_KEY_RE.match(k):
+            raise ValueError(f"invalid frontmatter key: {full}")
+        if isinstance(v, Mapping):
+            _validate_keys(v, path=f"{path}{k}.")
+
 
 def filter_reserved_overrides(
     overrides: Mapping[str, Any] | None,
@@ -370,6 +386,8 @@ def compose(
     """
     body = _normalize_body(body)
     overrides = filter_reserved_overrides(overrides, source_label="compose()")
+    if overrides:
+        _validate_keys(overrides)
     fields = _build_fields(body, meta, options)
     if overrides:
         fields = _deep_merge(fields, overrides)
