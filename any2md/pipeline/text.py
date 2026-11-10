@@ -158,7 +158,19 @@ _AUTHOR_CONTACT_RE = re.compile(
     r"^Author(?:'s|s'?)\s*Contact Information:.*$",
     re.IGNORECASE,
 )
-_CONTACT_EMAIL_RE = re.compile(r"^Contact:.*@.*\..*$", re.IGNORECASE)
+
+
+def _is_contact_email_line(line: str) -> bool:
+    """``Contact: ...@...`` with a ``.`` somewhere after the ``@``.
+
+    String checks, not a regex: ``^Contact:.*@.*\\..*$`` backtracks in
+    quadratic time on a long line of ``@`` characters (CWE-1333).
+    """
+    if not line[:8].lower() == "contact:":
+        return False
+    rest = line[8:]
+    at = rest.find("@")
+    return at >= 0 and "." in rest[at + 1 :]
 
 
 def strip_repeated_byline(text: str, options: "PipelineOptions") -> str:
@@ -170,7 +182,7 @@ def strip_repeated_byline(text: str, options: "PipelineOptions") -> str:
     for i, line in enumerate(lines):
         if _AUTHOR_CONTACT_RE.match(line):
             continue
-        if i < 50 and _CONTACT_EMAIL_RE.match(line):
+        if i < 50 and _is_contact_email_line(line):
             continue
         out.append(line)
     return "\n".join(out)
@@ -193,8 +205,64 @@ def dedupe_paragraphs(text: str, _options: "PipelineOptions") -> str:
     return "\n\n".join(out)
 
 
-_TOC_LINE_RE = re.compile(r"^\s*(?:[\d.]+\s+)?(.+?)(?:\s*\.{3,}|\s+)\s*\d+\s*$")
-_BODY_HEADING_RE = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
+# Real TOC entries are short. Longer lines are never TOC candidates, which
+# also bounds the work spent on any one line.
+_TOC_MAX_LINE = 300
+_TOC_NUMBERING_RE = re.compile(r"[\d.]+\s+")
+
+
+def _rstrip_decimal(s: str) -> str:
+    """``s`` without its trailing run of Unicode decimal digits.
+
+    ``isdecimal`` matches what ``\\d`` matched in the old regex, so page
+    numbers such as Arabic-Indic or Devanagari digits still count.
+    """
+    end = len(s)
+    while end and s[end - 1].isdecimal():
+        end -= 1
+    return s[:end]
+
+
+def _toc_title(line: str) -> str | None:
+    """Return the title of a ``Title ..... 12`` / ``1.2 Title 12`` TOC line.
+
+    Parsed procedurally rather than with a regex. The previous pattern,
+    ``(.+?)(?:\\s*\\.{3,}|\\s+)\\s*\\d+``, backtracked in cubic time on
+    a long whitespace run that did not end in a digit (CWE-1333).
+    """
+    s = line.strip()
+    if not s or len(s) > _TOC_MAX_LINE:
+        return None
+    unnumbered = _rstrip_decimal(s)
+    if unnumbered == s:
+        return None  # no trailing page number
+    head = unnumbered.rstrip()
+    if head.endswith("..."):
+        title = head.rstrip(".").rstrip()  # "Title ..... 12"
+    elif len(head) < len(unnumbered):
+        title = head  # "Title 12": whitespace before the number
+    else:
+        return None  # digits glued to the title ("Chapter12")
+    numbering = _TOC_NUMBERING_RE.match(title)
+    if numbering and title[numbering.end() :].strip():
+        title = title[numbering.end() :]
+    return title.strip() or None
+
+
+def _body_heading_titles(text: str) -> set[str]:
+    """Lowercased titles of every H2/H3 line, parsed line by line.
+
+    Replaces ``^#{2,3}\\s+(.+?)\\s*$``, which backtracked in quadratic time
+    on a heading holding a long whitespace run (CWE-1333).
+    """
+    titles: set[str] = set()
+    for line in text.split("\n"):
+        level = len(line) - len(line.lstrip("#"))
+        if level in (2, 3) and line[level : level + 1] in (" ", "\t"):
+            title = line[level:].strip()
+            if title:
+                titles.add(title.lower())
+    return titles
 
 
 def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
@@ -212,24 +280,24 @@ def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
         start += 1
     end = start
     while end < len(lines) and (
-        lines[end].strip() == "" or _TOC_LINE_RE.match(lines[end])
+        lines[end].strip() == "" or _toc_title(lines[end]) is not None
     ):
         end += 1
 
-    toc_lines = [ln.strip() for ln in lines[start:end] if _TOC_LINE_RE.match(ln)]
+    toc_lines = [ln.strip() for ln in lines[start:end] if _toc_title(ln) is not None]
     if len(toc_lines) < 5:
         return text
 
     # Extract title-only fragments from the TOC entries
     toc_titles = set()
     for ln in toc_lines:
-        m = _TOC_LINE_RE.match(ln)
-        if m:
-            toc_titles.add(m.group(1).strip().lower())
+        title = _toc_title(ln)
+        if title:
+            toc_titles.add(title.lower())
 
     # Find body H2/H3 titles AFTER the TOC block
     body = "\n".join(lines[end:])
-    body_titles = {m.group(1).strip().lower() for m in _BODY_HEADING_RE.finditer(body)}
+    body_titles = _body_heading_titles(body)
 
     if not toc_titles:
         return text
@@ -319,10 +387,7 @@ def dedupe_toc_table(text: str, options: "PipelineOptions") -> str:
 
             # Compare to H2/H3 headings AFTER the table.
             body_after = "\n".join(lines[tbl_end:])
-            body_titles = {
-                m.group(1).strip().lower()
-                for m in _BODY_HEADING_RE.finditer(body_after)
-            }
+            body_titles = _body_heading_titles(body_after)
             overlap = len(toc_titles & body_titles) / len(toc_titles)
             if overlap >= 0.7:
                 # Drop the entire table block (keep surrounding blank line cleanup).

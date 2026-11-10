@@ -52,8 +52,6 @@ _COVER_PAGE_H1_VALUES = frozenset(
 )
 
 # H1 / H2 line detectors (markdown ATX style)
-_H1_LINE_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
-_H2_LINE_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 # Markdown emphasis chars stripped when probing an H2 for non-empty content
 # (mirrors derive_title's emphasis-stripping so headings like ``## ***``
 # are treated as empty rather than yielding a useless title).
@@ -88,10 +86,18 @@ _COVER_BLURB_KEYWORDS = (
     "all rights reserved",
     "copying and networking prohibited",
 )
-_TOC_LINE_HINTS_RE = re.compile(r"\.{3,}\s*\d+|^\s*page\s+\d+", re.IGNORECASE)
+# The lookbehind lets a dot run start only at its first dot, so each run is
+# tried once and backing off inside it costs one step per dot. A long run of
+# dots with no page number is rejected in linear time instead of O(n^2)
+# (CWE-1333).
+_TOC_LINE_HINTS_RE = re.compile(r"(?<!\.)\.{3,}\s*\d|^\s*page\s+\d", re.IGNORECASE)
 
 # Markdown inline link: [text](url) → text
-_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+# A link opens only at an unescaped "[", and the label stops at the next
+# unescaped bracket, so each scan ends where the next one starts and the
+# URL is length-bounded. Unbounded classes made a run of "[" with no "]"
+# quadratic (CWE-1333). Escaped brackets (``\[``) stay inside the label.
+_MD_LINK_RE = re.compile(r"(?<!\\)\[((?:[^\[\]\\]|\\[\s\S])+)\]\([^)\n]{1,2048}\)")
 
 # Abstract / Summary heading detection (H2 or H3, case-insensitive)
 _ABSTRACT_HEADING_RE = re.compile(
@@ -115,10 +121,21 @@ _AUTHORS_PREFIX_RE = re.compile(
 # Academic byline detection — line of caps-or-titlecase names, typically
 # with digit affiliation markers, comma-separated. We use this only at
 # aggressive profile.
+#
+# A name is capitals with inner spaces. A space joins the name only when a
+# name character follows it, so a trailing space can belong to the separator
+# alone and every character has one way to match. The earlier ``[A-Z .'\-]{2,}`` let a space before each comma match
+# two ways, which backtracked exponentially on a failing line (CWE-1333).
+_BYLINE_NAME = r"[A-Z](?:[A-Z.'\-]|[ \t]+(?=[A-Z.'\-])){2,}"
+_BYLINE_AFFIL = r"(?:[ \t]+\d+(?:[ \t]*,[ \t]*\d+)*)?"
 _ACADEMIC_BYLINE_RE = re.compile(
-    r"^[A-Z][A-Z .'\-]{2,}(?:\s+\d+(?:\s*,\s*\d+)*)?"
-    r"(?:\s*,\s*[A-Z][A-Z .'\-]{2,}(?:\s+\d+(?:\s*,\s*\d+)*)?)+\s*$",
+    rf"^{_BYLINE_NAME}{_BYLINE_AFFIL}"
+    rf"(?:[ \t]*,[ \t]*{_BYLINE_NAME}{_BYLINE_AFFIL})+[ \t]*$",
 )
+# Upper bound on author-list text handed to the name regexes. Twenty names
+# of at most 50 characters fit well inside it, so a longer list is cut at a
+# comma rather than rejected, and hostile input stays bounded.
+_MAX_AUTHOR_LINE = 4096
 
 # arxiv ID pattern in filename
 _ARXIV_FILENAME_RE = re.compile(
@@ -368,6 +385,20 @@ def _normalize_author_name(name: str) -> str:
     return cleaned
 
 
+def _bounded_author_text(raw: str) -> str:
+    """Collapse whitespace and cap an author list at a name boundary.
+
+    Single spaces keep the ``\\s+`` patterns in ``_split_authors`` and
+    ``_AFFIL_DIGITS_RE`` linear. Cutting at the last comma under the cap
+    keeps the leading names whole, and only the first 20 are used anyway.
+    """
+    text = " ".join(raw.split())
+    if len(text) > _MAX_AUTHOR_LINE:
+        cut = text.rfind(",", 0, _MAX_AUTHOR_LINE)
+        text = text[: cut if cut > 0 else _MAX_AUTHOR_LINE]
+    return text
+
+
 def _split_authors(text: str) -> list[str]:
     """Split a comma/and-separated author list into individual names."""
     # Replace " and " with comma to unify separators
@@ -435,7 +466,7 @@ def extract_authors(
     head_block = "\n".join(lines[start : start + 20])
     m = _AUTHORS_PREFIX_RE.search(head_block)
     if m:
-        raw = m.group(1).strip()
+        raw = _bounded_author_text(m.group(1))
         names = [_normalize_author_name(n) for n in _split_authors(raw)]
         names = [n for n in names if n]
         # Sanity gate (applied after dedup):
@@ -459,8 +490,8 @@ def extract_authors(
             break
     start = h1_idx + 1 if h1_idx >= 0 else 0
     for line in lines[start : start + 20]:
-        stripped = line.strip()
-        if not stripped:
+        stripped = " ".join(line.split())
+        if not stripped or len(stripped) > _MAX_AUTHOR_LINE:
             continue
         if _ACADEMIC_BYLINE_RE.match(stripped):
             names = [_normalize_author_name(n) for n in _split_authors(stripped)]

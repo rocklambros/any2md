@@ -15,11 +15,65 @@ if TYPE_CHECKING:
 
 Stage = Callable[[str, "PipelineOptions"], str]
 
-_IMG_LINK_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
-_HTML_FIGURE_RE = re.compile(
-    r"<figure[^>]*>(?:.*?)<figcaption[^>]*>(.*?)</figcaption>(?:.*?)</figure>",
-    re.DOTALL | re.IGNORECASE,
-)
+# Alt text stops at the next unescaped bracket (escaped ``\[`` stays in
+# it) and the URL is length-bounded, so a run of "![" with no "]" is
+# rejected in linear time (CWE-1333).
+_IMG_LINK_RE = re.compile(r"!\[((?:[^\[\]\\]|\\[\s\S])*)\]\(([^)\n]{1,2048})\)")
+_FIGURE_OPEN_RE = re.compile(r"<figure\b", re.IGNORECASE)
+_FIGURE_CLOSE_RE = re.compile(r"</figure\s*>", re.IGNORECASE)
+_FIGCAPTION_OPEN_RE = re.compile(r"<figcaption\b", re.IGNORECASE)
+_FIGCAPTION_CLOSE_RE = re.compile(r"</figcaption\s*>", re.IGNORECASE)
+# A tag may not contain "<", so a run of "<" with no ">" fails per start in
+# constant time instead of rescanning to the end (CWE-1333).
+_TAG_RE = re.compile(r"<[^<>]+>")
+
+
+def _figure_caption(inner: str) -> str | None:
+    """Raw caption markup inside one figure, or None when it has none."""
+    start = _FIGCAPTION_OPEN_RE.search(inner)
+    if not start:
+        return None
+    tag_end = inner.find(">", start.end())
+    if tag_end == -1:
+        return None
+    close = _FIGCAPTION_CLOSE_RE.search(inner, tag_end + 1)
+    if not close:
+        return None
+    return inner[tag_end + 1 : close.start()]
+
+
+def _replace_figures(text: str, repl) -> str:
+    """Replace each ``<figure>...</figure>`` holding a figcaption via ``repl``.
+
+    A single forward scan. The earlier lazy-DOTALL regex rescanned the rest
+    of the document from every unclosed ``<figure>``, which is quadratic
+    (CWE-1333). Each search here starts where the previous one ended. A
+    figure without a figcaption is left unchanged; the old regex could
+    instead run on into a later figure's caption.
+    """
+    out: list[str] = []
+    pos = 0
+    while True:
+        opened = _FIGURE_OPEN_RE.search(text, pos)
+        if not opened:
+            break
+        tag_end = text.find(">", opened.end())
+        if tag_end == -1:
+            break
+        closed = _FIGURE_CLOSE_RE.search(text, tag_end + 1)
+        if not closed:
+            break
+        caption = _figure_caption(text[tag_end + 1 : closed.start()])
+        out.append(text[pos : opened.start()])
+        if caption is None:
+            out.append(text[opened.start() : closed.end()])
+        else:
+            out.append(repl(caption))
+        pos = closed.end()
+    out.append(text[pos:])
+    return "".join(out)
+
+
 _IMAGE_PLACEHOLDER_RE = re.compile(r"<!--\s*image\s*-->", re.IGNORECASE)
 
 
@@ -44,11 +98,11 @@ def lift_figure_captions(text: str, options: "PipelineOptions") -> str:
 
     text = _IMG_LINK_RE.sub(_img_repl, text)
 
-    def _figure_repl(match: re.Match[str]) -> str:
-        cap = re.sub(r"<[^>]+>", "", match.group(1)).strip()
+    def _figure_repl(caption_markup: str) -> str:
+        cap = _TAG_RE.sub("", caption_markup).strip()
         return f"*Figure: {cap}*" if cap else ""
 
-    text = _HTML_FIGURE_RE.sub(_figure_repl, text)
+    text = _replace_figures(text, _figure_repl)
 
     text = _IMAGE_PLACEHOLDER_RE.sub("", text)
 
@@ -96,7 +150,9 @@ def normalize_citations(text: str, _options: "PipelineOptions") -> str:
 STAGES.append(normalize_citations)
 
 
-_HEADING_LINE_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$", re.MULTILINE)
+# Greedy capture to end of line, trailing spaces stripped in Python. The
+# earlier lazy ``(.+?)[ \\t]*$`` was quadratic on a long space run (CWE-1333).
+_HEADING_LINE_RE = re.compile(r"^(#{1,6})[ \t]+(\S.*)$", re.MULTILINE)
 
 
 def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
@@ -137,7 +193,7 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
     last = 0
     for new_level, m in zip(levels, matches):
         out.append(text[last : m.start()])
-        out.append("#" * new_level + " " + m.group(2))
+        out.append("#" * new_level + " " + m.group(2).rstrip())
         last = m.end()
     out.append(text[last:])
     return "".join(out)

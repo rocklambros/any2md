@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **Regex denial of service on crafted documents (CWE-1333, CWE-407).**
+  Several patterns that run on converted text backtracked in quadratic,
+  cubic, or exponential time on hostile input, so a document of a few KB
+  to a few MB could hang a conversion for hours and stall the rest of a
+  batch. Fixed sites: the academic byline (exponential), the first-H1
+  title, TOC-line and TOC-hint detection, body-heading collection, the
+  `Contact:` byline check, trailing-whitespace trimming in C5, inline-link
+  stripping in C9 and in abstract cleanup, the S1 image and `<figure>`
+  handlers, the S4 heading matcher, and a blank-line rescan in the TXT
+  structurizer. Each now runs in linear time, through procedural parsing
+  or unambiguous, bounded patterns, plus length caps where real input is
+  short (TOC lines, bylines, abstract candidates). Behavior on normal
+  input is unchanged: a fuzz test compares every rewrite against the
+  regex it replaced. Known differences are limited to degenerate input.
+  A bare `#` line no longer turns the next line into the H1, empty or
+  dots-only TOC titles no longer count, and 2-letter byline names
+  written with a space before the comma are no longer matched.
+
 ### Fixed
 
 - **Text-lane dehyphenation never ran.** T1 `repair_line_wraps` ran before
