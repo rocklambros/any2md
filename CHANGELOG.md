@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`--strip-links` and `--profile maximum` left links in place.** The
+  flag reached `PipelineOptions`, but no stage read it, so link URLs
+  always survived. A new shared cleanup stage, C9 `strip_links`, runs
+  after entity decoding in both lanes. It replaces `[text](url)` with
+  `text` and keeps images, fenced code, and inline code. The unused
+  `any2md.utils.strip_links()` helper is removed.
 - **Tables lost their header row on the DOCX mammoth fallback and the
   HTML bs4 fallback.** mammoth never emits `<thead>`, and many web tables
   omit it. markdownify 1.x then wrote an empty header row (`| | |`) and
