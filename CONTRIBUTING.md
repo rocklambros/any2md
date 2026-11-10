@@ -33,7 +33,8 @@ Python 3.11 or later is required.
 
 ## Running tests
 
-The default invocation runs the whole suite (currently 172 tests):
+The default invocation runs the whole suite. CI runs the same command on
+Python 3.11, 3.12, and 3.13:
 
 ```bash
 pytest -v
@@ -59,13 +60,11 @@ UPDATE_SNAPSHOTS=1 pytest tests/integration/test_snapshots.py
 Then inspect the diff (`git diff tests/fixtures/snapshots/`) before
 committing — the snapshots are review material, not just bytes.
 
-A few tests are network-dependent (the URL converter integration suite)
-and opt-in. Run them explicitly when touching `converters/html.py` or the
-SSRF protection:
-
-```bash
-pytest tests/integration/test_url_wikipedia.py -v
-```
+The suite makes no network calls. URL and SSRF behavior is tested with
+stubbed DNS and a fake opener (`tests/unit/test_http_safe.py`,
+`tests/integration/test_html_trafilatura.py`), and HTML conversion with
+saved fixtures under `tests/fixtures/docs/`. When you change
+`converters/html.py`, also spot-check a few live pages by hand.
 
 ## Adding a new converter
 
