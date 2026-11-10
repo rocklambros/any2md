@@ -5,27 +5,16 @@ is treated as frontmatter overrides (deep-merged below ``--meta-file``
 and CLI ``--meta`` arguments). The ``[document_id]`` table provides
 ``publisher_prefix`` / ``type_code`` overrides for ``--auto-id``.
 
-TOML parsing uses stdlib ``tomllib`` on Python 3.11+. On older
-interpreters we fall back to the optional ``tomli`` package; if neither
-is importable, ``load_toml`` returns ``{}`` and config is silently
-disabled (no hard error — config is opt-in convenience).
+TOML parsing uses stdlib ``tomllib`` (any2md requires Python 3.11+).
 """
 
 from __future__ import annotations
 
-import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
 from any2md import _logging
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - exercised only on Python 3.10
-    try:
-        import tomli as tomllib  # type: ignore[import-not-found,no-redef]
-    except ImportError:
-        tomllib = None  # type: ignore[assignment]
 
 
 def load_toml(path: Path) -> dict[str, Any]:
@@ -35,8 +24,6 @@ def load_toml(path: Path) -> dict[str, Any]:
     not block conversion. Callers that need strict validation should
     parse the file themselves.
     """
-    if tomllib is None:  # pragma: no cover - 3.10 without tomli
-        return {}
     try:
         with open(path, "rb") as f:
             return tomllib.load(f)

@@ -29,7 +29,7 @@ the test suite gates Docling-dependent tests with
 `@pytest.mark.skipif(not has_docling(), …)` so they're transparently skipped
 without it. Coverage of fallback paths is unaffected.
 
-Python 3.10 or later is required.
+Python 3.11 or later is required.
 
 ## Running tests
 

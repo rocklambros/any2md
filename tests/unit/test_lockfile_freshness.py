@@ -22,7 +22,7 @@ def test_lockfile_contains_every_base_dep():
     lockfile = (ROOT / ".devcontainer" / "requirements.lock").read_text().lower()
 
     for dep in deps:
-        # Skip deps with environment markers (e.g., 'tomli; python_version < "3.11"')
+        # Skip deps with environment markers (e.g., 'pkg; python_version < "3.12"')
         # — those are excluded from the lockfile when generated on a Python
         # version that doesn't satisfy the marker.
         if ";" in dep:

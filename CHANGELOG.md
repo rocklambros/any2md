@@ -4,7 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.1.1] — 2026-05-DD
+## [1.2.0] — 2026-11-09
+
+### Removed
+
+- **Python 3.10 support.** `requires-python` is now `>=3.11`. Pillow
+  13.0.0 is the only release that fixes the advisories below, and it
+  requires Python 3.11. Python 3.10 reached end-of-life in October 2026.
+  pip on 3.10 keeps resolving any2md 1.1.1, which pins the vulnerable
+  pillow 12.x; upgrade the interpreter to get these fixes. The `tomli`
+  fallback dependency is gone with it (stdlib `tomllib` covers 3.11+),
+  and the CI matrix now tests 3.11, 3.12, and 3.13.
+
+### Security
+
+- **Pillow 13.0.0.** The `pillow>=12.2.0,<13` range held installs on a
+  release with 39 published advisories (e.g. CVE-2026-112395), all fixed
+  in 13.0.0. The range is now `pillow>=13.0.0,<14`. Docling's packages
+  accept `pillow<14`, so the `high-fidelity` extra still resolves.
+- **Locked dev-container dependencies.** `.devcontainer/requirements.lock`
+  and `requirements.txt` move certifi, lxml-html-clean, soupsieve, and
+  urllib3 to their fixed releases (lxml follows to 6.1.3). Both
+  lockfiles now audit clean with `pip-audit`.
+
+### Changed
+
+- **CI pins ruff to 0.15.22.** Ruff 0.16 and later enable a wider default
+  rule set this repo has not adopted, which failed the required lint check
+  on an unchanged `main`. The `dev` extra pins the same version.
+
+## [1.1.1] — 2026-05-07
 
 Security patch release. Closes 10 findings from a comprehensive scan
 (bandit, snyk-code, gitleaks, pip-audit, trivy, manual review) plus

@@ -10,7 +10,7 @@ beautifulsoup4==4.14.3
     # via
     #   any2md (pyproject.toml)
     #   markdownify
-certifi==2026.4.22
+certifi==2026.10.23
     # via trafilatura
 charset-normalizer==3.4.7
     # via
@@ -28,20 +28,20 @@ htmldate==1.9.4
     # via trafilatura
 justext==3.0.2
     # via trafilatura
-lxml[html-clean]==6.1.0
+lxml[html-clean]==6.1.3
     # via
     #   any2md (pyproject.toml)
     #   htmldate
     #   justext
     #   lxml-html-clean
     #   trafilatura
-lxml-html-clean==0.4.4
+lxml-html-clean==0.4.6
     # via lxml
 mammoth==1.12.0
     # via any2md (pyproject.toml)
 markdownify==1.2.2
     # via any2md (pyproject.toml)
-pillow==12.2.0
+pillow==13.0.0
     # via any2md (pyproject.toml)
 pymupdf==1.27.2.3
     # via
@@ -61,7 +61,7 @@ six==1.17.0
     # via
     #   markdownify
     #   python-dateutil
-soupsieve==2.8.3
+soupsieve==2.10
     # via beautifulsoup4
 tabulate==0.10.0
     # via pymupdf4llm
@@ -73,7 +73,7 @@ typing-extensions==4.15.0
     # via beautifulsoup4
 tzlocal==5.3.1
     # via dateparser
-urllib3==2.6.3
+urllib3==2.8.0
     # via
     #   any2md (pyproject.toml)
     #   courlan
