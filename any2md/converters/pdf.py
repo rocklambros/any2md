@@ -162,7 +162,9 @@ def _extract_via_docling(
 
     converter = get_pdf_converter(pipeline_opts)
     try:
-        result = converter.convert(str(pdf_path))
+        # Docling resolves a str source as a URL first, so a file named
+        # ``http:host#.pdf`` would be fetched. A Path is read from disk.
+        result = converter.convert(Path(pdf_path))
     except Exception:
         evict_on_convert_failure("pdf", pipeline_opts)
         raise

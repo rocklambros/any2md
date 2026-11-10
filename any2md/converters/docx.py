@@ -9,7 +9,9 @@ produces the markdown body.
 
 from __future__ import annotations
 
+import importlib.metadata
 import logging
+import re
 import zipfile
 
 from defusedxml.ElementTree import ParseError as _XmlParseError
@@ -173,16 +175,57 @@ def _extract_via_docling(docx_path: Path) -> tuple[str, str, list[str]]:
     converter = get_docx_converter()
     with _DoclingMswordWarningCapture() as cap:
         try:
-            result = converter.convert(str(docx_path))
+            # Docling resolves a str source as a URL first, so a file named
+            # ``http:host#.docx`` would be fetched. A Path is read from disk.
+            result = converter.convert(Path(docx_path))
         except Exception:
             evict_on_convert_failure("docx", None)
             raise
     return result.document.export_to_markdown(), "docling", list(cap.messages)
 
 
+# mammoth 1.11.0 added ``external_file_access`` and turned it off by
+# default (CVE-2025-11849). Earlier releases open a linked image's target
+# with ``urlopen`` or ``open`` and accept no switch to stop it.
+_MAMMOTH_SAFE_VERSION = (1, 11)
+
+
+def _installed_mammoth_version() -> str:
+    try:
+        return importlib.metadata.version("mammoth")
+    except importlib.metadata.PackageNotFoundError:
+        return ""
+
+
+def _mammoth_blocks_external_files() -> bool:
+    match = re.match(r"(\d+)\.(\d+)", _installed_mammoth_version())
+    if match is None:
+        # Unknown version: assume the unsafe behavior.
+        return False
+    return (int(match.group(1)), int(match.group(2))) >= _MAMMOTH_SAFE_VERSION
+
+
+# Emits an <img> with alt text and no src, so mammoth never calls
+# ``image.open()``. markdownify strips the tag when images are not saved.
+_skip_image_bytes = mammoth.images.img_element(lambda image: {})
+
+
+def _mammoth_kwargs(save_images: bool) -> dict:
+    if not _mammoth_blocks_external_files():
+        # mammoth's image object does not say whether bytes come from the
+        # DOCX zip or from a link, so on an unsafe release no image is read.
+        return {"convert_image": _skip_image_bytes}
+    kwargs: dict = {"external_file_access": False}
+    if not save_images:
+        # The image is stripped from the output anyway, so reading and
+        # base64-encoding its bytes is wasted work.
+        kwargs["convert_image"] = _skip_image_bytes
+    return kwargs
+
+
 def _extract_via_mammoth(docx_path: Path, options: PipelineOptions) -> tuple[str, str]:
     with open(docx_path, "rb") as f:
-        html_result = mammoth.convert_to_html(f)
+        html_result = mammoth.convert_to_html(f, **_mammoth_kwargs(options.save_images))
     md = markdownify.markdownify(
         html_result.value,
         heading_style="ATX",
