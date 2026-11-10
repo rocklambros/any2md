@@ -3,6 +3,8 @@
 Defenses against:
   - non-http(s) schemes
   - URLs resolving to non-public addresses (private, multicast, CGNAT, etc.)
+  - IPv6 forms that embed an internal IPv4 target (IPv4-mapped, NAT64,
+    6to4, Teredo, IPv4-compatible)
   - DNS rebinding via redirect (per-hop revalidation)
   - DNS rebinding INTRA-hop (IP pinned through to socket.create_connection,
     so the IP we validated is the IP we connect to)
@@ -28,8 +30,57 @@ _MAX_RESPONSE_BYTES = 20 * 1024 * 1024  # 20 MB cap on body read
 _USER_AGENT = f"any2md/{__version__}"
 
 
+# Shared address space (RFC 6598). Cloud providers host metadata services
+# here, for example Alibaba's 100.100.100.200. ``is_global`` already
+# excludes it, but the explicit check keeps the rule visible and stable.
+_CGNAT_V4 = ipaddress.IPv4Network("100.64.0.0/10")
+
+# IPv6 prefixes whose low 32 bits carry an IPv4 destination. A socket or
+# translator delivers the packet to that IPv4 address, so the IPv4 policy
+# decides. Python's ``is_global`` does not unwrap NAT64 or IPv4-translated
+# forms on any version, and unwraps IPv4-mapped forms only on builds with
+# the CVE-2024-4032 fix, so the guard extracts the address itself.
+_V4_IN_LOW_32 = (
+    ipaddress.IPv6Network("::ffff:0:0/96"),  # IPv4-mapped
+    ipaddress.IPv6Network("::ffff:0:0:0/96"),  # SIIT IPv4-translated
+    ipaddress.IPv6Network("64:ff9b::/96"),  # NAT64 well-known prefix
+)
+_SIXTOFOUR = ipaddress.IPv6Network("2002::/16")
+
+# Rejected outright. Teredo (2001::/32) tunnels to an obfuscated IPv4
+# client through a relay. NAT64 local-use (64:ff9b:1::/48) maps into a
+# site's own IPv4 space by definition. IPv4-compatible (::/96) is
+# deprecated by RFC 4291 and has no legitimate use in a DNS answer.
+_V6_DENY = (
+    ipaddress.IPv6Network("2001::/32"),
+    ipaddress.IPv6Network("64:ff9b:1::/48"),
+    ipaddress.IPv6Network("::/96"),
+)
+
+
+def _v4_allowed(addr: ipaddress.IPv4Address) -> bool:
+    return (
+        bool(addr.is_global)
+        and addr not in _CGNAT_V4
+        and not addr.is_multicast
+        and not addr.is_unspecified
+    )
+
+
 def _addr_allowed(addr) -> bool:
-    """Allowlist policy: globally routable, non-multicast, non-unspecified."""
+    """Allowlist policy: globally routable, non-multicast, non-unspecified.
+
+    IPv6 addresses that embed an IPv4 destination are judged by the IPv4
+    policy alone, so the verdict does not vary with the Python version.
+    """
+    if addr.version == 4:
+        return _v4_allowed(addr)
+    if any(addr in net for net in _V6_DENY):
+        return False
+    if any(addr in net for net in _V4_IN_LOW_32):
+        return _v4_allowed(ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF))
+    if addr in _SIXTOFOUR:
+        return _v4_allowed(ipaddress.IPv4Address((int(addr) >> 80) & 0xFFFFFFFF))
     return bool(addr.is_global) and not addr.is_multicast and not addr.is_unspecified
 
 
