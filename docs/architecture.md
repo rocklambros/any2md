@@ -301,6 +301,8 @@ class SourceMeta:
         "trafilatura", "trafilatura+bs4_fallback", "heuristic",
     ]
     lane: Lane
+    seo_title: str | None = None  # NEW v1.2.0 — HTML metadata title; emitted
+                                  # only when it differs from the final title.
 ```
 
 ### Field-by-field
@@ -311,6 +313,7 @@ class SourceMeta:
 | `authors` | PDF (`/Author` parsed), DOCX (`dc:creator`), HTML (`<meta name="author">`), TXT (always `[]`). v1.0.2 adds body-text extraction and an arxiv API enrichment via `heuristics.extract_authors`. | No — empty `[]` is valid |
 | `organization` | PDF/DOCX `Company`, HTML `og:site_name`, otherwise `None`. v1.0.2 routes the PDF `Creator` field and DOCX `<Application>` element through `heuristics.filter_organization` so software values populate `produced_by` instead. | No — empty `""` is valid |
 | `produced_by` | PDF `Creator` field (when it matches a known software pattern); DOCX `<Application>` element of `docProps/app.xml`; otherwise `None`. New in v1.0.2. | No — extension field |
+| `seo_title` | HTML/URL only: trafilatura's metadata title (`og:title` / `<title>`). `compose()` emits it only when it differs from the final `title`, which follows the body H1. Before the pipeline runs, the HTML converter restores that H1 from the page's single `<h1>` (else the metadata title) when trafilatura drops it. New in v1.2.0. | No — extension field |
 | `date` | PDF `creationDate`, DOCX `dcterms:modified`, URL `Last-Modified` HEAD response, file mtime, today | Yes — derived to today if all sources fail |
 | `keywords` | PDF `/Keywords`, DOCX `cp:keywords`, HTML `<meta name="keywords">`, trafilatura `categories`, otherwise `[]` | No — emitted only when non-empty |
 | `pages` | PDF only (page count via `pymupdf.open`); other formats `None` | No — extension field |

@@ -226,3 +226,31 @@ def test_compose_meta_authors_takes_priority():
     out = compose(body, _meta(authors=["Bob"]), PipelineOptions())
     fm, _ = _split_frontmatter(out)
     assert fm["authors"] == ["Bob"]
+
+
+def test_compose_emits_seo_title_when_it_differs_from_title():
+    """v1.2.0: HTML metadata title is kept when the body H1 differs."""
+    out = compose(
+        "# Visible Heading\n\nbody\n",
+        _meta(seo_title="SEO Title | Site"),
+        PipelineOptions(),
+    )
+    fm, _ = _split_frontmatter(out)
+    assert fm["title"] == "Visible Heading"
+    assert fm["seo_title"] == "SEO Title | Site"
+
+
+def test_compose_omits_seo_title_when_equal_to_title():
+    out = compose(
+        "# Same Title\n\nbody\n",
+        _meta(seo_title="  same title "),
+        PipelineOptions(),
+    )
+    fm, _ = _split_frontmatter(out)
+    assert "seo_title" not in fm
+
+
+def test_compose_omits_seo_title_when_none():
+    out = compose("# T\n\nbody\n", _meta(), PipelineOptions())
+    fm, _ = _split_frontmatter(out)
+    assert "seo_title" not in fm

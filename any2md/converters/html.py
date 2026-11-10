@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from datetime import date
 from email.utils import parsedate_to_datetime
@@ -82,6 +83,79 @@ def _extract(raw_html: str) -> tuple[str, str]:
     cleaned = _bs4_preclean(raw_html)
     md = markdownify.markdownify(cleaned, heading_style="ATX", strip=["img"])
     return md, "trafilatura+bs4_fallback"
+
+
+_WS_RE = re.compile(r"\s+")
+_ATX_H1_RE = re.compile(r"^#[ \t]+\S")
+_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+_WRAPPING_EMPHASIS_RE = re.compile(r"^(\*\*|__|\*|_)(.+?)\1$")
+
+
+def _one_line(text: str) -> str:
+    """Collapse every whitespace run (newlines included) to one space."""
+    return _WS_RE.sub(" ", text).strip()
+
+
+def _visible_h1(raw_html: str) -> str | None:
+    """Return the page's own ``<h1>`` text when the page has exactly one.
+
+    Empty ``<h1>`` wrappers (logo images, icon fonts) are ignored. Two or
+    more non-empty ``<h1>`` elements make the document title ambiguous,
+    so the caller falls back to the metadata title instead of guessing.
+    """
+    soup = BeautifulSoup(raw_html, "lxml")
+    texts = [t for t in (_one_line(h.get_text()) for h in soup.find_all("h1")) if t]
+    return texts[0] if len(texts) == 1 else None
+
+
+def _unwrap_emphasis(text: str) -> str:
+    """Strip emphasis markers that wrap the whole line (``**x**``, ``***x***``)."""
+    for _ in range(3):  # bold-italic nests at most three marker levels deep
+        m = _WRAPPING_EMPHASIS_RE.match(text)
+        if not m:
+            break
+        text = _one_line(m.group(2))
+    return text
+
+
+def _ensure_h1(body: str, title: str | None) -> str:
+    """Guarantee the body opens with one H1 when a title is known.
+
+    trafilatura keeps a heading only when it sits inside the content node
+    it selects, so a page ``<h1>`` in a hero banner or ``<header>`` block
+    never reaches the body. This puts it back so the C7 validator and the
+    README's single-H1 guarantee hold for HTML/URL output.
+
+    - Body already has an ATX H1 outside fenced code: returned unchanged.
+    - No usable title: returned unchanged (the validator still warns).
+    - First non-blank line repeats the title, as plain or emphasized text
+      (case-insensitive): that line is promoted to the H1 so the title
+      does not appear twice.
+    - Otherwise ``# <title>`` and a blank line are prepended.
+    """
+    lines = body.split("\n")
+    in_fence = False
+    for line in lines:
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+        elif not in_fence and _ATX_H1_RE.match(line):
+            return body
+
+    heading = _one_line(title or "")
+    if not heading:
+        return body
+
+    first = next((i for i, line in enumerate(lines) if line.strip()), None)
+    if first is None:
+        return f"# {heading}\n"
+
+    candidate = _unwrap_emphasis(_one_line(lines[first]))
+    if candidate.casefold() == heading.casefold():
+        # Keep the page's own wording and casing for the promoted line.
+        lines[first] = f"# {candidate}"
+        return "\n".join(lines)
+
+    return f"# {heading}\n\n" + "\n".join(lines[first:])
 
 
 def _extract_metadata(
@@ -167,6 +241,13 @@ def convert_html(
 
         md_text, extracted_via = _extract(raw_html)
         title_hint, authors, org, doc_date, keywords = _extract_metadata(raw_html)
+        # Runs before pipeline.run so every text-lane stage, the C7
+        # validator, and compose() (content_hash, token_estimate, chunk
+        # level, abstract) all see the final body with its H1. The
+        # visible <h1> wins over the metadata title because it is the
+        # heading a reader sees; compose() keeps the metadata title as
+        # seo_title when the two differ.
+        md_text = _ensure_h1(md_text, _visible_h1(raw_html) or title_hint)
 
         if source_url and not doc_date:
             doc_date = _http_last_modified(source_url)
@@ -189,6 +270,7 @@ def convert_html(
             doc_type="html",
             extracted_via=extracted_via,
             lane="text",
+            seo_title=title_hint,
         )
         full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 

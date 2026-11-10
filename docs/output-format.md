@@ -54,8 +54,9 @@ optional, then any2md extension fields retained from v0.7 for traceability.
 This is the order they appear in the YAML block.
 
 v1.0.2 added one extension field, `produced_by`, between `extracted_via` and
-`pages`. It's documented in its own subsection below and listed alongside the
-other any2md extension fields.
+`pages`. v1.2.0 added `seo_title` (HTML/URL only) right after it. Both are
+documented in their own subsections below and listed alongside the other any2md
+extension fields.
 
 ## Field-by-field reference
 
@@ -76,6 +77,11 @@ title metadata (PDF `/Title`, DOCX `dc:title`, HTML `<title>` via
 trafilatura), then to the source filename with the extension removed and
 underscores converted to spaces. Never empty — the fallback is guaranteed to
 produce a non-empty string.
+
+For HTML and URL input, the body H1 is the page's own `<h1>` when the page has
+exactly one non-empty `<h1>`, so `title` is the heading a reader sees. When the
+`og:title` / `<title>` metadata differs from it, that value is kept in
+[`seo_title`](#seo_title).
 
 **Example:** `"Quarterly Financial Report"`
 
@@ -385,6 +391,22 @@ get a real organization name (or `""`) and never see software junk there.
 
 **Example empty:** field is omitted from the YAML block.
 
+### `seo_title`
+
+**auto, conditional** | type: `string` (any2md extension field, new in v1.2.0)
+
+**Derivation:** The HTML metadata title that trafilatura reads from
+`og:title` or `<title>`. Emitted only for HTML and URL input, and only when it
+differs from `title` (case and whitespace ignored). On many sites the SEO title
+and the visible `<h1>` are written separately. `title` follows the visible
+heading, so `seo_title` keeps the other one for search and citation use.
+
+**Example:** `title: "A Read-Only Account is All it Takes to Own a LiteLLM
+Server"` alongside `seo_title: "LiteLLM CVE-2026-35029: Exploited One Day After
+Disclosure"`.
+
+**Example empty:** field is omitted from the YAML block.
+
 ### `pages`, `word_count`
 
 **auto, conditional** | type: `integer`
@@ -400,10 +422,17 @@ follows three rules.
 
 ### Single H1
 
-Exactly one H1 (`# Heading`) per document. The pipeline's S4 stage promotes the
-first heading to H1 if no H1 was present in the source, and demotes any
-subsequent H1s to H2. This rule is what makes downstream chunkers and titlers
-work reliably.
+Exactly one H1 (`# Heading`) per document. This rule is what makes downstream
+chunkers and titlers work reliably. How it is enforced depends on the lane:
+
+- **Structured lane (Docling):** the S4 stage promotes the first heading to H1
+  if no H1 was present in the source, and demotes any subsequent H1s to H2.
+- **HTML / URL:** the converter restores the page title as the H1 when
+  trafilatura drops it (a page `<h1>` outside the article container is not
+  extracted). If the first body line already repeats the title as plain or
+  bold text, that line is promoted instead of adding a duplicate.
+- **Other text-lane input (pymupdf4llm, mammoth, TXT):** no rewriting. A body
+  without an H1 emits the validator warning described below.
 
 ### No skipped levels
 

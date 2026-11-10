@@ -128,6 +128,15 @@ class SourceMeta:
     # is the human/legal entity. Default None to keep existing call sites
     # working without churn.
     produced_by: str | None = None
+    # v1.2.0: HTML metadata title (og:title / <title> via trafilatura).
+    # Emitted only when it differs from the final `title`, which follows
+    # the body H1 (the page's visible heading).
+    seo_title: str | None = None
+
+
+def _same_title(a: str, b: str) -> bool:
+    """Case- and whitespace-insensitive title equality."""
+    return " ".join(a.split()).casefold() == " ".join(b.split()).casefold()
 
 
 def estimate_tokens(body: str) -> int:
@@ -318,6 +327,9 @@ def _build_fields(
     fields["extracted_via"] = meta.extracted_via  # v1.0 provenance extension
     if meta.produced_by is not None:
         fields["produced_by"] = meta.produced_by  # v1.0.2 extension (spec §6.1)
+    seo_title = (meta.seo_title or "").strip()
+    if seo_title and not _same_title(seo_title, title):
+        fields["seo_title"] = seo_title  # v1.2.0 extension (HTML only)
     if meta.pages is not None:
         fields["pages"] = meta.pages
     if meta.word_count is not None:
