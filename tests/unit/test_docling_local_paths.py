@@ -46,7 +46,7 @@ def fake_docling_options(monkeypatch):
     pkg = types.ModuleType("docling")
     datamodel = types.ModuleType("docling.datamodel")
     pipeline_options = types.ModuleType("docling.datamodel.pipeline_options")
-    pipeline_options.PdfPipelineOptions = lambda **kw: types.SimpleNamespace(**kw)
+    pipeline_options.PdfPipelineOptions = types.SimpleNamespace
     monkeypatch.setitem(sys.modules, "docling", pkg)
     monkeypatch.setitem(sys.modules, "docling.datamodel", datamodel)
     monkeypatch.setitem(
