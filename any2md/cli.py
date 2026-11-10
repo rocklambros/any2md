@@ -359,7 +359,9 @@ def main():
         sys.exit(0)
 
     total = len(file_paths) + len(urls)
-    print(f"Processing {total} file(s) → {args.output_dir}/\n")
+    print(
+        f"Processing {total} file(s) → {_logging.safe_oneline(str(args.output_dir))}/\n"
+    )
     start = time.time()
     ok = 0
     fail = 0
@@ -370,7 +372,7 @@ def main():
         out_name = url_to_filename(url)
         out_path = args.output_dir / out_name
         if out_path.exists() and not args.force:
-            print(f"  SKIP (exists): {out_name}")
+            print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
             skip += 1
             continue
 
@@ -387,10 +389,13 @@ def main():
 
     # Process local files
     for file_path in file_paths:
+        # sanitize_filename strips only C0 and DEL, so C1 controls and bidi
+        # overrides survive into out_name. Every status line that prints it
+        # goes through safe_oneline as well.
         out_name = sanitize_filename(file_path.name)
         out_path = args.output_dir / out_name
         if out_path.exists() and not args.force:
-            print(f"  SKIP (exists): {out_name}")
+            print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
             skip += 1
             continue
 
@@ -403,9 +408,9 @@ def main():
             continue
 
         if file_size > args.max_file_size:
-            print(
-                f"  SKIP (too large): {file_path.name} ({file_size} bytes, max {args.max_file_size})",
-                file=sys.stderr,
+            _logging.warn(
+                f"{file_path.name} ({file_size} bytes, max {args.max_file_size})",
+                prefix="SKIP (too large)",
             )
             skip += 1
             continue
