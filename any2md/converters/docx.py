@@ -10,7 +10,6 @@ produces the markdown body.
 from __future__ import annotations
 
 import logging
-import sys
 import zipfile
 
 from defusedxml.ElementTree import ParseError as _XmlParseError
@@ -209,7 +208,7 @@ def convert_docx(
     out_name = sanitize_filename(docx_path.name)
     out_path = output_dir / out_name
     if out_path.exists() and not force:
-        print(f"  SKIP (exists): {out_name}")
+        print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
         return True
 
     try:
@@ -217,10 +216,9 @@ def convert_docx(
         # caller's choice instead of the auto-select. ``pymupdf4llm`` is
         # invalid for DOCX — fail the file with a clear error.
         if options.backend == "pymupdf4llm":
-            print(
-                f"  FAIL: {docx_path.name} -- backend 'pymupdf4llm' is not "
-                f"valid for DOCX input (pymupdf4llm processes PDF only).",
-                file=sys.stderr,
+            _logging.fail(
+                f"{docx_path.name} -- backend 'pymupdf4llm' is not "
+                f"valid for DOCX input (pymupdf4llm processes PDF only)."
             )
             return False
 
@@ -238,10 +236,9 @@ def convert_docx(
                 )
                 lane = "structured"
             except Exception as e:  # noqa: BLE001 — fall back rather than fail
-                print(
-                    f"  WARN: Docling extraction failed for {docx_path.name}: {e}; "
-                    f"falling back to mammoth.",
-                    file=sys.stderr,
+                _logging.warn(
+                    f"Docling extraction failed for {docx_path.name}: {e}; "
+                    f"falling back to mammoth."
                 )
                 md_text, extracted_via = _extract_via_mammoth(docx_path, options)
                 lane = "text"
@@ -261,12 +258,12 @@ def convert_docx(
             and options.docx_fallback_on_warn
             and extracted_via == "docling"
         ):
-            print(
-                f"  FALLBACK: {docx_path.name} -- Docling emitted "
+            _logging.warn(
+                f"{docx_path.name} -- Docling emitted "
                 f"{len(docling_warnings)} msword_backend warning(s); "
                 f"re-running via mammoth (content may have been dropped "
                 f"by Docling).",
-                file=sys.stderr,
+                prefix="FALLBACK",
             )
             md_text, _ = _extract_via_mammoth(docx_path, options)
             extracted_via = "docling→mammoth (warning fallback)"
@@ -307,7 +304,10 @@ def convert_docx(
         wc = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
-            print(f"  OK: {out_name} ({wc} words, via {extracted_via}{suffix})")
+            print(
+                f"  OK: {_logging.safe_oneline(out_name)} "
+                f"({wc} words, via {extracted_via}{suffix})"
+            )
         return True
 
     except (OSError, ValueError) as e:

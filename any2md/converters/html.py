@@ -264,7 +264,7 @@ def convert_html(
 
     out_path = output_dir / out_name
     if out_path.exists() and not force:
-        print(f"  SKIP (exists): {out_name}")
+        print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
         return True
 
     try:
@@ -273,10 +273,9 @@ def convert_html(
         elif html_path is not None:
             file_size = html_path.stat().st_size
             if file_size > _MAX_FILE_SIZE:
-                print(
-                    f"  FAIL: {name_for_error} -- file too large "
-                    f"({file_size} bytes, max {_MAX_FILE_SIZE})",
-                    file=sys.stderr,
+                _logging.fail(
+                    f"{name_for_error} -- file too large "
+                    f"({file_size} bytes, max {_MAX_FILE_SIZE})"
                 )
                 return False
             raw_html = read_text_with_fallback(html_path)
@@ -327,7 +326,7 @@ def convert_html(
         wc = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
-            print(f"  OK: {out_name} ({wc} words{suffix})")
+            print(f"  OK: {_logging.safe_oneline(out_name)} ({wc} words{suffix})")
         return True
 
     except (OSError, ValueError, TypeError) as e:

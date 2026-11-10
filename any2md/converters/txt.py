@@ -185,7 +185,7 @@ def convert_txt(
     out_name = sanitize_filename(txt_path.name)
     out_path = output_dir / out_name
     if out_path.exists() and not force:
-        print(f"  SKIP (exists): {out_name}")
+        print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
         return True
 
     try:
@@ -205,7 +205,9 @@ def convert_txt(
         word_count = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
-            print(f"  OK: {out_name} ({word_count} words{suffix})")
+            print(
+                f"  OK: {_logging.safe_oneline(out_name)} ({word_count} words{suffix})"
+            )
         return True
 
     except (OSError, ValueError) as e:

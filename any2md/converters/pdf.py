@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import errno
 import os
-import sys
 from datetime import date
 from pathlib import Path
 
@@ -210,7 +209,7 @@ def convert_pdf(
     out_name = sanitize_filename(pdf_path.name)
     out_path = output_dir / out_name
     if out_path.exists() and not force:
-        print(f"  SKIP (exists): {out_name}")
+        print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
         return True
 
     try:
@@ -218,10 +217,9 @@ def convert_pdf(
         # caller's choice instead of the auto-select. ``mammoth`` is
         # invalid for PDFs — fail the file with a clear error.
         if options.backend == "mammoth":
-            print(
-                f"  FAIL: {pdf_path.name} -- backend 'mammoth' is not "
-                f"valid for PDF input (mammoth processes DOCX only).",
-                file=sys.stderr,
+            _logging.fail(
+                f"{pdf_path.name} -- backend 'mammoth' is not "
+                f"valid for PDF input (mammoth processes DOCX only)."
             )
             return False
 
@@ -258,10 +256,9 @@ def convert_pdf(
                 )
                 lane = "structured"
             except Exception as e:  # noqa: BLE001 — fall back rather than fail
-                print(
-                    f"  WARN: Docling extraction failed for {pdf_path.name}: {e}; "
-                    f"falling back to pymupdf4llm.",
-                    file=sys.stderr,
+                _logging.warn(
+                    f"Docling extraction failed for {pdf_path.name}: {e}; "
+                    f"falling back to pymupdf4llm."
                 )
                 with pymupdf.open(str(pdf_path)) as doc:
                     md_text, extracted_via = _extract_via_pymupdf4llm(doc)
@@ -296,7 +293,10 @@ def convert_pdf(
         atomic_write_text(out_path, full)
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
-            print(f"  OK: {out_name} ({page_count} pages, via {extracted_via}{suffix})")
+            print(
+                f"  OK: {_logging.safe_oneline(out_name)} "
+                f"({page_count} pages, via {extracted_via}{suffix})"
+            )
         return True
 
     except (OSError, ValueError, RuntimeError) as e:
