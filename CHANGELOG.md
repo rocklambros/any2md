@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-11-10
+
+Security fixes from a full-repository scan (ReDoS, SSRF, symlink
+following, terminal escape injection) and fixes for nested `--meta`,
+text-lane dehyphenation, `--strip-links`, and structured-lane headings.
+
 ### Security
 
 - **Regex denial of service on crafted documents (CWE-1333, CWE-407).**
@@ -19,12 +25,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   handlers, the S4 heading matcher, and a blank-line rescan in the TXT
   structurizer. Each now runs in linear time, through procedural parsing
   or unambiguous, bounded patterns, plus length caps where real input is
-  short (TOC lines, bylines, abstract candidates). Behavior on normal
+  short (TOC lines and author lists, which are cut at a comma rather than
+  dropped). Escaped brackets in link text are kept, and backslash parity
+  decides whether a bracket opens a link. Behavior on normal
   input is unchanged: a fuzz test compares every rewrite against the
   regex it replaced. Known differences are limited to degenerate input.
   A bare `#` line no longer turns the next line into the H1, empty or
   dots-only TOC titles no longer count, and 2-letter byline names
   written with a space before the comma are no longer matched.
+
+- **SSRF guard accepted IPv6 forms that embed an internal IPv4 address
+  (CWE-918).** NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`), SIIT, and on
+  some Python builds IPv4-mapped addresses passed the URL guard even when
+  the embedded IPv4 was private, loopback, or a cloud metadata address.
+  The guard now extracts the embedded address and applies the IPv4 policy,
+  with the same verdict on Python 3.11 through 3.13. Teredo, NAT64
+  local-use, and deprecated IPv4-compatible addresses are rejected.
+- **DOCX image links could make mammoth read local files or fetch URLs
+  (CWE-918, CVE-2025-11849).** The minimum mammoth version is now 1.11.0,
+  the mammoth lane passes `external_file_access=False`, and image bytes
+  are not read at all unless `--save-images` is set.
+- **Docling treated local paths as URLs (CWE-918).** A file named like
+  `http:host#.pdf` was resolved as a URL. Both Docling call sites now pass
+  a `Path`, which Docling reads from disk.
+- **Directory scans followed symlinks (CWE-59, CWE-61).** A link such as
+  `report.txt -> ~/.ssh/id_rsa` in a scanned tree copied its target into
+  the output. Scans now skip symlinked files, never enter symlinked
+  directories, and skip FIFOs and device nodes, each with a `SKIP` line.
+  A symlink named on the command line still converts. Extension matching
+  keeps the platform's case rules. Known limit: a file swapped for a link
+  between the scan and the read is not caught.
+- **Terminal escape injection through filenames and error text (CWE-117,
+  CWE-150).** Filenames, output paths, and Docling exception messages in
+  `OK`, `SKIP`, `FAIL`, `WARN`, and `FALLBACK` lines reached the terminal
+  raw, so a crafted name could emit ANSI or OSC sequences, bidi
+  overrides, or forge extra status lines. Every such line now goes
+  through `safe_oneline`.
 
 ### Fixed
 
@@ -53,6 +89,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `table_infer_header=True`, so the first row stays the header. The
   stale `table_heavy.fallback.md` snapshot is regenerated (the table
   matches the original snapshot again, and two stray blank lines are gone).
+
+- **Nested `--meta` lists crashed the batch.** `--meta a.b=x,y` (and any
+  list or table below the top level) raised `TypeError` in the
+  frontmatter emitter, and the txt, docx, and pdf converters did not catch
+  it, so one flag ended the whole run. Nested values now render like
+  top-level ones, an empty table renders as `{}`, and an unsupported value
+  fails only its own file with a `FAIL:` line.
+- **Structured-lane S4 turned sibling headings into parent and children.**
+  `# T`, `### A`, `### B` came out as `## A`, `### B`. S4 now ranks
+  headings with the same stack the HTML lane uses, so siblings stay
+  siblings and nesting is kept. Both lanes share one block scanner
+  that follows CommonMark block rules (fence delimiter character and
+  length, indentation and tab stops, list items, paragraph interruption,
+  thematic breaks, and raw HTML blocks), so headings inside fenced code
+  or raw HTML blocks such as `<pre>` are never rewritten, and real
+  headings after them are never skipped.
 
 ### Changed
 
