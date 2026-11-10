@@ -21,7 +21,6 @@ import yaml
 
 import any2md.converters.html as html_mod
 from any2md.converters import collected_warnings, reset_warnings
-from any2md.converters.html import convert_html
 from any2md.frontmatter import compute_content_hash
 from any2md.pipeline import PipelineOptions
 
@@ -30,7 +29,7 @@ _H1_RE = re.compile(r"^# (.*)$", re.MULTILINE)
 
 def _convert(path, out_dir):
     reset_warnings()
-    ok = convert_html(path, out_dir, options=PipelineOptions(), force=True)
+    ok = html_mod.convert_html(path, out_dir, options=PipelineOptions(), force=True)
     assert ok
     text = next(out_dir.glob("*.md")).read_text(encoding="utf-8")
     end = text.index("\n---\n", 4)
@@ -108,7 +107,7 @@ def test_url_path_gets_same_treatment(fixture_dir, tmp_output_dir, monkeypatch):
     monkeypatch.setattr(html_mod, "_http_last_modified", lambda _url: None)
     html = (fixture_dir / "web_h1_in_hero.html").read_text(encoding="utf-8")
     reset_warnings()
-    ok = convert_html(
+    ok = html_mod.convert_html(
         None,
         tmp_output_dir,
         options=PipelineOptions(),
