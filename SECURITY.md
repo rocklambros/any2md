@@ -4,9 +4,8 @@
 
 | Version | Status |
 |---|---|
-| 1.0.x   | ✅ Supported (current stable). Patch releases for security and quality fixes are published as needed. |
-| 0.7.x   | ⚠️ Receives critical security fixes only until 2026-10-26 (six months after the v1.0.0 GA on 2026-04-26). |
-| < 0.7   | ❌ Not supported. Please upgrade. |
+| 1.2.x   | ✅ Supported (current stable). Patch releases for security and quality fixes are published as needed. |
+| < 1.2   | ❌ Not supported. Please upgrade to the latest 1.2.x release. |
 
 ## Reporting a vulnerability
 
