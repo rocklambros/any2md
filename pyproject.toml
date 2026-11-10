@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Convert PDF, DOCX, HTML, and TXT files — or web pages by URL — to clean, LLM-optimized Markdown with YAML frontmatter."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "rocklambros", email = "rock@rockcyber.com" },
 ]
@@ -29,7 +29,6 @@ dependencies = [
     "pillow>=13.0.0,<14",    # 39 advisories fixed in 13.0.0 (e.g. CVE-2026-112395)
     "urllib3>=2.6.3,<3",     # CVE-2026-21441 fix
     "defusedxml>=0.7.1,<1",  # XXE defense-in-depth (Task P2)
-    "tomli>=2.0.0; python_version < '3.11'",  # stdlib tomllib is 3.11+; needed by config.load_toml on 3.10
 ]
 
 [project.optional-dependencies]

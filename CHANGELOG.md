@@ -4,7 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.1.2] — 2026-11-09
+## [1.2.0] — 2026-11-09
+
+### Removed
+
+- **Python 3.10 support.** `requires-python` is now `>=3.11`. Pillow
+  13.0.0 is the only release that fixes the advisories below, and it
+  requires Python 3.11. Python 3.10 reached end-of-life in October 2026.
+  pip on 3.10 keeps resolving any2md 1.1.1, which pins the vulnerable
+  pillow 12.x; upgrade the interpreter to get these fixes. The `tomli`
+  fallback dependency is gone with it (stdlib `tomllib` covers 3.11+),
+  and the CI matrix now tests 3.11, 3.12, and 3.13.
 
 ### Security
 
