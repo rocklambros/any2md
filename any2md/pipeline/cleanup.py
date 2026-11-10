@@ -115,7 +115,9 @@ def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
 
 # Inline link: [text](url) or [text](url "title"). The URL may contain one
 # level of balanced parentheses (Wikipedia-style ``Python_(language)``).
-# The negative lookbehind keeps images (``![alt](src)``) intact.
+# The ``(?<!!)`` right before "[" keeps images (``![alt](src)``) intact.
+# It sits after the backslash run so ``!\\[t](u)``, a link after a literal
+# "!", is still stripped.
 #
 # Bounded and unambiguous so hostile lines stay linear (CWE-1333): a link
 # opens only at an unescaped "[" (the backslash run before it, kept in
@@ -125,7 +127,7 @@ def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
 # title have length caps, and the URL's two alternatives never start with
 # the same character.
 _INLINE_LINK_RE = re.compile(
-    r"(?<![!\\])((?:\\\\)*)\[((?:[^\[\]\\]|\\[\s\S])*)\]"
+    r"(?<!\\)((?:\\\\)*)(?<!!)\[((?:[^\[\]\\]|\\[\s\S])*)\]"
     r"\((?:[^()\s]|\([^()\s]{0,256}\)){0,2048}"
     r"(?:[ \t]+\"[^\"\n]{0,512}\")?\)"
 )

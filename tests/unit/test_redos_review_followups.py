@@ -129,3 +129,15 @@ def test_backslash_run_before_bracket_stays_linear():
         with _budget():
             cleanup.strip_links(payload + "](", STRIP)
             heuristics._MD_LINK_RE.sub(r"\1\2", payload)
+
+
+@pytest.mark.parametrize(
+    ("src", "want"),
+    [
+        ("![alt](img.png)", "![alt](img.png)"),
+        ("!\\\\[docs](u)", "!\\\\docs"),
+        ("!\\[docs](u)", "!\\[docs](u)"),
+    ],
+)
+def test_image_guard_sits_right_before_the_bracket(src, want):
+    assert cleanup.strip_links(src, STRIP) == want
