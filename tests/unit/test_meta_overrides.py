@@ -105,6 +105,29 @@ def test_list_inside_doubly_nested_dict():
     assert _fm(out)["a"] == {"b": {"c": ["x", "y"], "d": "z"}}
 
 
+def test_empty_nested_table_stays_a_mapping():
+    # A TOML ``[meta.review.details]`` table with no keys parses to {}.
+    out = compose(
+        "# T\n\nbody\n",
+        _meta(),
+        PipelineOptions(),
+        overrides={"review": {"details": {}}},
+    )
+    assert "\n  details: {}\n" in out
+    assert _fm(out)["review"] == {"details": {}}
+
+
+def test_empty_top_level_table_stays_a_mapping():
+    out = compose(
+        "# T\n\nbody\n",
+        _meta(),
+        PipelineOptions(),
+        overrides={"review": {}},
+    )
+    assert "\nreview: {}\n" in out
+    assert _fm(out)["review"] == {}
+
+
 def test_unsupported_value_raises_value_error():
     # Converters report ValueError as a per-file failure, so an emission
     # error must surface as one rather than escape as a TypeError.

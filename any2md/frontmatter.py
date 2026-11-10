@@ -372,6 +372,11 @@ def _emit_field(key: str, value: Any, lines: list[str], depth: int = 0) -> None:
     """
     indent = "  " * depth
     if isinstance(value, dict):
+        if not value:
+            # A bare ``key:`` reads back as null, so an empty TOML table
+            # needs the explicit flow form to stay a mapping.
+            lines.append(f"{indent}{key}: {{}}")
+            return
         lines.append(f"{indent}{key}:")
         for subkey, subval in value.items():
             _emit_field(subkey, subval, lines, depth + 1)

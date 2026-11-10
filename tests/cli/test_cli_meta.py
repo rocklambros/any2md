@@ -52,6 +52,25 @@ def test_meta_nested_key_with_list_value(fixture_dir, tmp_path):
     assert fm["review"] == {"approvers": ["x", "y"]}
 
 
+def test_meta_file_empty_nested_table(fixture_dir, tmp_path):
+    meta_file = tmp_path / "meta.toml"
+    meta_file.write_text("[meta.review.details]\n")
+    out = tmp_path / "out"
+    r = _run(
+        "-o",
+        str(out),
+        "--no-config",
+        "--meta-file",
+        str(meta_file),
+        str(fixture_dir / "ligatures_and_softhyphens.txt"),
+    )
+    assert r.returncode == 0, r.stderr
+    md = (out / "ligatures_and_softhyphens.md").read_text()
+    end = md.index("\n---\n", 4)
+    fm = yaml.safe_load(md[4:end])
+    assert fm["review"] == {"details": {}}
+
+
 def test_emission_error_fails_each_file_without_ending_batch(tmp_path):
     # A TOML date has no YAML emitter, so every file fails at emission.
     # Each failure must be reported and the run must reach the summary.
