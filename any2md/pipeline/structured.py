@@ -154,10 +154,6 @@ STAGES.append(normalize_citations)
 # earlier lazy ``(.+?)[ \\t]*$`` was quadratic on a long space run (CWE-1333).
 _HEADING_LINE_RE = re.compile(r"^(#{1,6})[ \t]+(\S.*)$", re.MULTILINE)
 
-# Backtick and tilde fences both open code blocks in CommonMark, and
-# fences indented inside list items still open a block.
-_FENCE_RE = re.compile(r"^[ \t]*(?:```|~~~)")
-
 
 def rank_heading_levels(levels: list[int]) -> list[int]:
     """Re-rank heading levels so none skips a level below its parent.
@@ -183,20 +179,135 @@ def rank_heading_levels(levels: list[int]) -> list[int]:
     return ranked
 
 
-def _fenced_line_starts(text: str) -> set[int]:
-    """Return the offsets of every line inside a fenced code block.
+def _indent(line: str) -> tuple[int, int]:
+    """Return (column, index) of the first non-blank character of ``line``.
 
-    Fence lines themselves are included. An unclosed fence runs to the
-    end of the text, matching how CommonMark renders it.
+    A tab advances to the next multiple of four, as in CommonMark.
     """
+    col = 0
+    for i, ch in enumerate(line):
+        if ch == " ":
+            col += 1
+        elif ch == "\t":
+            col += 4 - col % 4
+        else:
+            return col, i
+    return col, len(line)
+
+
+def _list_item(rest: str, col: int) -> tuple[int, int] | None:
+    """Parse a list marker at the start of ``rest``, found at column ``col``.
+
+    Returns (content column, index in ``rest`` where the content starts),
+    or None when ``rest`` does not open a list item. Markers are ``-``,
+    ``*``, ``+``, and one to nine digits followed by ``.`` or ``)``.
+    """
+    i = 0
+    if rest[:1] in ("-", "*", "+"):
+        i = 1
+    else:
+        while i < len(rest) and i < 9 and "0" <= rest[i] <= "9":
+            i += 1
+        if i == 0 or i >= len(rest) or rest[i] not in ".)":
+            return None
+        i += 1
+    j = i
+    while j < len(rest) and rest[j] == " ":
+        j += 1
+    if not rest[j:].strip():
+        return col + i + 1, len(rest)  # empty item
+    if j == i:
+        return None  # "-x" or "1.x" is paragraph text, not a list item
+    if j - i > 4:
+        # Five or more spaces after the marker start indented code inside
+        # the item, so the content column sits one space past the marker.
+        return col + i + 1, i + 1
+    return col + j, j
+
+
+def _fence_opener(rest: str) -> tuple[str, int] | None:
+    """Return (fence character, run length) when ``rest`` opens a fence."""
+    ch = rest[:1]
+    if ch not in ("`", "~"):
+        return None
+    run = len(rest) - len(rest.lstrip(ch))
+    if run < 3:
+        return None
+    # CommonMark forbids a backtick in a backtick fence's info string, so
+    # such a line is inline code, not a fence.
+    if ch == "`" and "`" in rest[run:]:
+        return None
+    return ch, run
+
+
+def _fence_closes(rest: str, ch: str, length: int) -> bool:
+    """Return True when ``rest`` closes a fence opened with ``ch`` * ``length``."""
+    run = len(rest) - len(rest.lstrip(ch))
+    return run >= length and not rest[run:].strip()
+
+
+def fenced_lines(lines: list[str]) -> list[bool]:
+    """Flag each line that belongs to a fenced code block, fences included.
+
+    Follows the CommonMark fence rules that decide whether a ``#`` line
+    is code:
+
+    - A fence opens with three or more backticks or tildes and closes
+      only on a run of the same character at least as long, followed by
+      nothing but whitespace. A backtick opener's info string may not
+      hold a backtick.
+    - An opener or closer may sit at most three columns past its base:
+      column 0 at top level, or the content column of the enclosing list
+      item. Deeper indentation is indented code, not a fence.
+    - An unclosed fence runs to the end of the text.
+
+    List items are tracked with a stack of content columns, so nested
+    items work. Lazy continuation lines and block quotes are not
+    modeled: a non-blank line left of the item's content column ends the
+    item. One pass, linear in the input length. Shared by structured-lane
+    S4 and the HTML converter so both lanes agree on what is code.
+    """
+    flags: list[bool] = []
+    fence: tuple[str, int, int] | None = None  # (char, run length, base column)
+    list_cols: list[int] = []  # content columns of open list items
+    for line in lines:
+        col, idx = _indent(line)
+        rest = line[idx:]
+        if fence is not None:
+            ch, length, base = fence
+            flags.append(True)
+            if col - base <= 3 and _fence_closes(rest, ch, length):
+                fence = None
+            continue
+        if not rest.strip():
+            flags.append(False)  # blank lines keep list items open
+            continue
+        while list_cols and col < list_cols[-1]:
+            list_cols.pop()
+        base = list_cols[-1] if list_cols else 0
+        if col - base > 3:
+            flags.append(False)  # indented code
+            continue
+        item = _list_item(rest, col)
+        if item is not None:
+            content_col, start = item
+            list_cols.append(content_col)
+            # The item's first line may open a fence of its own.
+            rest, base = rest[start:], content_col
+        opener = _fence_opener(rest)
+        if opener is not None:
+            fence = (opener[0], opener[1], base)
+        flags.append(opener is not None)
+    return flags
+
+
+def _fenced_line_starts(text: str) -> set[int]:
+    """Return the offsets of every line that ``fenced_lines`` flags."""
     starts: set[int] = set()
-    in_fence = False
     offset = 0
-    for line in text.split("\n"):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            starts.add(offset)
-        elif in_fence:
+    lines = text.split("\n")
+    for line, fenced in zip(lines, fenced_lines(lines)):
+        if fenced:
             starts.add(offset)
         offset += len(line) + 1
     return starts

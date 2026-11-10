@@ -79,10 +79,49 @@ def test_headings_inside_fenced_code_are_untouched():
     out = enforce_heading_hierarchy(text, PipelineOptions())
     assert "```markdown\n### not a heading\n# also not\n```" in out
     assert "~~~\n#### still code\n~~~" in out
-    assert out.endswith("## A\n")
+    assert out.endswith("\n## A\n")
 
 
 def test_fenced_heading_does_not_count_as_h1():
     text = "```\n# code comment\n```\n\n## Real\n"
     out = enforce_heading_hierarchy(text, PipelineOptions())
     assert out == "```\n# code comment\n```\n\n# Real\n"
+
+
+def test_four_backtick_fence_survives_shorter_and_tilde_lines():
+    text = "# T\n\n````\n```\n### code\n~~~\n### code\n````\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert "````\n```\n### code\n~~~\n### code\n````" in out
+    assert out.endswith("\n## Real\n")
+
+
+def test_tilde_fence_not_closed_by_backticks():
+    text = "# T\n\n~~~\n```\n### code\n~~~\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert "```\n### code\n~~~" in out
+    assert out.endswith("\n## Real\n")
+
+
+def test_fence_with_trailing_text_does_not_close():
+    text = "# T\n\n```\n``` not a closer\n### code\n```\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert "``` not a closer\n### code\n```" in out
+    assert out.endswith("\n## Real\n")
+
+
+def test_backtick_info_string_with_backtick_is_not_a_fence():
+    text = "# T\n\n``` a`b\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out.endswith("\n## Real\n")
+
+
+def test_tilde_info_string_may_hold_backticks():
+    text = "# T\n\n~~~ a`b\n### code\n~~~\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert "~~~ a`b\n### code\n~~~" in out
+
+
+def test_top_level_indented_code_is_not_a_fence():
+    text = "# T\n\n    ```\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n    ```\n\n## Real\n"

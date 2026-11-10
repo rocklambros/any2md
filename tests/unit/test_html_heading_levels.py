@@ -70,3 +70,15 @@ def test_idempotent():
     body = "# T\n\n### A\n\n#### A.1\n\n### B\n"
     once = _normalize_heading_levels(body)
     assert _normalize_heading_levels(once) == once
+
+
+def test_four_backtick_fence_holding_shorter_fence_stays_open():
+    body = "# T\n\n````\n```\n### code\n````\n\n### Real\n"
+    out = _normalize_heading_levels(body)
+    assert "````\n```\n### code\n````" in out
+    assert out.endswith("\n## Real\n")
+
+
+def test_top_level_indented_code_is_not_a_fence():
+    body = "# T\n\n    ```\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n    ```\n\n## Real\n"

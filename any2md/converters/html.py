@@ -17,7 +17,7 @@ from any2md._http import safe_fetch
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
-from any2md.pipeline.structured import rank_heading_levels
+from any2md.pipeline.structured import fenced_lines, rank_heading_levels
 from any2md.utils import (
     atomic_write_text,
     read_text_with_fallback,
@@ -92,7 +92,6 @@ def _extract(raw_html: str) -> tuple[str, str]:
 
 _WS_RE = re.compile(r"\s+")
 _ATX_H1_RE = re.compile(r"^#[ \t]+\S")
-_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
 _WRAPPING_EMPHASIS_RE = re.compile(r"^(\*\*|__|\*|_)(.+?)\1$")
 
 
@@ -139,11 +138,8 @@ def _ensure_h1(body: str, title: str | None) -> str:
     - Otherwise ``# <title>`` and a blank line are prepended.
     """
     lines = body.split("\n")
-    in_fence = False
-    for line in lines:
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-        elif not in_fence and _ATX_H1_RE.match(line):
+    for line, fenced in zip(lines, fenced_lines(lines)):
+        if not fenced and _ATX_H1_RE.match(line):
             return body
 
     heading = _one_line(title or "")
@@ -183,12 +179,8 @@ def _normalize_heading_levels(body: str) -> str:
     """
     lines = body.split("\n")
     found: list[tuple[int, int]] = []  # (line index, original level)
-    in_fence = False
-    for i, line in enumerate(lines):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            continue
-        m = None if in_fence else _ATX_HEADING_RE.match(line)
+    for i, (line, fenced) in enumerate(zip(lines, fenced_lines(lines))):
+        m = None if fenced else _ATX_HEADING_RE.match(line)
         if m:
             found.append((i, len(m.group(1))))
     ranked = rank_heading_levels([level for _, level in found])
