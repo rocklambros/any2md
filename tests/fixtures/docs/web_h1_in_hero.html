@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Gateway Escalation Writeup | Example Labs</title>
+  <meta property="og:title" content="Gateway CVE: Exploited One Day After Disclosure">
+  <meta name="author" content="Test Author">
+</head>
+<body>
+  <nav><a href="/">Home</a> <a href="/blog">Blog</a></nav>
+  <main>
+    <section class="hero">
+      <header>
+        <p>Research</p>
+        <h1>A Read-Only Account Is All It Takes</h1>
+      </header>
+    </section>
+    <article>
+      <div class="prose">
+    <p>Attackers increasingly target AI gateways because a single deployment holds provider keys, user records, and spend data for every model behind it. This paragraph is long enough to survive extraction.</p>
+    <h2>Background</h2>
+    <p>The vulnerable endpoint accepted configuration updates from accounts that the documentation described as read-only, which let a low-privilege user rewrite the server configuration.</p>
+    <h2>Impact</h2>
+    <p>An attacker with the lowest role could read every stored provider key and pivot to the upstream model accounts without any further exploitation steps.</p>
+    <p>Detail paragraph 1: the gateway stored provider credentials in a shared database, and the role check ran only on the user interface, so direct calls to the administrative interface skipped it. Operators who rotated keys after the advisory still exposed the new keys to any account that could reach the endpoint.</p>
+    <p>Detail paragraph 2: the gateway stored provider credentials in a shared database, and the role check ran only on the user interface, so direct calls to the administrative interface skipped it. Operators who rotated keys after the advisory still exposed the new keys to any account that could reach the endpoint.</p>
+    <p>Detail paragraph 3: the gateway stored provider credentials in a shared database, and the role check ran only on the user interface, so direct calls to the administrative interface skipped it. Operators who rotated keys after the advisory still exposed the new keys to any account that could reach the endpoint.</p>
+    <p>Detail paragraph 4: the gateway stored provider credentials in a shared database, and the role check ran only on the user interface, so direct calls to the administrative interface skipped it. Operators who rotated keys after the advisory still exposed the new keys to any account that could reach the endpoint.</p>
+    <p>Detail paragraph 5: the gateway stored provider credentials in a shared database, and the role check ran only on the user interface, so direct calls to the administrative interface skipped it. Operators who rotated keys after the advisory still exposed the new keys to any account that could reach the endpoint.</p>
+    <p>Detail paragraph 6: the gateway stored provider credentials in a shared database, and the role check ran only on the user interface, so direct calls to the administrative interface skipped it. Operators who rotated keys after the advisory still exposed the new keys to any account that could reach the endpoint.</p>
+    <p>Detail paragraph 7: the gateway stored provider credentials in a shared database, and the role check ran only on the user interface, so direct calls to the administrative interface skipped it. Operators who rotated keys after the advisory still exposed the new keys to any account that could reach the endpoint.</p>
+    <p>Detail paragraph 8: the gateway stored provider credentials in a shared database, and the role check ran only on the user interface, so direct calls to the administrative interface skipped it. Operators who rotated keys after the advisory still exposed the new keys to any account that could reach the endpoint.</p>
+      </div>
+    </article>
+  </main>
+  <footer>Site footer that must be stripped.</footer>
+</body>
+</html>

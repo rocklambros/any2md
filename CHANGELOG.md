@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.2.0] — 2026-11-09
 
+Drops Python 3.10 to take the Pillow 13 security fixes, and fixes
+missing H1 headings in HTML/URL output.
+
 ### Removed
 
 - **Python 3.10 support.** `requires-python` is now `>=3.11`. Pillow
@@ -27,11 +30,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   urllib3 to their fixed releases (lxml follows to 6.1.3). Both
   lockfiles now audit clean with `pip-audit`.
 
+### Fixed
+
+- **HTML/URL bodies had no H1.** trafilatura keeps a heading only
+  when it sits inside the content node it selects. A page `<h1>` in a
+  hero banner or `<header>` block outside that node was dropped, so
+  nearly every blog page warned `validator: H1 count is 0 (expected 1)`
+  (106 of 106 labs.zenity.io posts, 182 of 214 zenity.io/blog posts).
+  The HTML converter now restores the H1 before the pipeline runs:
+  - The body already has an H1: unchanged.
+  - The first body line repeats the title as plain or bold text: that
+    line is promoted to the H1, so the title appears once.
+  - Otherwise `# <title>` is inserted as the first line.
+  - No title is available: unchanged (the validator still warns).
+
+  The H1 text is the page's own `<h1>` when the page has exactly one
+  non-empty `<h1>`, else trafilatura's metadata title. `content_hash`,
+  `token_estimate`, `word_count`, `recommended_chunk_level`, and
+  `abstract_for_rag` are computed from the body with the H1 in place.
+  PDF, DOCX, and TXT output is unchanged.
+
+### Added
+
+- **`seo_title`** frontmatter extension field (HTML/URL only). Holds
+  trafilatura's metadata title (`og:title` / `<title>`) when it differs
+  from `title`. Omitted when the two match.
+
 ### Changed
 
 - **CI pins ruff to 0.15.22.** Ruff 0.16 and later enable a wider default
   rule set this repo has not adopted, which failed the required lint check
   on an unchanged `main`. The `dev` extra pins the same version.
+- **HTML/URL `title` follows the visible page heading.** `title` is
+  still derived from the body H1, and the body H1 is now the page's
+  `<h1>`. On pages whose `og:title` differs from their `<h1>`, `title`
+  changes from the SEO title to the visible heading. The previous value
+  moves to `seo_title`. Pin a title with `--meta title=...` if you
+  depend on the old value.
 
 ## [1.1.1] — 2026-05-07
 
