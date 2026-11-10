@@ -103,3 +103,26 @@ def test_tab_after_list_marker_sets_content_column():
 def test_fence_inside_html_block_is_not_an_opener():
     body = "# T\n\n<pre>\n```\n</pre>\n\n### Real\n"
     assert _normalize_heading_levels(body) == "# T\n\n<pre>\n```\n</pre>\n\n## Real\n"
+
+
+def test_heading_inside_pre_block_is_untouched():
+    body = "# T\n\n<pre>\n### inside\n</pre>\n\n### Real\n"
+    out = _normalize_heading_levels(body)
+    assert out == "# T\n\n<pre>\n### inside\n</pre>\n\n## Real\n"
+
+
+def test_heading_inside_html_comment_is_untouched():
+    body = "# T\n\n<!--\n### x\n-->\n\n### Real\n"
+    out = _normalize_heading_levels(body)
+    assert out == "# T\n\n<!--\n### x\n-->\n\n## Real\n"
+
+
+def test_heading_inside_div_block_before_blank_line_is_untouched():
+    body = "# T\n\n<div>\n### inside\n\n### Real\n"
+    out = _normalize_heading_levels(body)
+    assert out == "# T\n\n<div>\n### inside\n\n## Real\n"
+
+
+def test_blank_line_ends_div_block():
+    body = "# T\n\n<div>\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n<div>\n\n## Real\n"

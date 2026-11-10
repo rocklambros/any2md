@@ -387,11 +387,31 @@ def _is_atx_heading(rest: str) -> bool:
     return 1 <= run <= 6 and (run == len(rest) or rest[run] == " ")
 
 
-def fenced_lines(lines: list[str]) -> list[bool]:
-    """Flag each line that belongs to a fenced code block, fences included.
+# Line kinds reported by _scan_blocks.
+_TEXT, _FENCE, _HTML = 0, 1, 2
 
+
+def fenced_lines(lines: list[str]) -> list[bool]:
+    """Flag each line that belongs to a fenced code block, fences included."""
+    return [kind == _FENCE for kind in _scan_blocks(lines)]
+
+
+def protected_lines(lines: list[str]) -> list[bool]:
+    """Flag each line where a ``#`` is never a heading.
+
+    That is every line of a fenced code block or a raw HTML block. Both
+    heading passes (S4 and the HTML converter) skip these lines.
+    """
+    return [kind != _TEXT for kind in _scan_blocks(lines)]
+
+
+def _scan_blocks(lines: list[str]) -> list[int]:
+    """Classify each line as text, fenced code, or raw HTML block.
+
+    Returns ``_TEXT``, ``_FENCE``, or ``_HTML`` per line. Fence lines
+    and HTML block start and end lines count as part of their block.
     Models the CommonMark block rules that decide whether a ``#`` line
-    is code:
+    is a heading:
 
     - Tabs expand to 4-column stops in a working copy of each line before
       indents and list markers are measured. The input is not changed.
@@ -411,7 +431,8 @@ def fenced_lines(lines: list[str]) -> list[bool]:
       ``1. - ````). Every marker is consumed before the fence test.
     - A list item may interrupt a paragraph only when it is not empty
       and, if ordered, starts at 1. Otherwise the line is paragraph text.
-    - Raw HTML blocks (CommonMark 4.6 types 1 to 7) hide fence lines.
+    - Raw HTML blocks (CommonMark 4.6 types 1 to 7) hide fence lines
+      and headings. An ATX heading line never starts one.
       Types 1 to 5 end at their end marker, types 6 and 7 at a blank
       line, and type 7 cannot interrupt a paragraph. HTML blocks may
       start inside list items and end when the item ends.
@@ -422,9 +443,9 @@ def fenced_lines(lines: list[str]) -> list[bool]:
     item. Setext underlines are read as paragraph text or thematic
     breaks. One pass, linear in the input length. Shared by
     structured-lane S4 and the HTML converter so both lanes agree on
-    what is code.
+    what is code or raw HTML.
     """
-    flags: list[bool] = []
+    kinds: list[int] = []
     fence: tuple[str, int, int] | None = None  # (char, run length, base column)
     html: tuple[tuple[str, ...], int] | None = None  # (end markers, base column)
     list_cols: list[int] = []  # content columns of open list items
@@ -440,7 +461,7 @@ def fenced_lines(lines: list[str]) -> list[bool]:
             if base > 0 and not blank and col < base:
                 fence = None  # the list item ended, so its fence did too
             else:
-                flags.append(True)
+                kinds.append(_FENCE)
                 if col - base <= 3 and _fence_closes(work[col:], ch, length):
                     fence = None
                 continue
@@ -448,15 +469,16 @@ def fenced_lines(lines: list[str]) -> list[bool]:
             ends, base = html
             if base > 0 and not blank and col < base:
                 html = None  # the list item ended, so its HTML block did too
+            elif not ends and blank:
+                # The blank line ends a type 6 or 7 block and is not part
+                # of it, so it falls through as an ordinary blank line.
+                html = None
             else:
-                flags.append(False)
-                if ends:
-                    if any(e in work.lower() for e in ends):
-                        html = None
-                elif blank:
+                kinds.append(_HTML)
+                if ends and any(e in work.lower() for e in ends):
                     html = None
                 continue
-        flags.append(False)
+        kinds.append(_TEXT)
         if blank:
             in_paragraph = False
             continue
@@ -513,28 +535,29 @@ def fenced_lines(lines: list[str]) -> list[bool]:
         opener = _fence_opener(rest)
         if opener is not None:
             fence = (opener[0], opener[1], base)
-            flags[-1] = True
+            kinds[-1] = _FENCE
             in_paragraph = False
             continue
         if rest[0] == "<":
             ends = _html_block_start(rest, in_paragraph)
             if ends is not None:
+                kinds[-1] = _HTML
                 # Types 1 to 5 may end on their start line.
                 if not ends or not any(e in rest.lower() for e in ends):
                     html = (ends, base)
                 in_paragraph = False
                 continue
         in_paragraph = not _is_atx_heading(rest)
-    return flags
+    return kinds
 
 
-def _fenced_line_starts(text: str) -> set[int]:
-    """Return the offsets of every line that ``fenced_lines`` flags."""
+def _protected_line_starts(text: str) -> set[int]:
+    """Return the offsets of every line that ``protected_lines`` flags."""
     starts: set[int] = set()
     offset = 0
     lines = text.split("\n")
-    for line, fenced in zip(lines, fenced_lines(lines)):
-        if fenced:
+    for line, protected in zip(lines, protected_lines(lines)):
+        if protected:
             starts.add(offset)
         offset += len(line) + 1
     return starts
@@ -548,10 +571,11 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
     - Remaining levels are ranked with ``rank_heading_levels``: each
       heading sits one level below its nearest shallower ancestor, so
       sibling H3s under an H1 all become H2.
-    - Lines inside fenced code blocks are never treated as headings.
+    - Lines inside fenced code or raw HTML blocks are never treated as
+      headings.
     """
-    fenced = _fenced_line_starts(text)
-    matches = [m for m in _HEADING_LINE_RE.finditer(text) if m.start() not in fenced]
+    protected = _protected_line_starts(text)
+    matches = [m for m in _HEADING_LINE_RE.finditer(text) if m.start() not in protected]
     if not matches:
         return text
 

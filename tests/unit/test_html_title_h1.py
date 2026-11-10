@@ -115,3 +115,20 @@ def test_empty_body_gets_heading_only():
 def test_deterministic():
     body = "Para.\n\n## S\n"
     assert _ensure_h1(body, "T") == _ensure_h1(body, "T")
+
+
+def test_h1_inside_html_comment_does_not_count():
+    body = "<!--\n# commented out\n-->\n\nBody.\n"
+    out = _ensure_h1(body, "Real Title")
+    assert out == "# Real Title\n\n" + body
+
+
+def test_h1_inside_pre_block_does_not_count():
+    body = "<pre>\n# shell prompt\n</pre>\n\nBody.\n"
+    out = _ensure_h1(body, "Real Title")
+    assert out == "# Real Title\n\n" + body
+
+
+def test_h1_after_div_block_blank_line_counts():
+    body = "<div>\n\n# Real H1\n\nBody.\n"
+    assert _ensure_h1(body, "Other Title") == body
