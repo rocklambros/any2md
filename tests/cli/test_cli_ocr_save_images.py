@@ -23,8 +23,11 @@ def test_save_images_in_help():
 
 
 def test_flags_compose(fixture_dir, tmp_path):
-    """Both flags accepted together. With Docling absent they have no
-    effect on backend selection but must not error on argparse."""
+    """Both flags parse together. They imply --high-fidelity, so without
+    Docling the CLI must stop at pre-flight (exit 1) with the install
+    hint; with Docling the conversion succeeds (exit 0)."""
+    from any2md._docling import has_docling
+
     out_dir = tmp_path / "out"
     r = _run(
         "-o",
@@ -33,5 +36,9 @@ def test_flags_compose(fixture_dir, tmp_path):
         "--ocr-figures",
         str(fixture_dir / "ligatures_and_softhyphens.txt"),
     )
-    # TXT input is unaffected by these flags but the CLI must still parse them
-    assert r.returncode == 0
+    assert "unrecognized arguments" not in r.stderr
+    if has_docling():
+        assert r.returncode == 0, r.stdout + r.stderr
+    else:
+        assert r.returncode == 1, r.stdout + r.stderr
+        assert "any2md[high-fidelity]" in (r.stdout + r.stderr)

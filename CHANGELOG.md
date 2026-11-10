@@ -16,6 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stale `table_heavy.fallback.md` snapshot is regenerated (the table
   matches the original snapshot again, and two stray blank lines are gone).
 
+### Changed
+
+- **CI runs the full test suite** (`pytest -q`: unit, CLI, and
+  integration) instead of `tests/unit` only. `test_flags_compose` now
+  asserts the documented pre-flight exit 1 when `--save-images` /
+  `--ocr-figures` are given without Docling, instead of exit 0.
+  CONTRIBUTING drops a stale test count and a reference to a
+  network test file that does not exist.
+
 ## [1.2.0] — 2026-11-09
 
 Drops Python 3.10 to take the Pillow 13 security fixes, and fixes

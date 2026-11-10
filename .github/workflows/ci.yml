@@ -71,8 +71,8 @@ jobs:
       - name: Install package with dev extras
         run: pip install -e '.[dev]'
 
-      - name: Run unit tests
-        run: pytest tests/unit -q
+      - name: Run test suite
+        run: pytest -q  # unit + cli + integration; Docling tests skip without the extra
 
   audit:
     runs-on: ubuntu-latest
