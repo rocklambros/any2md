@@ -158,6 +158,49 @@ def _ensure_h1(body: str, title: str | None) -> str:
     return f"# {heading}\n\n" + "\n".join(lines[first:])
 
 
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})(?=[ \t]+\S)")
+
+
+def _normalize_heading_levels(body: str) -> str:
+    """Re-rank body headings so levels never skip below the H1.
+
+    CMS templates often mark sections as H3/H4 directly under the page
+    H1, which the C7 validator reports as an ``h1 -> h3`` skip. Each
+    heading's new level is its depth in a stack of the original levels
+    of the sections still open above it, so siblings stay siblings and
+    nesting is kept: ``H3, H3, H4, H3`` becomes ``H2, H2, H3, H2``.
+
+    Structured-lane S4 (``enforce_heading_hierarchy``) flattens one
+    heading at a time, which turns sibling H3s into H2 + H3 children;
+    that is why this lane uses its own ranking. H1 lines are never
+    moved and nothing is ever promoted to H1. Only the ``#`` prefix of
+    a heading line changes. A body with no skips is returned unchanged.
+    """
+    lines = body.split("\n")
+    stack: list[int] = [1]  # original levels of open sections; H1 at bottom
+    in_fence = False
+    changed = False
+    for i, line in enumerate(lines):
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        m = None if in_fence else _ATX_HEADING_RE.match(line)
+        if not m:
+            continue
+        level = len(m.group(1))
+        if level == 1:
+            stack = [1]
+            continue
+        while len(stack) > 1 and stack[-1] >= level:
+            stack.pop()
+        stack.append(level)
+        new_level = len(stack)
+        if new_level != level:
+            lines[i] = "#" * new_level + line[level:]
+            changed = True
+    return "\n".join(lines) if changed else body
+
+
 def _extract_metadata(
     raw_html: str,
 ) -> tuple[str | None, list[str], str | None, str | None, list[str]]:
@@ -248,6 +291,7 @@ def convert_html(
         # heading a reader sees; compose() keeps the metadata title as
         # seo_title when the two differ.
         md_text = _ensure_h1(md_text, _visible_h1(raw_html) or title_hint)
+        md_text = _normalize_heading_levels(md_text)
 
         if source_url and not doc_date:
             doc_date = _http_last_modified(source_url)

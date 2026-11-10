@@ -11,6 +11,7 @@ live blogs:
 - web_bold_title_first_line.html: <h1> dropped, and the first body
   line repeats the title in bold.
 - web_no_title.html: no <h1>, no <title>, no og:title.
+- web_h3_sections.html: <h1> dropped, body sections marked H3/H4.
 """
 
 from __future__ import annotations
@@ -130,3 +131,18 @@ def test_output_is_byte_identical_across_runs(fixture_dir, tmp_path):
         text, _, _ = _convert(fixture_dir / "web_h1_in_hero.html", out_dir)
         outs.append(text)
     assert outs[0] == outs[1]
+
+
+# Sections marked as H3/H4 under a dropped page H1 (v1.2.0).
+def test_h3_sections_reranked_without_skips(fixture_dir, tmp_output_dir):
+    _, fm, body = _convert(fixture_dir / "web_h3_sections.html", tmp_output_dir)
+    headings = re.findall(r"^(#{1,6}) (.*)$", body, re.MULTILINE)
+    assert [(len(h), t) for h, t in headings] == [
+        (1, "Agent Recon Notes"),
+        (2, "Discovery"),
+        (2, "Enumeration"),
+        (3, "Tooling"),
+        (2, "Takeaways"),
+    ]
+    assert fm["title"] == "Agent Recon Notes"
+    assert _validator_warnings() == []
