@@ -143,3 +143,28 @@ def test_fence_after_several_list_markers():
     text = "# T\n\n- - ```\n    code\n    ```\n\n### Real\n"
     out = enforce_heading_hierarchy(text, PipelineOptions())
     assert out == "# T\n\n- - ```\n    code\n    ```\n\n## Real\n"
+
+
+def test_tab_after_list_marker_sets_content_column():
+    text = "# T\n\n- \titem\n\n  ```\n### code\n```\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n- \titem\n\n  ```\n### code\n```\n\n## Real\n"
+
+
+def test_ordered_marker_past_one_does_not_interrupt_paragraph():
+    # No H1 in the input, so S4 promotes "Real", the first heading, to H1.
+    text = "Paragraph\n2. not a list\n\n   ```\n### code\n```\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "Paragraph\n2. not a list\n\n   ```\n### code\n```\n\n# Real\n"
+
+
+def test_nbsp_after_closer_does_not_close():
+    text = "# T\n\n```\n```\u00a0\n### code\n```\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n```\n```\u00a0\n### code\n```\n\n## Real\n"
+
+
+def test_fence_inside_html_block_is_not_an_opener():
+    text = "# T\n\n<pre>\n```\n</pre>\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n<pre>\n```\n</pre>\n\n## Real\n"

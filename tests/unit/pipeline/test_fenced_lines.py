@@ -132,3 +132,137 @@ def test_long_marker_run_is_linear():
     start = time.perf_counter()
     assert _flags(line) == [False]
     assert time.perf_counter() - start < 2.0
+
+
+# Tabs expand to 4-column stops before markers and indents are measured.
+
+
+@pytest.mark.parametrize("item", ["- \titem", "-\titem", "1.\titem"])
+def test_tab_after_marker_moves_content_column(item):
+    # Content column 4, so the 2-space fence is top level and holds "x".
+    assert _flags(f"{item}\n\n  ```\nx\n```") == [False, False, True, True, True]
+
+
+def test_tab_indented_fence_inside_list_item():
+    text = "- a\n\n\t```\n\tx\n\t```\nb"
+    assert _flags(text) == [False, False, True, True, True, False]
+
+
+# Paragraph interruption: only a non-empty item, starting at 1 when
+# ordered, may interrupt a paragraph.
+
+
+def test_ordered_marker_past_one_is_paragraph_text():
+    text = "Paragraph\n2. not a list\n\n   ```\nx"
+    assert _flags(text) == [False, False, False, True, True]
+
+
+@pytest.mark.parametrize("marker", ["1.", "1)", "01.", "-", "*"])
+def test_marker_that_may_interrupt_opens_an_item(marker):
+    # The item's content column is the fence base, so "x" at column 0
+    # ends the item and its fence.
+    pad = " " * (len(marker) + 1)
+    text = f"Paragraph\n{marker} item\n\n{pad}```\nx"
+    assert _flags(text) == [False, False, False, True, False]
+
+
+def test_empty_item_does_not_interrupt_paragraph():
+    assert _flags("Paragraph\n-\n\n  ```\nx") == [False, False, False, True, True]
+
+
+def test_ordered_marker_past_one_starts_list_after_blank_line():
+    text = "Paragraph\n\n2. item\n\n   ```\nx"
+    assert _flags(text) == [False, False, False, False, True, False]
+
+
+def test_heading_ends_paragraph():
+    text = "Paragraph\n## Head\n2. item\n\n   ```\nx"
+    assert _flags(text) == [False, False, False, False, True, False]
+
+
+# Closers allow only spaces, tabs, and a terminal carriage return.
+
+
+def test_nbsp_after_closer_does_not_close():
+    assert _flags("```\n```\u00a0\nx\n```\nb") == [True, True, True, True, False]
+
+
+def test_crlf_closer_closes():
+    assert _flags("```\r\nx\r\n``` \t\r\nb") == [True, True, True, False]
+
+
+def test_carriage_return_before_text_does_not_close():
+    assert _flags("```\n```\rx\ny") == [True, True, True]
+
+
+# Raw HTML blocks (CommonMark 4.6): fence lines inside are not openers.
+
+
+@pytest.mark.parametrize(
+    "start, end",
+    [
+        ("<pre>", "</pre>"),
+        ("<script>", "</script>"),
+        ("<STYLE type='x'>", "</style>"),
+        ("<textarea", "</TEXTAREA>"),
+        ("<!-- note", "-->"),
+        ("<?xml", "?>"),
+        ("<!DOCTYPE", ">"),
+        ("<![CDATA[", "]]>"),
+    ],
+)
+def test_html_block_types_1_to_5_hide_fences(start, end):
+    # Types 1 to 5 run through blank lines to their end marker.
+    text = f"{start}\n\n```\n{end}\n```\nx"
+    assert _flags(text) == [False, False, False, False, True, True]
+
+
+def test_html_block_ends_on_its_start_line():
+    assert _flags("<pre>x</pre>\n```\nx") == [False, True, True]
+
+
+def test_raw_tag_name_needs_a_boundary():
+    # "<prefix>" is a type 7 block, which a blank line ends.
+    assert _flags("<prefix>\n\n```\nx") == [False, False, True, True]
+
+
+@pytest.mark.parametrize("start", ['<div class="a">', "</table>", "<hr/>", "<P"])
+def test_html_block_type_6_ends_at_blank_line(start):
+    assert _flags(f"{start}\n```\n\n```\nx") == [False, False, False, True, True]
+
+
+@pytest.mark.parametrize(
+    "start", ["<span>", "</span>", "<my-tag a='1' b=c d>", '<x data-a="q > r"/>']
+)
+def test_html_block_type_7_ends_at_blank_line(start):
+    assert _flags(f"{start}\n```\n\n```\nx") == [False, False, False, True, True]
+
+
+@pytest.mark.parametrize("line", ["<span> text", "<span", "<a b=>", "</pre>"])
+def test_incomplete_or_trailing_tag_is_not_type_7(line):
+    assert _flags(f"{line}\n```\nx") == [False, True, True]
+
+
+def test_type_7_does_not_interrupt_paragraph():
+    assert _flags("Paragraph\n<span>\n```\nx") == [False, False, True, True]
+
+
+def test_type_6_interrupts_paragraph():
+    assert _flags("Paragraph\n<div>\n```\nx") == [False, False, False, False]
+
+
+def test_html_block_inside_list_item():
+    assert _flags("- <pre>\n  ```\n  </pre>\nb") == [False, False, False, False]
+
+
+def test_html_block_in_list_item_ends_with_item():
+    assert _flags("- <pre>\n  x\n```\ny") == [False, False, True, True]
+
+
+def test_long_attribute_list_is_linear():
+    import time
+
+    line = "<a " + "b='c' " * 100_000 + ">"
+    start = time.perf_counter()
+    assert _flags(f"{line}\n```\nx") == [False, False, False]
+    assert time.perf_counter() - start < 2.0
