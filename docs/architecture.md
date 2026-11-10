@@ -236,7 +236,7 @@ registrations.
 | 9 | T6 | `restore_lists_and_code` | text | ≥ 4-line indented blocks (4 leading spaces) between blank lines | Indented blocks wrapped in fenced code | Already inside a fence; block has < 4 non-empty lines | Tracks fence state; preserves leading 4-space indent strip when wrapping |
 | 10 | T8 | `strip_cover_artifacts` | text | First ~30 lines (before the first H2): lines containing "QR code", "scan the", "customer feedback form" (case-insensitive); or lines matching `^(?:Third|Fourth|...) edition \d{4}-\d{2}$`; or lines matching `^Corrected version \d{4}-\d{2}$` | Such lines dropped | Profile is `conservative`; pattern not present; line is past the first H2 | Aggressive/maximum only. Bounded to the cover region so legitimate body content is never touched. |
 
-### Shared cleanup stages (C1–C8)
+### Shared cleanup stages (C1–C9)
 
 Located in `any2md/pipeline/cleanup.py`. Run last, identically for both lanes.
 The "Run order" column gives execution sequence; ID reflects introduction
@@ -250,8 +250,9 @@ order.
 | 4 | C4 | `normalize_quotes_dashes` | shared | Smart quotes (`“”‘’`) and ellipsis (`…`) | Straight quotes (`""''`) and three-dot ellipsis | No smart quotes or ellipsis | En-dash and em-dash are preserved (semantic) |
 | 5 | C5 | `collapse_whitespace` | shared | Multiple spaces, trailing whitespace, ≥ 3 blank lines | Single inter-word spaces, trimmed line ends, blank-line runs capped at 2 | None of those patterns present | Inter-word run regex requires non-space on both sides |
 | 6 | C8 | `decode_html_entities` | shared | Body containing named (`&amp;`, `&lt;`, `&gt;`) or numeric (`&#x2014;`, `&#8212;`) HTML entities | Body with entities decoded via `html.unescape()` | No entities present; line is inside a fenced code block | Universal — runs at all profiles. Tracks fenced-code-block state to preserve literal entities inside ` ``` ` blocks. Inline single-backtick code is not skipped (false-positive rate acceptable). |
-| 7 | C6 | `strip_footnote_markers` | shared | Body with inline footnote refs (`[^1]`, `¹`-`⁹`, `⁰`) followed by a recognizable footnotes section heading | Body without inline markers; footnotes section preserved | Profile is `conservative`; no footnotes heading found | Heading regex accepts `## Footnotes`, `## Notes`, `## References` (case-insensitive) |
-| 8 | C7 | `validate` | shared | Any post-cleanup body | Identical body (read-only) | Always read-only | Emits warnings via `emit_warning()` for H1 count != 1, heading skips |
+| 7 | C9 | `strip_links` | shared | Body with inline links `[text](url)` or `[text](url "title")` | Links replaced by their text | `strip_links` option off (default); line is in a fenced code block or inline code span | Driven by `--strip-links`, implied by `--profile maximum`. Images (`![alt](src)`) are kept. URLs may contain one level of balanced parentheses. New in v1.2.1 (the flag had no effect before). |
+| 8 | C6 | `strip_footnote_markers` | shared | Body with inline footnote refs (`[^1]`, `¹`-`⁹`, `⁰`) followed by a recognizable footnotes section heading | Body without inline markers; footnotes section preserved | Profile is `conservative`; no footnotes heading found | Heading regex accepts `## Footnotes`, `## Notes`, `## References` (case-insensitive) |
+| 9 | C7 | `validate` | shared | Any post-cleanup body | Identical body (read-only) | Always read-only | Emits warnings via `emit_warning()` for H1 count != 1, heading skips |
 
 ### Profile gating
 

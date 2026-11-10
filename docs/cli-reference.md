@@ -383,6 +383,8 @@ any2md --profile maximum report.pdf
 ### `--strip-links`
 
 Remove markdown links from the body, keeping only the link text.
+Images (`![alt](src)`), fenced code blocks, and inline code spans are left
+as written. `--profile maximum` turns this on.
 
 **Use this when** the link URLs are noise for retrieval (long tracking URLs,
 intra-document anchors, footnote backrefs) and you want to minimize tokens.

@@ -15,7 +15,6 @@ from pathlib import Path
 _CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 _SPECIAL_CHARS_RE = re.compile(r"[,;:'\"—–]")
 _COLLAPSE_UNDERSCORES_RE = re.compile(r"_+")
-_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
 def sanitize_filename(name: str) -> str:
@@ -34,15 +33,6 @@ def sanitize_filename(name: str) -> str:
     if not stem:
         stem = "untitled"
     return stem + ".md"
-
-
-def strip_links(text: str) -> str:
-    """Replace markdown links with their display text.
-
-    Converts ``[text](url)`` to ``text``. Used by --strip-links CLI flag
-    (removed in Phase 4 once gating moves to the pipeline).
-    """
-    return _LINK_RE.sub(r"\1", text)
 
 
 def atomic_write_text(out_path: Path, content: str) -> None:

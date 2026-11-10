@@ -20,7 +20,7 @@ def nfc_normalize(text: str, _options: "PipelineOptions") -> str:
 
 def strip_soft_hyphens(text: str, _options: "PipelineOptions") -> str:
     """C2: Remove U+00AD soft hyphen. Frequent PDF artifact."""
-    return text.replace("­", "")
+    return text.replace("\u00ad", "")  # escaped: invisible as a literal
 
 
 # Whitelist of presentation-form ligatures and similar single-glyph compounds
@@ -111,6 +111,41 @@ def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
     return "\n".join(out)
 
 
+# Inline link: [text](url) or [text](url "title"). The URL may contain one
+# level of balanced parentheses (Wikipedia-style ``Python_(language)``).
+# The negative lookbehind keeps images (``![alt](src)``) intact.
+_INLINE_LINK_RE = re.compile(
+    r"(?<!!)\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+\"[^\"]*\")?\)"
+)
+_INLINE_CODE_SPLIT_RE = re.compile(r"(`[^`]*`)")
+
+
+def strip_links(text: str, options: "PipelineOptions") -> str:
+    """C9: Replace inline links with their text when ``strip_links`` is set.
+
+    Driven by ``--strip-links`` and implied by ``--profile maximum``.
+    Images, fenced code blocks, and inline code spans are left untouched.
+    """
+    if not options.strip_links:
+        return text
+    out: list[str] = []
+    in_fence = False
+    for line in text.split("\n"):
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence or "](" not in line:
+            out.append(line)
+            continue
+        # Odd-indexed parts are inline code spans; leave them as written.
+        parts = _INLINE_CODE_SPLIT_RE.split(line)
+        for i in range(0, len(parts), 2):
+            parts[i] = _INLINE_LINK_RE.sub(r"\1", parts[i])
+        out.append("".join(parts))
+    return "\n".join(out)
+
+
 _INLINE_FN_RE = re.compile(
     r"\[\^(?:\d+|[a-zA-Z][a-zA-Z0-9_-]*)\]"  # [^1] [^note] (markdown footnote refs)
     r"|[¹²³⁰-⁹]"  # superscript digits ¹ ² ³ ⁰-⁹
@@ -163,6 +198,7 @@ STAGES: list[Stage] = [
     normalize_quotes_dashes,
     collapse_whitespace,
     decode_html_entities,
+    strip_links,  # after entity decoding so &#91;-encoded brackets are seen
     strip_footnote_markers,
     validate,
 ]
