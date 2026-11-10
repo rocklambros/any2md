@@ -15,9 +15,10 @@ if TYPE_CHECKING:
 
 Stage = Callable[[str, "PipelineOptions"], str]
 
-# Alt text excludes "[" and the URL is length-bounded, so a run of "![" with
-# no "]" is rejected in linear time (CWE-1333).
-_IMG_LINK_RE = re.compile(r"!\[([^\[\]]*)\]\(([^)\n]{1,2048})\)")
+# Alt text stops at the next unescaped bracket (escaped ``\[`` stays in
+# it) and the URL is length-bounded, so a run of "![" with no "]" is
+# rejected in linear time (CWE-1333).
+_IMG_LINK_RE = re.compile(r"!\[((?:[^\[\]\\]|\\[\s\S])*)\]\(([^)\n]{1,2048})\)")
 _FIGURE_OPEN_RE = re.compile(r"<figure\b", re.IGNORECASE)
 _FIGURE_CLOSE_RE = re.compile(r"</figure\s*>", re.IGNORECASE)
 _FIGCAPTION_OPEN_RE = re.compile(r"<figcaption\b", re.IGNORECASE)

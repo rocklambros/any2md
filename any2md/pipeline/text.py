@@ -209,7 +209,18 @@ def dedupe_paragraphs(text: str, _options: "PipelineOptions") -> str:
 # also bounds the work spent on any one line.
 _TOC_MAX_LINE = 300
 _TOC_NUMBERING_RE = re.compile(r"[\d.]+\s+")
-_DIGITS = "0123456789"
+
+
+def _rstrip_decimal(s: str) -> str:
+    """``s`` without its trailing run of Unicode decimal digits.
+
+    ``isdecimal`` matches what ``\\d`` matched in the old regex, so page
+    numbers such as Arabic-Indic or Devanagari digits still count.
+    """
+    end = len(s)
+    while end and s[end - 1].isdecimal():
+        end -= 1
+    return s[:end]
 
 
 def _toc_title(line: str) -> str | None:
@@ -222,13 +233,13 @@ def _toc_title(line: str) -> str | None:
     s = line.strip()
     if not s or len(s) > _TOC_MAX_LINE:
         return None
-    head = s.rstrip(_DIGITS)
-    if head == s:
+    unnumbered = _rstrip_decimal(s)
+    if unnumbered == s:
         return None  # no trailing page number
-    head = head.rstrip()
+    head = unnumbered.rstrip()
     if head.endswith("..."):
         title = head.rstrip(".").rstrip()  # "Title ..... 12"
-    elif len(head) < len(s.rstrip(_DIGITS)):
+    elif len(head) < len(unnumbered):
         title = head  # "Title 12": whitespace before the number
     else:
         return None  # digits glued to the title ("Chapter12")

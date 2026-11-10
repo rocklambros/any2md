@@ -93,10 +93,11 @@ _COVER_BLURB_KEYWORDS = (
 _TOC_LINE_HINTS_RE = re.compile(r"(?<!\.)\.{3,}\s*\d|^\s*page\s+\d", re.IGNORECASE)
 
 # Markdown inline link: [text](url) → text
-# Link text may not contain "[" and the URL is length-bounded, so each "["
-# scans at most to the next bracket. Unbounded classes made a run of "["
-# with no "]" quadratic (CWE-1333).
-_MD_LINK_RE = re.compile(r"\[([^\[\]]+)\]\([^)\n]{1,2048}\)")
+# A link opens only at an unescaped "[", and the label stops at the next
+# unescaped bracket, so each scan ends where the next one starts and the
+# URL is length-bounded. Unbounded classes made a run of "[" with no "]"
+# quadratic (CWE-1333). Escaped brackets (``\[``) stay inside the label.
+_MD_LINK_RE = re.compile(r"(?<!\\)\[((?:[^\[\]\\]|\\[\s\S])+)\]\([^)\n]{1,2048}\)")
 
 # Abstract / Summary heading detection (H2 or H3, case-insensitive)
 _ABSTRACT_HEADING_RE = re.compile(
@@ -131,9 +132,10 @@ _ACADEMIC_BYLINE_RE = re.compile(
     rf"^{_BYLINE_NAME}{_BYLINE_AFFIL}"
     rf"(?:[ \t]*,[ \t]*{_BYLINE_NAME}{_BYLINE_AFFIL})+[ \t]*$",
 )
-# Bylines and author lists are short. Longer lines are never parsed as
-# author lists, which also bounds regex work on hostile input.
-_MAX_AUTHOR_LINE = 300
+# Upper bound on author-list text handed to the name regexes. Twenty names
+# of at most 50 characters fit well inside it, so a longer list is cut at a
+# comma rather than rejected, and hostile input stays bounded.
+_MAX_AUTHOR_LINE = 4096
 
 # arxiv ID pattern in filename
 _ARXIV_FILENAME_RE = re.compile(
@@ -270,9 +272,6 @@ def _is_skip_paragraph(para: str) -> bool:
 
 def _cleanup_abstract(text: str) -> str:
     """Apply post-selection cleanup: strip links, decode entities, truncate."""
-    # The result is cut to 400 chars, so only a bounded prefix matters.
-    # Slicing first bounds every pass below on a multi-MB paragraph.
-    text = text[:8000]
     # Strip markdown links: [text](url) → text
     text = _MD_LINK_RE.sub(r"\1", text)
     # Decode HTML entities
@@ -386,6 +385,20 @@ def _normalize_author_name(name: str) -> str:
     return cleaned
 
 
+def _bounded_author_text(raw: str) -> str:
+    """Collapse whitespace and cap an author list at a name boundary.
+
+    Single spaces keep the ``\\s+`` patterns in ``_split_authors`` and
+    ``_AFFIL_DIGITS_RE`` linear. Cutting at the last comma under the cap
+    keeps the leading names whole, and only the first 20 are used anyway.
+    """
+    text = " ".join(raw.split())
+    if len(text) > _MAX_AUTHOR_LINE:
+        cut = text.rfind(",", 0, _MAX_AUTHOR_LINE)
+        text = text[: cut if cut > 0 else _MAX_AUTHOR_LINE]
+    return text
+
+
 def _split_authors(text: str) -> list[str]:
     """Split a comma/and-separated author list into individual names."""
     # Replace " and " with comma to unify separators
@@ -452,8 +465,8 @@ def extract_authors(
     start = h1_idx + 1 if h1_idx >= 0 else 0
     head_block = "\n".join(lines[start : start + 20])
     m = _AUTHORS_PREFIX_RE.search(head_block)
-    if m and len(m.group(1)) <= _MAX_AUTHOR_LINE:
-        raw = m.group(1).strip()
+    if m:
+        raw = _bounded_author_text(m.group(1))
         names = [_normalize_author_name(n) for n in _split_authors(raw)]
         names = [n for n in names if n]
         # Sanity gate (applied after dedup):
@@ -477,7 +490,7 @@ def extract_authors(
             break
     start = h1_idx + 1 if h1_idx >= 0 else 0
     for line in lines[start : start + 20]:
-        stripped = line.strip()
+        stripped = " ".join(line.split())
         if not stripped or len(stripped) > _MAX_AUTHOR_LINE:
             continue
         if _ACADEMIC_BYLINE_RE.match(stripped):

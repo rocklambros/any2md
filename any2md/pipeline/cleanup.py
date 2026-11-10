@@ -117,12 +117,14 @@ def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
 # level of balanced parentheses (Wikipedia-style ``Python_(language)``).
 # The negative lookbehind keeps images (``![alt](src)``) intact.
 #
-# Bounded and unambiguous so hostile lines stay linear (CWE-1333): link
-# text excludes "[" (a run of "[" no longer rescans to the next "]" from
-# every start), the URL and title have length caps, and the URL's two
-# alternatives never start with the same character.
+# Bounded and unambiguous so hostile lines stay linear (CWE-1333): a link
+# opens only at an unescaped "[" and its text stops at the next unescaped
+# bracket (a run of "[" no longer rescans to the next "]" from every
+# start), escaped brackets such as ``\[`` stay in the text, the URL and
+# title have length caps, and the URL's two alternatives never start with
+# the same character.
 _INLINE_LINK_RE = re.compile(
-    r"(?<!!)\[([^\[\]]*)\]"
+    r"(?<![!\\])\[((?:[^\[\]\\]|\\[\s\S])*)\]"
     r"\((?:[^()\s]|\([^()\s]{0,256}\)){0,2048}"
     r"(?:[ \t]+\"[^\"\n]{0,512}\")?\)"
 )
