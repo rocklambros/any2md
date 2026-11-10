@@ -1,6 +1,7 @@
 """CLI entry point for any2md."""
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -72,6 +73,62 @@ def _deep_merge_overrides(
         else:
             out[key] = val
     return out
+
+
+def _scan_directory(root: Path, recursive: bool) -> list[Path]:
+    """Return supported regular files under ``root``, sorted.
+
+    Never follows symlinks below ``root``. An untrusted document tree can
+    hold a link such as ``report.txt -> ~/.ssh/id_rsa``, and following it
+    would copy the target into the output (F14 CWE-59, F22 CWE-61).
+    ``Path.glob`` and ``Path.rglob`` return file links, and their handling
+    of directory links has changed across Python releases, so the walk
+    uses ``os.scandir`` with ``follow_symlinks=False`` to get one answer
+    on every supported version. Skipping directory links also rules out
+    symlink loops. ``root`` itself is followed when it is a link,
+    because the user named it.
+
+    Matching stays case-sensitive on the suffix to keep the old glob
+    semantics for scanned trees.
+    """
+    suffixes = tuple(SUPPORTED_EXTENSIONS)
+    found: list[Path] = []
+    # An explicit stack instead of recursion keeps deep trees clear of
+    # the interpreter recursion limit.
+    pending = [root]
+    while pending:
+        current = pending.pop()
+        try:
+            with os.scandir(current) as entries:
+                children = list(entries)
+        except OSError as e:
+            _logging.warn(f"{current} -- {e}", prefix="SKIP (unreadable)")
+            continue
+        for entry in children:
+            path = Path(entry.path)
+            try:
+                if entry.is_symlink():
+                    # Report only links the old scan would have picked up,
+                    # so unrelated links in a tree do not flood stderr.
+                    wanted = entry.name.endswith(suffixes)
+                    if wanted or (recursive and entry.is_dir()):
+                        _logging.warn(str(path), prefix="SKIP (symlink)")
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    if recursive:
+                        pending.append(path)
+                    continue
+                if not entry.name.endswith(suffixes):
+                    continue
+                # FIFOs and device nodes can hang the read or never end.
+                if not entry.is_file(follow_symlinks=False):
+                    _logging.warn(str(path), prefix="SKIP (not a regular file)")
+                    continue
+            except OSError as e:
+                _logging.warn(f"{path} -- {e}", prefix="SKIP (unreadable)")
+                continue
+            found.append(path)
+    return sorted(found)
 
 
 def main():
@@ -325,14 +382,7 @@ def main():
                 _logging.fail(f"{f}", prefix="NOT FOUND")
                 continue
             if p.is_dir():
-                glob_method = p.rglob if args.recursive else p.glob
-                file_paths.extend(
-                    sorted(
-                        fp
-                        for ext in SUPPORTED_EXTENSIONS
-                        for fp in glob_method(f"*{ext}")
-                    )
-                )
+                file_paths.extend(_scan_directory(p, args.recursive))
                 continue
             if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 _logging.fail(f"{f}", prefix="UNSUPPORTED FORMAT")
@@ -344,15 +394,9 @@ def main():
                 f"Error: not a directory: {_logging.safe_oneline(str(args.input_dir))}\n"
             )
             sys.exit(1)
-        glob_method = args.input_dir.rglob if args.recursive else args.input_dir.glob
-        file_paths = sorted(
-            p for ext in SUPPORTED_EXTENSIONS for p in glob_method(f"*{ext}")
-        )
+        file_paths = _scan_directory(args.input_dir, args.recursive)
     else:
-        glob_method = script_dir.rglob if args.recursive else script_dir.glob
-        file_paths = sorted(
-            p for ext in SUPPORTED_EXTENSIONS for p in glob_method(f"*{ext}")
-        )
+        file_paths = _scan_directory(script_dir, args.recursive)
 
     if not file_paths and not urls:
         print("No supported files to process.")

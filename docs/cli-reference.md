@@ -73,7 +73,10 @@ You'll see output files written under `./build/markdown/` instead of `./Text/`.
 
 ### `--recursive`, `-r`
 
-Recurse into subdirectories when scanning a directory.
+Recurse into subdirectories when scanning a directory. Directory scans skip
+symlinked files and never descend into symlinked directories, and each skip
+prints a `SKIP (symlink)` line. A symlink you name on the command line is
+still converted.
 
 **Use this when** your corpus is organized into subdirectories (`./corpus/2024/`,
 `./corpus/2025/`) and you want one invocation to walk the whole tree.
