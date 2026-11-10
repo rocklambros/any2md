@@ -8,6 +8,7 @@ derived values; nested dicts merge recursively; lists/scalars replace.
 
 from __future__ import annotations
 
+import pytest
 import yaml
 
 from any2md.frontmatter import SourceMeta, compose
@@ -79,3 +80,38 @@ def test_override_wins_over_derived():
         overrides={"title": "Manual"},
     )
     assert _fm(out)["title"] == "Manual"
+
+
+def test_nested_list_override_renders_as_flow_list():
+    # Mirrors ``--meta review.approvers=x,y``: the parser yields a list
+    # under a nested key, which must render like a top-level list.
+    out = compose(
+        "# T\n\nbody\n",
+        _meta(),
+        PipelineOptions(),
+        overrides={"review": {"approvers": ["x", "y"]}},
+    )
+    assert '\n  approvers: ["x", "y"]\n' in out
+    assert _fm(out)["review"] == {"approvers": ["x", "y"]}
+
+
+def test_list_inside_doubly_nested_dict():
+    out = compose(
+        "# T\n\nbody\n",
+        _meta(),
+        PipelineOptions(),
+        overrides={"a": {"b": {"c": ["x", "y"], "d": "z"}}},
+    )
+    assert _fm(out)["a"] == {"b": {"c": ["x", "y"], "d": "z"}}
+
+
+def test_unsupported_value_raises_value_error():
+    # Converters report ValueError as a per-file failure, so an emission
+    # error must surface as one rather than escape as a TypeError.
+    with pytest.raises(ValueError, match="unsupported"):
+        compose(
+            "# T\n\nbody\n",
+            _meta(),
+            PipelineOptions(),
+            overrides={"a": {"b": object()}},
+        )

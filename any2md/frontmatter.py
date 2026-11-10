@@ -222,8 +222,17 @@ def _yaml_escape(value: str) -> str:
     )
 
 
+class FrontmatterEmitError(ValueError):
+    """A field value has no YAML emission rule.
+
+    Subclasses ``ValueError`` because every converter already reports
+    ``ValueError`` as a per-file failure. A ``TypeError`` would escape the
+    txt, docx, and pdf error boundaries and end the whole batch.
+    """
+
+
 def _emit_value(value: Any) -> str:
-    """Emit a scalar or simple list as YAML (one line)."""
+    """Emit a scalar as YAML (one line)."""
     if value is None:
         return '""'
     if isinstance(value, bool):
@@ -232,7 +241,7 @@ def _emit_value(value: Any) -> str:
         return f'"{_yaml_escape(value)}"'
     if isinstance(value, (int, float)):
         return str(value)
-    raise TypeError(f"unsupported scalar: {type(value)}")
+    raise FrontmatterEmitError(f"unsupported frontmatter value: {type(value).__name__}")
 
 
 def _emit_array(values: list[str]) -> str:
@@ -355,22 +364,27 @@ def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, An
     return out
 
 
-def _emit_field(key: str, value: Any, lines: list[str]) -> None:
-    """Emit one ``key: value`` line (or block) into ``lines``."""
+def _emit_field(key: str, value: Any, lines: list[str], depth: int = 0) -> None:
+    """Emit one ``key: value`` line (or block) into ``lines``.
+
+    Nested dicts recurse with two more spaces of indent per level, so a
+    list under ``--meta a.b=x,y`` renders the same way a top-level list does.
+    """
+    indent = "  " * depth
     if isinstance(value, dict):
-        lines.append(f"{key}:")
+        lines.append(f"{indent}{key}:")
         for subkey, subval in value.items():
-            lines.append(f"  {subkey}: {_emit_value(subval)}")
+            _emit_field(subkey, subval, lines, depth + 1)
         return
     if isinstance(value, list):
         # Only string-lists are supported for now (matches SAGE §3 fields).
-        lines.append(f"{key}: {_emit_array([str(v) for v in value])}")
+        lines.append(f"{indent}{key}: {_emit_array([str(v) for v in value])}")
         return
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        lines.append(f"{key}: {value}")
+        lines.append(f"{indent}{key}: {value}")
         return
     # Default: scalar/string emission.
-    lines.append(f"{key}: {_emit_value(value)}")
+    lines.append(f"{indent}{key}: {_emit_value(value)}")
 
 
 def _emit_yaml_with_body(fields: dict[str, Any], body: str) -> str:
