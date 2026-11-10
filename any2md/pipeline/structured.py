@@ -154,16 +154,66 @@ STAGES.append(normalize_citations)
 # earlier lazy ``(.+?)[ \\t]*$`` was quadratic on a long space run (CWE-1333).
 _HEADING_LINE_RE = re.compile(r"^(#{1,6})[ \t]+(\S.*)$", re.MULTILINE)
 
+# Backtick and tilde fences both open code blocks in CommonMark, and
+# fences indented inside list items still open a block.
+_FENCE_RE = re.compile(r"^[ \t]*(?:```|~~~)")
+
+
+def rank_heading_levels(levels: list[int]) -> list[int]:
+    """Re-rank heading levels so none skips a level below its parent.
+
+    Each heading's output level is its depth in a stack of the original
+    levels of the sections still open above it. Siblings stay siblings
+    and nesting is kept: ``1, 3, 3, 4, 3`` becomes ``1, 2, 2, 3, 2``.
+    An H1 resets the stack and stays H1. Nothing is promoted to H1.
+    Shared by structured-lane S4 and the HTML converter so both lanes
+    rank headings the same way.
+    """
+    stack: list[int] = [1]  # original levels of open sections, H1 at bottom
+    ranked: list[int] = []
+    for level in levels:
+        if level == 1:
+            stack = [1]
+            ranked.append(1)
+            continue
+        while len(stack) > 1 and stack[-1] >= level:
+            stack.pop()
+        stack.append(level)
+        ranked.append(len(stack))
+    return ranked
+
+
+def _fenced_line_starts(text: str) -> set[int]:
+    """Return the offsets of every line inside a fenced code block.
+
+    Fence lines themselves are included. An unclosed fence runs to the
+    end of the text, matching how CommonMark renders it.
+    """
+    starts: set[int] = set()
+    in_fence = False
+    offset = 0
+    for line in text.split("\n"):
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            starts.add(offset)
+        elif in_fence:
+            starts.add(offset)
+        offset += len(line) + 1
+    return starts
+
 
 def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
     """S4: Ensure single H1 and no skipped levels.
 
     - If no H1 exists, the first heading is promoted to H1.
     - Subsequent H1s are demoted to H2.
-    - Skipped levels are flattened: a heading that's > prev_level + 1
-      becomes prev_level + 1.
+    - Remaining levels are ranked with ``rank_heading_levels``: each
+      heading sits one level below its nearest shallower ancestor, so
+      sibling H3s under an H1 all become H2.
+    - Lines inside fenced code blocks are never treated as headings.
     """
-    matches = list(_HEADING_LINE_RE.finditer(text))
+    fenced = _fenced_line_starts(text)
+    matches = [m for m in _HEADING_LINE_RE.finditer(text) if m.start() not in fenced]
     if not matches:
         return text
 
@@ -183,10 +233,9 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
             else:
                 seen_h1 = True
 
-    # Flatten skipped levels
-    for i in range(1, len(levels)):
-        if levels[i] > levels[i - 1] + 1:
-            levels[i] = levels[i - 1] + 1
+    # Ranking after the H1 fixes above means demoted H1s act as H2
+    # section parents and their skipped children nest under them.
+    levels = rank_heading_levels(levels)
 
     # Pass 2: rewrite
     out = []

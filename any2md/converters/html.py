@@ -17,6 +17,7 @@ from any2md._http import safe_fetch
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
+from any2md.pipeline.structured import rank_heading_levels
 from any2md.utils import (
     atomic_write_text,
     read_text_with_fallback,
@@ -174,33 +175,27 @@ def _normalize_heading_levels(body: str) -> str:
     of the sections still open above it, so siblings stay siblings and
     nesting is kept: ``H3, H3, H4, H3`` becomes ``H2, H2, H3, H2``.
 
-    Structured-lane S4 (``enforce_heading_hierarchy``) flattens one
-    heading at a time, which turns sibling H3s into H2 + H3 children;
-    that is why this lane uses its own ranking. H1 lines are never
-    moved and nothing is ever promoted to H1. Only the ``#`` prefix of
-    a heading line changes. A body with no skips is returned unchanged.
+    The ranking is ``rank_heading_levels``, shared with structured-lane
+    S4. This lane runs it without S4's H1 promotion and demotion: H1
+    lines are never moved and nothing is ever promoted to H1. Only the
+    ``#`` prefix of a heading line changes. A body with no skips is
+    returned unchanged.
     """
     lines = body.split("\n")
-    stack: list[int] = [1]  # original levels of open sections; H1 at bottom
+    found: list[tuple[int, int]] = []  # (line index, original level)
     in_fence = False
-    changed = False
     for i, line in enumerate(lines):
         if _FENCE_RE.match(line):
             in_fence = not in_fence
             continue
         m = None if in_fence else _ATX_HEADING_RE.match(line)
-        if not m:
-            continue
-        level = len(m.group(1))
-        if level == 1:
-            stack = [1]
-            continue
-        while len(stack) > 1 and stack[-1] >= level:
-            stack.pop()
-        stack.append(level)
-        new_level = len(stack)
+        if m:
+            found.append((i, len(m.group(1))))
+    ranked = rank_heading_levels([level for _, level in found])
+    changed = False
+    for (i, level), new_level in zip(found, ranked):
         if new_level != level:
-            lines[i] = "#" * new_level + line[level:]
+            lines[i] = "#" * new_level + lines[i][level:]
             changed = True
     return "\n".join(lines) if changed else body
 

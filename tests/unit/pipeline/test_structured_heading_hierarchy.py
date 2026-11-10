@@ -32,3 +32,57 @@ def test_repairs_skipped_levels():
 def test_no_headings_is_noop():
     text = "Plain body, no headings.\n"
     assert enforce_heading_hierarchy(text, PipelineOptions()) == text
+
+
+def _levels(text: str) -> list[str]:
+    """Return the heading lines of ``text`` in order."""
+    return [line for line in text.split("\n") if line.startswith("#")]
+
+
+def test_sibling_h3s_under_h1_stay_siblings():
+    text = "# T\n\n### A\n\n### B\n\n### C\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n## A\n\n## B\n\n## C\n"
+
+
+def test_nesting_under_skipped_level_is_kept():
+    text = "# T\n\n### A\n\n#### A1\n\n### B\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert _levels(out) == ["# T", "## A", "### A1", "## B"]
+
+
+def test_deep_skip_then_shallower_heading():
+    text = "# T\n\n#### Deep\n\n## Back\n\n###### Deeper\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert _levels(out) == ["# T", "## Deep", "## Back", "### Deeper"]
+
+
+def test_no_h1_promotes_first_and_ranks_rest():
+    text = "### A\n\n##### A1\n\n### B\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert _levels(out) == ["# A", "## A1", "## B"]
+
+
+def test_repeated_h1_children_rank_under_demoted_h1():
+    text = "# A\n\n### a1\n\n# B\n\n#### b1\n\n#### b2\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert _levels(out) == ["# A", "## a1", "## B", "### b1", "### b2"]
+
+
+def test_headings_inside_fenced_code_are_untouched():
+    text = (
+        "# T\n\n"
+        "```markdown\n### not a heading\n# also not\n```\n\n"
+        "~~~\n#### still code\n~~~\n\n"
+        "### A\n"
+    )
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert "```markdown\n### not a heading\n# also not\n```" in out
+    assert "~~~\n#### still code\n~~~" in out
+    assert out.endswith("## A\n")
+
+
+def test_fenced_heading_does_not_count_as_h1():
+    text = "```\n# code comment\n```\n\n## Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "```\n# code comment\n```\n\n# Real\n"
