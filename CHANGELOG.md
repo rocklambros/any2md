@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Tables lost their header row on the DOCX mammoth fallback and the
+  HTML bs4 fallback.** mammoth never emits `<thead>`, and many web tables
+  omit it. markdownify 1.x then wrote an empty header row (`| | |`) and
+  demoted the real header to a data row. Both call sites now pass
+  `table_infer_header=True`, so the first row stays the header. The
+  stale `table_heavy.fallback.md` snapshot is regenerated (the table
+  matches the original snapshot again, and two stray blank lines are gone).
+
 ## [1.2.0] — 2026-11-09
 
 Drops Python 3.10 to take the Pillow 13 security fixes, and fixes

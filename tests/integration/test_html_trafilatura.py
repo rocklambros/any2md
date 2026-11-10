@@ -103,3 +103,16 @@ def test_fetch_url_rejects_file_scheme(monkeypatch):
 def test_http_last_modified_validates_host(monkeypatch):
     _stub_dns(monkeypatch, {"meta.example": "169.254.169.254"})
     assert html_mod._http_last_modified("http://meta.example/") is None
+
+
+def test_bs4_fallback_table_first_row_is_header(monkeypatch):
+    """When trafilatura returns nothing, the bs4+markdownify fallback must
+    keep a <thead>-less table's first row as the header."""
+    monkeypatch.setattr(html_mod.trafilatura, "extract", lambda *a, **kw: None)
+    raw = (
+        "<html><body><table><tr><td>Key</td><td>Value</td></tr>"
+        "<tr><td>k1</td><td>v1</td></tr></table></body></html>"
+    )
+    md, via = html_mod._extract(raw)
+    assert via == "trafilatura+bs4_fallback"
+    assert "| Key | Value |\n| --- | --- |\n| k1 | v1 |" in md

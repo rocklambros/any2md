@@ -81,7 +81,11 @@ def _extract(raw_html: str) -> tuple[str, str]:
     if md:
         return md, "trafilatura"
     cleaned = _bs4_preclean(raw_html)
-    md = markdownify.markdownify(cleaned, heading_style="ATX", strip=["img"])
+    # Many pages build tables without <thead>; infer the first row as the
+    # header so markdownify does not emit an empty header row.
+    md = markdownify.markdownify(
+        cleaned, heading_style="ATX", strip=["img"], table_infer_header=True
+    )
     return md, "trafilatura+bs4_fallback"
 
 

@@ -20,7 +20,6 @@ extracted_via: "mammoth+markdownify"
 word_count: 34
 ---
 
-
 # Table Heavy Test Document
 
 Body paragraph before the table.
@@ -30,4 +29,3 @@ Body paragraph before the table.
 | Cell A | Cell B |
 
 Body paragraph after the table.
-

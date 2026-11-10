@@ -189,6 +189,9 @@ def _extract_via_mammoth(docx_path: Path, options: PipelineOptions) -> tuple[str
         heading_style="ATX",
         strip=["img"] if not options.save_images else [],
         bullets="-",
+        # mammoth never emits <thead>; without inference markdownify 1.x
+        # writes an empty header row and demotes the real header.
+        table_infer_header=True,
     )
     return md, "mammoth+markdownify"
 
