@@ -66,14 +66,16 @@ def normalize_quotes_dashes(text: str, _options: "PipelineOptions") -> str:
 
 
 _INTERWORD_RUNS_RE = re.compile(r"(?<=\S)[ \t]{2,}(?=\S)")
-_TRAILING_WS_RE = re.compile(r"[ \t]+$", re.MULTILINE)
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
 
 
 def collapse_whitespace(text: str, _options: "PipelineOptions") -> str:
     """C5: Collapse inter-word whitespace; trim trailing per line; cap blanks at 2."""
     text = _INTERWORD_RUNS_RE.sub(" ", text)
-    text = _TRAILING_WS_RE.sub("", text)
+    # Per-line rstrip, not ``[ \\t]+$``: the regex rescans a long run of
+    # spaces from every start position when the run does not end the line,
+    # which is quadratic (CWE-1333).
+    text = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
     text = _BLANK_RUN_RE.sub("\n\n", text)
     return text
 
@@ -114,8 +116,15 @@ def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
 # Inline link: [text](url) or [text](url "title"). The URL may contain one
 # level of balanced parentheses (Wikipedia-style ``Python_(language)``).
 # The negative lookbehind keeps images (``![alt](src)``) intact.
+#
+# Bounded and unambiguous so hostile lines stay linear (CWE-1333): link
+# text excludes "[" (a run of "[" no longer rescans to the next "]" from
+# every start), the URL and title have length caps, and the URL's two
+# alternatives never start with the same character.
 _INLINE_LINK_RE = re.compile(
-    r"(?<!!)\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+\"[^\"]*\")?\)"
+    r"(?<!!)\[([^\[\]]*)\]"
+    r"\((?:[^()\s]|\([^()\s]{0,256}\)){0,2048}"
+    r"(?:[ \t]+\"[^\"\n]{0,512}\")?\)"
 )
 _INLINE_CODE_SPLIT_RE = re.compile(r"(`[^`]*`)")
 

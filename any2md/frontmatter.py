@@ -194,17 +194,19 @@ def extract_abstract(body: str) -> str | None:
     return None
 
 
-_FIRST_H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 _MD_EMPHASIS_RE = re.compile(r"[*_]+")
 
 
 def derive_title(body: str, title_hint: str | None, fallback: str) -> str:
     """Pick title: first H1, else hint, else cleaned filename stem."""
-    m = _FIRST_H1_RE.search(body)
-    if m:
-        title = _MD_EMPHASIS_RE.sub("", m.group(1)).strip()
-        if title:
-            return title
+    # Line scan, not ``^#\\s+(.+?)\\s*$``: that regex backtracked in
+    # quadratic time on an H1 holding a long whitespace run (CWE-1333).
+    for line in body.split("\n"):
+        if line[:1] == "#" and line[1:2] in (" ", "\t") and line[1:].strip():
+            title = _MD_EMPHASIS_RE.sub("", line[1:]).strip()
+            if title:
+                return title
+            break
     if title_hint:
         return title_hint.strip()
     stem = fallback.rsplit(".", 1)[0]

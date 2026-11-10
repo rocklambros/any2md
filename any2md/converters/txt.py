@@ -85,12 +85,15 @@ def structurize(text: str) -> str:
             block_lines: list[str] = []
             while i < n and (_INDENT_RE.match(lines[i]) or not lines[i].strip()):
                 if not lines[i].strip():
+                    # Find the end of the blank run once and take the whole
+                    # run in one step. Rescanning it from every blank line
+                    # was quadratic in the run length (CWE-407).
                     j = i + 1
                     while j < n and not lines[j].strip():
                         j += 1
                     if j < n and _INDENT_RE.match(lines[j]):
-                        block_lines.append("")
-                        i += 1
+                        block_lines.extend([""] * (j - i))
+                        i = j
                         continue
                     else:
                         break

@@ -52,8 +52,6 @@ _COVER_PAGE_H1_VALUES = frozenset(
 )
 
 # H1 / H2 line detectors (markdown ATX style)
-_H1_LINE_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
-_H2_LINE_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 # Markdown emphasis chars stripped when probing an H2 for non-empty content
 # (mirrors derive_title's emphasis-stripping so headings like ``## ***``
 # are treated as empty rather than yielding a useless title).
@@ -88,10 +86,16 @@ _COVER_BLURB_KEYWORDS = (
     "all rights reserved",
     "copying and networking prohibited",
 )
-_TOC_LINE_HINTS_RE = re.compile(r"\.{3,}\s*\d+|^\s*page\s+\d+", re.IGNORECASE)
+# The lookbehind starts a dot run only at its first dot and the possessive
+# quantifiers never give characters back, so a long run of dots with no
+# page number is rejected in one pass instead of O(n^2) (CWE-1333).
+_TOC_LINE_HINTS_RE = re.compile(r"(?<!\.)\.{3,}+\s*+\d|^\s*page\s+\d", re.IGNORECASE)
 
 # Markdown inline link: [text](url) → text
-_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+# Link text may not contain "[" and the URL is length-bounded, so each "["
+# scans at most to the next bracket. Unbounded classes made a run of "["
+# with no "]" quadratic (CWE-1333).
+_MD_LINK_RE = re.compile(r"\[([^\[\]]+)\]\([^)\n]{1,2048}\)")
 
 # Abstract / Summary heading detection (H2 or H3, case-insensitive)
 _ABSTRACT_HEADING_RE = re.compile(
@@ -115,10 +119,20 @@ _AUTHORS_PREFIX_RE = re.compile(
 # Academic byline detection — line of caps-or-titlecase names, typically
 # with digit affiliation markers, comma-separated. We use this only at
 # aggressive profile.
+#
+# A name is capitals with inner spaces. A space joins the name only when a
+# name character follows it, so a trailing space can belong to the separator
+# alone and every character has one way to match. The earlier ``[A-Z .'\-]{2,}`` let a space before each comma match
+# two ways, which backtracked exponentially on a failing line (CWE-1333).
+_BYLINE_NAME = r"[A-Z](?:[A-Z.'\-]|[ \t]+(?=[A-Z.'\-])){2,}"
+_BYLINE_AFFIL = r"(?:[ \t]+\d+(?:[ \t]*,[ \t]*\d+)*)?"
 _ACADEMIC_BYLINE_RE = re.compile(
-    r"^[A-Z][A-Z .'\-]{2,}(?:\s+\d+(?:\s*,\s*\d+)*)?"
-    r"(?:\s*,\s*[A-Z][A-Z .'\-]{2,}(?:\s+\d+(?:\s*,\s*\d+)*)?)+\s*$",
+    rf"^{_BYLINE_NAME}{_BYLINE_AFFIL}"
+    rf"(?:[ \t]*,[ \t]*{_BYLINE_NAME}{_BYLINE_AFFIL})+[ \t]*$",
 )
+# Bylines and author lists are short. Longer lines are never parsed as
+# author lists, which also bounds regex work on hostile input.
+_MAX_AUTHOR_LINE = 300
 
 # arxiv ID pattern in filename
 _ARXIV_FILENAME_RE = re.compile(
@@ -255,6 +269,9 @@ def _is_skip_paragraph(para: str) -> bool:
 
 def _cleanup_abstract(text: str) -> str:
     """Apply post-selection cleanup: strip links, decode entities, truncate."""
+    # The result is cut to 400 chars, so only a bounded prefix matters.
+    # Slicing first bounds every pass below on a multi-MB paragraph.
+    text = text[:8000]
     # Strip markdown links: [text](url) → text
     text = _MD_LINK_RE.sub(r"\1", text)
     # Decode HTML entities
@@ -434,7 +451,7 @@ def extract_authors(
     start = h1_idx + 1 if h1_idx >= 0 else 0
     head_block = "\n".join(lines[start : start + 20])
     m = _AUTHORS_PREFIX_RE.search(head_block)
-    if m:
+    if m and len(m.group(1)) <= _MAX_AUTHOR_LINE:
         raw = m.group(1).strip()
         names = [_normalize_author_name(n) for n in _split_authors(raw)]
         names = [n for n in names if n]
@@ -460,7 +477,7 @@ def extract_authors(
     start = h1_idx + 1 if h1_idx >= 0 else 0
     for line in lines[start : start + 20]:
         stripped = line.strip()
-        if not stripped:
+        if not stripped or len(stripped) > _MAX_AUTHOR_LINE:
             continue
         if _ACADEMIC_BYLINE_RE.match(stripped):
             names = [_normalize_author_name(n) for n in _split_authors(stripped)]
