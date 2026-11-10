@@ -70,3 +70,36 @@ def test_idempotent():
     body = "# T\n\n### A\n\n#### A.1\n\n### B\n"
     once = _normalize_heading_levels(body)
     assert _normalize_heading_levels(once) == once
+
+
+def test_four_backtick_fence_holding_shorter_fence_stays_open():
+    body = "# T\n\n````\n```\n### code\n````\n\n### Real\n"
+    out = _normalize_heading_levels(body)
+    assert "````\n```\n### code\n````" in out
+    assert out.endswith("\n## Real\n")
+
+
+def test_top_level_indented_code_is_not_a_fence():
+    body = "# T\n\n    ```\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n    ```\n\n## Real\n"
+
+
+def test_list_fence_ends_with_its_item():
+    body = "# T\n\n- ```\n  code\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n- ```\n  code\n\n## Real\n"
+
+
+def test_thematic_break_does_not_open_a_list():
+    body = "# T\n\n* * *\n\n    ```\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n* * *\n\n    ```\n\n## Real\n"
+
+
+def test_tab_after_list_marker_sets_content_column():
+    body = "# T\n\n- \titem\n\n  ```\n### code\n```\n\n### Real\n"
+    out = _normalize_heading_levels(body)
+    assert out == "# T\n\n- \titem\n\n  ```\n### code\n```\n\n## Real\n"
+
+
+def test_fence_inside_html_block_is_not_an_opener():
+    body = "# T\n\n<pre>\n```\n</pre>\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n<pre>\n```\n</pre>\n\n## Real\n"
