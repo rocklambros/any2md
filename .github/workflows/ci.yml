@@ -24,7 +24,7 @@ jobs:
         run: pip install -e .
 
       - name: Install linting tools
-        run: pip install ruff
+        run: pip install ruff==0.15.22  # pinned: 0.16+ enables rules this repo has not adopted
 
       - name: Lint check
         run: ruff check . && ruff format --check .
