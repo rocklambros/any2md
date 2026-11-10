@@ -52,6 +52,7 @@ def test_very_long_author_list_keeps_first_twenty():
     assert got == names[:20]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGALRM is POSIX-only")
 def test_author_list_whitespace_runs_stay_linear():
     body = "# T\n\nAuthors: Ann" + " " * 200_000 + "x" + "\n"
     with _budget():
@@ -63,7 +64,7 @@ def test_strip_links_keeps_escaped_bracket_label():
 
 
 def test_abstract_link_strip_keeps_escaped_bracket_label():
-    assert heuristics._MD_LINK_RE.sub(r"\1", "[a\\]b](u)") == "a\\]b"
+    assert heuristics._MD_LINK_RE.sub(r"\1\2", "[a\\]b](u)") == "a\\]b"
 
 
 def test_figure_caption_keeps_escaped_bracket_alt():
@@ -90,7 +91,7 @@ def test_toc_title_accepts_unicode_decimal_page_numbers(page):
 def test_escape_aware_link_patterns_stay_linear(payload):
     with _budget():
         cleanup.strip_links(payload + "](", STRIP)
-        heuristics._MD_LINK_RE.sub(r"\1", payload)
+        heuristics._MD_LINK_RE.sub(r"\1\2", payload)
         structured.lift_figure_captions("!" + payload, AGGR)
 
 
@@ -107,3 +108,24 @@ def test_byline_at_author_cap_stays_linear():
     line = ("ABC ," * 900 + "ABC x")[: heuristics._MAX_AUTHOR_LINE]
     with _budget():
         heuristics.extract_authors("# T\n\n" + line + "\n", title_hint=None)
+
+
+@pytest.mark.parametrize(
+    ("prefix", "linked"),
+    [("", True), ("\\", False), ("\\\\", True), ("\\\\\\", False)],
+)
+def test_link_escape_follows_backslash_parity(prefix, linked):
+    # An even backslash run escapes itself, so the "[" after it opens a link.
+    # The backslashes stay in the output either way.
+    src = prefix + "[docs](https://x.io)"
+    want = prefix + "docs" if linked else src
+    assert cleanup.strip_links(src, STRIP) == want
+    assert heuristics._MD_LINK_RE.sub(r"\1\2", src) == want
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGALRM is POSIX-only")
+def test_backslash_run_before_bracket_stays_linear():
+    for payload in ("\\" * 200_000 + "[", "\\" * 200_001 + "[a]"):
+        with _budget():
+            cleanup.strip_links(payload + "](", STRIP)
+            heuristics._MD_LINK_RE.sub(r"\1\2", payload)

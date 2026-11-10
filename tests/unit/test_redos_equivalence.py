@@ -133,6 +133,6 @@ def test_md_link_strip_matches_old_regex_on_unnested_links():
             label = "a" + _rand(rng, "ab ", 5)
             url = "u" + _rand(rng, "ab/:.", 6)
             text += f"[{label}]({url})" + _rand(rng, "ab ]()", 6)
-        assert heuristics._MD_LINK_RE.sub(r"\1", text) == OLD_MD_LINK.sub(
+        assert heuristics._MD_LINK_RE.sub(r"\1\2", text) == OLD_MD_LINK.sub(
             r"\1", text
         ), text

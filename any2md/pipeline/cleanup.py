@@ -118,13 +118,14 @@ def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
 # The negative lookbehind keeps images (``![alt](src)``) intact.
 #
 # Bounded and unambiguous so hostile lines stay linear (CWE-1333): a link
-# opens only at an unescaped "[" and its text stops at the next unescaped
+# opens only at an unescaped "[" (the backslash run before it, kept in
+# group 1, has even length) and its text stops at the next unescaped
 # bracket (a run of "[" no longer rescans to the next "]" from every
 # start), escaped brackets such as ``\[`` stay in the text, the URL and
 # title have length caps, and the URL's two alternatives never start with
 # the same character.
 _INLINE_LINK_RE = re.compile(
-    r"(?<![!\\])\[((?:[^\[\]\\]|\\[\s\S])*)\]"
+    r"(?<![!\\])((?:\\\\)*)\[((?:[^\[\]\\]|\\[\s\S])*)\]"
     r"\((?:[^()\s]|\([^()\s]{0,256}\)){0,2048}"
     r"(?:[ \t]+\"[^\"\n]{0,512}\")?\)"
 )
@@ -152,7 +153,7 @@ def strip_links(text: str, options: "PipelineOptions") -> str:
         # Odd-indexed parts are inline code spans; leave them as written.
         parts = _INLINE_CODE_SPLIT_RE.split(line)
         for i in range(0, len(parts), 2):
-            parts[i] = _INLINE_LINK_RE.sub(r"\1", parts[i])
+            parts[i] = _INLINE_LINK_RE.sub(r"\1\2", parts[i])
         out.append("".join(parts))
     return "\n".join(out)
 
