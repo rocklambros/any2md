@@ -21,9 +21,6 @@ import pytest
 import any2md.converters.docx as docx_mod
 import any2md.converters.html as html_mod
 import any2md.converters.pdf as pdf_mod
-from any2md.converters.docx import convert_docx
-from any2md.converters.html import convert_html
-from any2md.converters.pdf import convert_pdf
 from any2md.converters.txt import convert_txt
 from any2md.pipeline import PipelineOptions
 
@@ -33,7 +30,7 @@ _HOSTILE = "evil\x1b]52;c;SGVsbG8=\x07\x1b[2K\r\x9b31m\u202e\nOK: forged"
 
 # Everything a terminal could act on, except the newline that ends a line.
 _UNSAFE_RE = re.compile(
-    "[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff]"
+    r"[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff]"
 )
 
 
@@ -64,7 +61,7 @@ def test_pdf_docling_fallback_warn_is_sanitized(
     monkeypatch.setattr(pdf_mod, "has_docling", lambda: True)
     monkeypatch.setattr(pdf_mod, "_extract_via_docling", _raise_hostile)
 
-    assert convert_pdf(src, tmp_output_dir, options=PipelineOptions())
+    assert pdf_mod.convert_pdf(src, tmp_output_dir, options=PipelineOptions())
     captured = capsys.readouterr()
     assert "WARN: Docling extraction failed for evil" in captured.err
     assert "falling back to pymupdf4llm." in captured.err
@@ -77,7 +74,7 @@ def test_pdf_mammoth_backend_fail_is_sanitized(
 ):
     src = _hostile_copy(fixture_dir / "multi_column.pdf", tmp_path, ".pdf")
 
-    assert not convert_pdf(
+    assert not pdf_mod.convert_pdf(
         src, tmp_output_dir, options=PipelineOptions(backend="mammoth")
     )
     err = capsys.readouterr().err
@@ -90,7 +87,7 @@ def test_pdf_skip_exists_is_sanitized(fixture_dir, tmp_path, tmp_output_dir, cap
     src = _hostile_copy(fixture_dir / "multi_column.pdf", tmp_path, ".pdf")
     (tmp_output_dir / pdf_mod.sanitize_filename(src.name)).write_text("x")
 
-    assert convert_pdf(src, tmp_output_dir)
+    assert pdf_mod.convert_pdf(src, tmp_output_dir)
     out = capsys.readouterr().out
     assert "SKIP (exists): evil" in out
     _assert_clean(out, expected_lines=1)
@@ -106,7 +103,7 @@ def test_docx_docling_fallback_warn_is_sanitized(
     monkeypatch.setattr(docx_mod, "has_docling", lambda: True)
     monkeypatch.setattr(docx_mod, "_extract_via_docling", _raise_hostile)
 
-    assert convert_docx(src, tmp_output_dir, options=PipelineOptions())
+    assert docx_mod.convert_docx(src, tmp_output_dir, options=PipelineOptions())
     captured = capsys.readouterr()
     assert "WARN: Docling extraction failed for evil" in captured.err
     assert "falling back to mammoth." in captured.err
@@ -119,7 +116,7 @@ def test_docx_pymupdf4llm_backend_fail_is_sanitized(
 ):
     src = _hostile_copy(fixture_dir / "table_heavy.docx", tmp_path, ".docx")
 
-    assert not convert_docx(
+    assert not docx_mod.convert_docx(
         src, tmp_output_dir, options=PipelineOptions(backend="pymupdf4llm")
     )
     err = capsys.readouterr().err
@@ -142,7 +139,7 @@ def test_docx_fallback_line_is_sanitized(
         lambda _p: ("# Title\n\nBody.\n", "docling", ["dropped list item"]),
     )
 
-    assert convert_docx(
+    assert docx_mod.convert_docx(
         src, tmp_output_dir, options=PipelineOptions(docx_fallback_on_warn=True)
     )
     err = capsys.readouterr().err
@@ -160,7 +157,7 @@ def test_html_too_large_fail_is_sanitized(
     src = _hostile_copy(fixture_dir / "web_page.html", tmp_path, ".html")
     monkeypatch.setattr(html_mod, "_MAX_FILE_SIZE", 1)
 
-    assert not convert_html(src, tmp_output_dir)
+    assert not html_mod.convert_html(src, tmp_output_dir)
     err = capsys.readouterr().err
     assert "FAIL: evil" in err
     assert "file too large" in err
@@ -178,7 +175,7 @@ def test_txt_ok_line_is_sanitized(tmp_path, tmp_output_dir, capsys):
 
 
 def test_ordinary_names_print_unchanged(fixture_dir, tmp_output_dir, capsys):
-    assert convert_html(fixture_dir / "web_page.html", tmp_output_dir)
+    assert html_mod.convert_html(fixture_dir / "web_page.html", tmp_output_dir)
     out = capsys.readouterr().out
     assert out.startswith("  OK: web_page.md (")
 
