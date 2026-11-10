@@ -82,3 +82,13 @@ def test_four_backtick_fence_holding_shorter_fence_stays_open():
 def test_top_level_indented_code_is_not_a_fence():
     body = "# T\n\n    ```\n\n### Real\n"
     assert _normalize_heading_levels(body) == "# T\n\n    ```\n\n## Real\n"
+
+
+def test_list_fence_ends_with_its_item():
+    body = "# T\n\n- ```\n  code\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n- ```\n  code\n\n## Real\n"
+
+
+def test_thematic_break_does_not_open_a_list():
+    body = "# T\n\n* * *\n\n    ```\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n* * *\n\n    ```\n\n## Real\n"

@@ -195,34 +195,48 @@ def _indent(line: str) -> tuple[int, int]:
     return col, len(line)
 
 
-def _list_item(rest: str, col: int) -> tuple[int, int] | None:
-    """Parse a list marker at the start of ``rest``, found at column ``col``.
+def _list_marker(line: str, pos: int, end: int) -> int | None:
+    """Return the index just past a list marker at ``line[pos]``, or None.
 
-    Returns (content column, index in ``rest`` where the content starts),
-    or None when ``rest`` does not open a list item. Markers are ``-``,
-    ``*``, ``+``, and one to nine digits followed by ``.`` or ``)``.
+    Markers are ``-``, ``*``, ``+``, and one to nine digits followed by
+    ``.`` or ``)``. A marker must be followed by a space or by the end of
+    the line's content (``end``), so ``-x`` and ``1.x`` are paragraph text.
     """
-    i = 0
-    if rest[:1] in ("-", "*", "+"):
-        i = 1
+    i = pos
+    if line[i] in "-*+":
+        i += 1
     else:
-        while i < len(rest) and i < 9 and "0" <= rest[i] <= "9":
+        while i < end and i - pos < 9 and "0" <= line[i] <= "9":
             i += 1
-        if i == 0 or i >= len(rest) or rest[i] not in ".)":
+        if i == pos or i >= end or line[i] not in ".)":
             return None
         i += 1
-    j = i
-    while j < len(rest) and rest[j] == " ":
-        j += 1
-    if not rest[j:].strip():
-        return col + i + 1, len(rest)  # empty item
-    if j == i:
-        return None  # "-x" or "1.x" is paragraph text, not a list item
-    if j - i > 4:
-        # Five or more spaces after the marker start indented code inside
-        # the item, so the content column sits one space past the marker.
-        return col + i + 1, i + 1
-    return col + j, j
+    if i < end and line[i] != " ":
+        return None
+    return i
+
+
+def _break_starts(line: str) -> list[bool]:
+    """Flag each index from which a thematic break runs to the line end.
+
+    A thematic break is three or more of one character from ``-``, ``*``,
+    ``_`` with only whitespace between. One backward pass, so checking
+    every marker position on a line stays linear.
+    """
+    starts = [False] * len(line)
+    mark = ""  # the one break character seen so far, "x" once disqualified
+    count = 0
+    for i in range(len(line) - 1, -1, -1):
+        ch = line[i]
+        if ch in " \t\r":
+            continue
+        if mark == "":
+            mark = ch if ch in "-*_" else "x"
+        elif ch != mark:
+            mark = "x"
+        count += 1
+        starts[i] = mark != "x" and count >= 3
+    return starts
 
 
 def _fence_opener(rest: str) -> tuple[str, int] | None:
@@ -259,7 +273,13 @@ def fenced_lines(lines: list[str]) -> list[bool]:
     - An opener or closer may sit at most three columns past its base:
       column 0 at top level, or the content column of the enclosing list
       item. Deeper indentation is indented code, not a fence.
-    - An unclosed fence runs to the end of the text.
+    - An unclosed top-level fence runs to the end of the text. A fence
+      inside a list item also ends when the item ends: a non-blank line
+      left of the item's content column closes the fence and is then
+      read as an ordinary line.
+    - A thematic break (``* * *``, ``- - -``, ``___``) is never a list
+      item, and one line may open several items (``- - ```` or
+      ``1. - ````). Every marker is consumed before the fence test.
 
     List items are tracked with a stack of content columns, so nested
     items work. Lazy continuation lines and block quotes are not
@@ -275,29 +295,57 @@ def fenced_lines(lines: list[str]) -> list[bool]:
         rest = line[idx:]
         if fence is not None:
             ch, length, base = fence
-            flags.append(True)
-            if col - base <= 3 and _fence_closes(rest, ch, length):
-                fence = None
-            continue
+            # Base 0 is a top-level fence, which only a closer can end.
+            if base > 0 and rest.strip() and col < base:
+                fence = None  # the list item ended, so its fence did too
+            else:
+                flags.append(True)
+                if col - base <= 3 and _fence_closes(rest, ch, length):
+                    fence = None
+                continue
         if not rest.strip():
             flags.append(False)  # blank lines keep list items open
             continue
         while list_cols and col < list_cols[-1]:
             list_cols.pop()
         base = list_cols[-1] if list_cols else 0
+        flags.append(False)
         if col - base > 3:
-            flags.append(False)  # indented code
+            continue  # indented code
+        # Consume every list marker on the line, tracking positions by
+        # index so a long run of markers stays linear. Each marker makes
+        # its item's content column the base for the rest of the line.
+        end = len(line.rstrip())
+        breaks: list[bool] | None = None
+        pos = idx
+        while pos < end:
+            if line[pos] in "-*_":
+                if breaks is None:
+                    breaks = _break_starts(line)
+                if breaks[pos]:
+                    pos = end  # thematic break, never a list item or fence
+                    break
+            after = _list_marker(line, pos, end)
+            if after is None:
+                break
+            marker_col = col + after - pos
+            nxt = after
+            while nxt < end and line[nxt] == " ":
+                nxt += 1
+            spaces = nxt - after
+            # An empty item, or five or more spaces (indented code inside
+            # the item), puts the content column one space past the marker.
+            base = marker_col + (spaces if 0 < spaces <= 4 and nxt < end else 1)
+            list_cols.append(base)
+            col, pos = marker_col + spaces, nxt
+            if col - base > 3:
+                break  # indented code inside the item holds no marker
+        if pos >= end or col - base > 3:
             continue
-        item = _list_item(rest, col)
-        if item is not None:
-            content_col, start = item
-            list_cols.append(content_col)
-            # The item's first line may open a fence of its own.
-            rest, base = rest[start:], content_col
-        opener = _fence_opener(rest)
+        opener = _fence_opener(line[pos:end])
         if opener is not None:
             fence = (opener[0], opener[1], base)
-        flags.append(opener is not None)
+            flags[-1] = True
     return flags
 
 

@@ -125,3 +125,21 @@ def test_top_level_indented_code_is_not_a_fence():
     text = "# T\n\n    ```\n\n### Real\n"
     out = enforce_heading_hierarchy(text, PipelineOptions())
     assert out == "# T\n\n    ```\n\n## Real\n"
+
+
+def test_thematic_break_does_not_open_a_list():
+    text = "# T\n\n* * *\n\n    ```\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n* * *\n\n    ```\n\n## Real\n"
+
+
+def test_list_fence_ends_with_its_item():
+    text = "# T\n\n- ```\n  code\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n- ```\n  code\n\n## Real\n"
+
+
+def test_fence_after_several_list_markers():
+    text = "# T\n\n- - ```\n    code\n    ```\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n- - ```\n    code\n    ```\n\n## Real\n"
