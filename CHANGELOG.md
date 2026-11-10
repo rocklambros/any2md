@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Text-lane dehyphenation never ran.** T1 `repair_line_wraps` ran before
+  T2 `dehyphenate` and joined `co-\noperation` into `co- operation`, so T2
+  never saw a line-end hyphen. T2 now runs first and decides from evidence
+  in the same document. It merges the word when the joined form appears
+  elsewhere (`cooperation`), keeps the hyphen when the hyphenated form
+  appears elsewhere (`co-pilot`), and leaves suspended hyphens
+  (`first- and second-order`) and breaks with no evidence as they were.
+  It also tolerates trailing spaces after the hyphen, handles non-ASCII
+  letters and capitalized words, and no longer rewrites fenced code.
+- **T1 joined setext underlines and rules onto the line above.** A `---`,
+  `===`, `***`, or `___` line under text came out as `Heading ---`. These
+  lines are now structural, so T1 leaves them alone.
 - **`--strip-links` and `--profile maximum` left links in place.** The
   flag reached `PipelineOptions`, but no stage read it, so link URLs
   always survived. A new shared cleanup stage, C9 `strip_links`, runs

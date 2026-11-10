@@ -482,8 +482,8 @@ any2md uses a two-lane post-processing pipeline: one lane for layout-trustworthy
                      │
         ┌────────────┴────────────┐
         │     pipeline/text.py    │   text lane
-        │  T1 line-wrap repair    │
         │  T2 dehyphenate         │
+        │  T1 line-wrap repair    │
         │  T9 strip repeated      │   ◀ NEW (E1)
         │     byline              │
         │  T3 dedupe paragraphs   │

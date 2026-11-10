@@ -48,8 +48,8 @@ the CLI surface that drives this code, see
                      │
         ┌────────────┴────────────┐
         │     pipeline/text.py    │   text lane
-        │  T1 line-wrap repair    │
         │  T2 dehyphenate         │
+        │  T1 line-wrap repair    │
         │  T9 strip repeated      │   ◀ NEW v1.0.2
         │     byline              │
         │  T3 dedupe paragraphs   │
@@ -225,8 +225,8 @@ registrations.
 
 | Run order | ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
 |---|---|---|---|---|---|---|---|
-| 1 | T1 | `repair_line_wraps` | text | Paragraph text with single newlines mid-sentence | Paragraphs joined into single lines per logical paragraph | Inside fenced code blocks; lines that are structural (lists, tables, headings); lines ending in terminal punctuation; next line starts with uppercase letter | Tracks fence state across the document; never joins across blank lines |
-| 2 | T2 | `dehyphenate` | text | `co-\noperation`-style word breaks | `cooperation` when joined word appears elsewhere in the document | Joined word does not appear elsewhere (preserves genuine compounds) | Same-document corroboration only — no external wordlist |
+| 1 | T2 | `dehyphenate` | text | `word-` at a line end (trailing spaces allowed) followed by a lowercase word | `cooperation` when the joined word appears elsewhere in the document. `co-pilot` when the hyphenated form appears elsewhere. | Suspended hyphen (next word is `and`, `or`, `nor`, `to`). Uppercase next word. No evidence either way. Inside fenced code. | Same-document evidence only, no external wordlist. Unicode letters. Runs before T1 so it sees the raw line-end breaks (v1.2.1). A break with no evidence stays, and T1 joins it with a space (`inter- national`). |
+| 2 | T1 | `repair_line_wraps` | text | Paragraph text with single newlines mid-sentence | Paragraphs joined into single lines per logical paragraph | Inside fenced code blocks. Structural lines (lists, tables, headings, setext underlines, `---`/`***`/`___` rules). Lines ending in terminal punctuation. Next line starts with an uppercase letter. | Tracks fence state across the document. Never joins across blank lines. |
 | 3 | T9 | `strip_repeated_byline` | text | "Author's Contact Information:" / "Authors' Contact Information:" / "Contact:" lines duplicating an earlier byline; or email-list footer lines within the first 50 lines | Such lines (and any indented continuations) dropped | Profile is `conservative`; pattern not present | Aggressive/maximum only. Drops the matched line plus subsequent indented continuations. |
 | 4 | T3 | `dedupe_paragraphs` | text | Paragraphs split by blank lines | Adjacent identical paragraphs collapsed to one | No adjacent duplicates | Whitespace-only differences are treated as identical (`.strip()` comparison) |
 | 5 | T4 | `dedupe_toc_block` | text | TOC-shaped opening (≥ 5 entries matching `<title> <dots> <pagenum>`) followed by body whose H2/H3 headings cover ≥ 70% of the TOC entries | Text-formatted TOC block stripped | Profile is `conservative`; fewer than 5 TOC-shaped lines; overlap with body headings < 70% | Aggressive/maximum only |
