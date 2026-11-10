@@ -168,3 +168,28 @@ def test_fence_inside_html_block_is_not_an_opener():
     text = "# T\n\n<pre>\n```\n</pre>\n\n### Real\n"
     out = enforce_heading_hierarchy(text, PipelineOptions())
     assert out == "# T\n\n<pre>\n```\n</pre>\n\n## Real\n"
+
+
+def test_heading_inside_pre_block_is_untouched():
+    text = "# T\n\n<pre>\n### inside\n</pre>\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n<pre>\n### inside\n</pre>\n\n## Real\n"
+
+
+def test_h1_inside_html_comment_is_untouched():
+    # "# x" sits in a comment, so it is neither demoted nor counted as H1.
+    text = "# T\n\n<!--\n# x\n-->\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n<!--\n# x\n-->\n\n## Real\n"
+
+
+def test_heading_inside_div_block_before_blank_line_is_untouched():
+    text = "# T\n\n<div>\n### inside\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n<div>\n### inside\n\n## Real\n"
+
+
+def test_blank_line_ends_div_block():
+    text = "<div>\n\n### Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "<div>\n\n# Real\n"

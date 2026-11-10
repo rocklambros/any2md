@@ -17,7 +17,7 @@ from any2md._http import safe_fetch
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
-from any2md.pipeline.structured import fenced_lines, rank_heading_levels
+from any2md.pipeline.structured import protected_lines, rank_heading_levels
 from any2md.utils import (
     atomic_write_text,
     read_text_with_fallback,
@@ -130,7 +130,8 @@ def _ensure_h1(body: str, title: str | None) -> str:
     never reaches the body. This puts it back so the C7 validator and the
     README's single-H1 guarantee hold for HTML/URL output.
 
-    - Body already has an ATX H1 outside fenced code: returned unchanged.
+    - Body already has an ATX H1 outside fenced code and raw HTML blocks:
+      returned unchanged.
     - No usable title: returned unchanged (the validator still warns).
     - First non-blank line repeats the title, as plain or emphasized text
       (case-insensitive): that line is promoted to the H1 so the title
@@ -138,8 +139,8 @@ def _ensure_h1(body: str, title: str | None) -> str:
     - Otherwise ``# <title>`` and a blank line are prepended.
     """
     lines = body.split("\n")
-    for line, fenced in zip(lines, fenced_lines(lines)):
-        if not fenced and _ATX_H1_RE.match(line):
+    for line, protected in zip(lines, protected_lines(lines)):
+        if not protected and _ATX_H1_RE.match(line):
             return body
 
     heading = _one_line(title or "")
@@ -174,13 +175,14 @@ def _normalize_heading_levels(body: str) -> str:
     The ranking is ``rank_heading_levels``, shared with structured-lane
     S4. This lane runs it without S4's H1 promotion and demotion: H1
     lines are never moved and nothing is ever promoted to H1. Only the
-    ``#`` prefix of a heading line changes. A body with no skips is
-    returned unchanged.
+    ``#`` prefix of a heading line changes. ``#`` lines inside fenced
+    code or raw HTML blocks are not headings and are left alone. A body
+    with no skips is returned unchanged.
     """
     lines = body.split("\n")
     found: list[tuple[int, int]] = []  # (line index, original level)
-    for i, (line, fenced) in enumerate(zip(lines, fenced_lines(lines))):
-        m = None if fenced else _ATX_HEADING_RE.match(line)
+    for i, (line, protected) in enumerate(zip(lines, protected_lines(lines))):
+        m = None if protected else _ATX_HEADING_RE.match(line)
         if m:
             found.append((i, len(m.group(1))))
     ranked = rank_heading_levels([level for _, level in found])

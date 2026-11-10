@@ -1,12 +1,49 @@
-"""Tests for the shared fence scanner used by S4 and the HTML lane."""
+"""Tests for the shared block scanner used by S4 and the HTML lane."""
 
 import pytest
 
-from any2md.pipeline.structured import fenced_lines
+from any2md.pipeline.structured import fenced_lines, protected_lines
 
 
 def _flags(text: str) -> list[bool]:
     return fenced_lines(text.split("\n"))
+
+
+def _protected(text: str) -> list[bool]:
+    return protected_lines(text.split("\n"))
+
+
+# protected_lines covers fenced code and raw HTML blocks.
+
+
+def test_protected_covers_fenced_code():
+    assert _protected("a\n```\n# x\n```\nb") == [False, True, True, True, False]
+
+
+@pytest.mark.parametrize(
+    "start, end",
+    [("<pre>", "</pre>"), ("<!--", "-->"), ("<?x", "?>"), ("<![CDATA[", "]]>")],
+)
+def test_protected_covers_html_types_1_to_5_through_blank_lines(start, end):
+    text = f"{start}\n# x\n\n# y\n{end}\n# z"
+    assert _protected(text) == [True, True, True, True, True, False]
+
+
+def test_protected_covers_html_block_ending_on_start_line():
+    assert _protected("<pre>x</pre>\n# z") == [True, False]
+
+
+@pytest.mark.parametrize("start", ["<div>", "<span>"])
+def test_protected_html_types_6_and_7_end_at_blank_line(start):
+    assert _protected(f"{start}\n# x\n\n# y") == [True, True, False, False]
+
+
+def test_protected_html_block_in_list_item_ends_with_item():
+    assert _protected("- <pre>\n  # x\n# y") == [True, True, False]
+
+
+def test_fenced_lines_does_not_flag_html_blocks():
+    assert _flags("<pre>\n# x\n</pre>") == [False, False, False]
 
 
 def test_plain_fence_flags_fence_and_body():
