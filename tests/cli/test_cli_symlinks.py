@@ -174,3 +174,24 @@ def test_explicit_symlinked_directory_argument_is_scanned(tmp_path):
 
     assert r.returncode == 0, r.stderr
     assert (out / "inside.md").exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
+def test_scan_skips_fifo_and_converts_regular_file(tmp_path):
+    src = tmp_path / "docs"
+    src.mkdir()
+    (src / "real.txt").write_text("A regular document.\n")
+    os.mkfifo(src / "pipe.txt")
+    out = tmp_path / "out"
+    # A finite timeout turns a regression (blocking on the FIFO) into a
+    # failure instead of a hung suite.
+    r = subprocess.run(
+        [sys.executable, "-m", "any2md", str(src), "-o", str(out)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "SKIP (not a regular file)" in r.stderr
+    assert (out / "real.md").exists()
+    assert not (out / "pipe.md").exists()

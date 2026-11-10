@@ -93,11 +93,14 @@ _COVER_BLURB_KEYWORDS = (
 _TOC_LINE_HINTS_RE = re.compile(r"(?<!\.)\.{3,}\s*\d|^\s*page\s+\d", re.IGNORECASE)
 
 # Markdown inline link: [text](url) → text
-# A link opens only at an unescaped "[", and the label stops at the next
-# unescaped bracket, so each scan ends where the next one starts and the
-# URL is length-bounded. Unbounded classes made a run of "[" with no "]"
+# A link opens only at an unescaped "[": the backslash run before it, kept
+# in group 1, must have even length because each pair escapes itself. The
+# label stops at the next unescaped bracket, so each scan ends where the
+# next one starts, and the URL is length-bounded. Unbounded classes made a run of "[" with no "]"
 # quadratic (CWE-1333). Escaped brackets (``\[``) stay inside the label.
-_MD_LINK_RE = re.compile(r"(?<!\\)\[((?:[^\[\]\\]|\\[\s\S])+)\]\([^)\n]{1,2048}\)")
+_MD_LINK_RE = re.compile(
+    r"(?<!\\)((?:\\\\)*)\[((?:[^\[\]\\]|\\[\s\S])+)\]\([^)\n]{1,2048}\)"
+)
 
 # Abstract / Summary heading detection (H2 or H3, case-insensitive)
 _ABSTRACT_HEADING_RE = re.compile(
@@ -273,7 +276,7 @@ def _is_skip_paragraph(para: str) -> bool:
 def _cleanup_abstract(text: str) -> str:
     """Apply post-selection cleanup: strip links, decode entities, truncate."""
     # Strip markdown links: [text](url) → text
-    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _MD_LINK_RE.sub(r"\1\2", text)
     # Decode HTML entities
     text = html.unescape(text)
     # Collapse whitespace runs
