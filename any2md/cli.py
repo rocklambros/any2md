@@ -88,10 +88,11 @@ def _scan_directory(root: Path, recursive: bool) -> list[Path]:
     symlink loops. ``root`` itself is followed when it is a link,
     because the user named it.
 
-    Matching stays case-sensitive on the suffix to keep the old glob
-    semantics for scanned trees.
+    Suffixes are compared after ``os.path.normcase``, which matches the
+    old glob semantics: case-insensitive on Windows, case-sensitive on
+    POSIX.
     """
-    suffixes = tuple(SUPPORTED_EXTENSIONS)
+    suffixes = tuple(os.path.normcase(ext) for ext in SUPPORTED_EXTENSIONS)
     found: list[Path] = []
     # An explicit stack instead of recursion keeps deep trees clear of
     # the interpreter recursion limit.
@@ -110,7 +111,7 @@ def _scan_directory(root: Path, recursive: bool) -> list[Path]:
                 if entry.is_symlink():
                     # Report only links the old scan would have picked up,
                     # so unrelated links in a tree do not flood stderr.
-                    wanted = entry.name.endswith(suffixes)
+                    wanted = os.path.normcase(entry.name).endswith(suffixes)
                     if wanted or (recursive and entry.is_dir()):
                         _logging.warn(str(path), prefix="SKIP (symlink)")
                     continue
@@ -118,7 +119,7 @@ def _scan_directory(root: Path, recursive: bool) -> list[Path]:
                     if recursive:
                         pending.append(path)
                     continue
-                if not entry.name.endswith(suffixes):
+                if not os.path.normcase(entry.name).endswith(suffixes):
                     continue
                 # FIFOs and device nodes can hang the read or never end.
                 if not entry.is_file(follow_symlinks=False):
