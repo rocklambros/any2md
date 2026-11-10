@@ -18,6 +18,9 @@ Stage = Callable[[str, "PipelineOptions"], str]
 
 
 _TERMINAL_PUNCT = ".!?:"
+# Setext underlines and thematic breaks (---, ===, ***, ___). Joining one
+# onto the line above destroys the heading or rule.
+_RULE_RE = re.compile(r"^\s*(?:-{3,}|={3,}|\*{3,}|_{3,})\s*$")
 _LIST_PREFIX_RE = re.compile(r"^\s*(?:[-*+]|\d+\.|[a-z]\.)\s+", re.IGNORECASE)
 _HEADING_RE = re.compile(r"^#{1,6}\s")
 _TABLE_RE = re.compile(r"^\s*\|")
@@ -31,6 +34,7 @@ def _is_structural(line: str) -> bool:
         or _HEADING_RE.match(line)
         or _TABLE_RE.match(line)
         or _FENCE_RE.match(line)
+        or _RULE_RE.match(line)
     )
 
 
@@ -81,35 +85,73 @@ def repair_line_wraps(text: str, _options: "PipelineOptions") -> str:
     return "\n".join(out)
 
 
-_HYPHEN_WRAP_RE = re.compile(r"([a-z]+)-\n([a-z]+)")
+# A letter run in any script (no digits or underscore), so non-ASCII words
+# such as "Straßenbahn" are handled like ASCII ones.
+_WORD = r"[^\W\d_]+"
+# "word-" at a line end, optional trailing spaces (common in PDF output),
+# then the next line's first word. The word boundary keeps "Co-" from
+# matching as "o-".
+_HYPHEN_WRAP_RE = re.compile(rf"\b({_WORD})-[ \t]*\n[ \t]*({_WORD})")
+_COMPOUND_RE = re.compile(rf"\b{_WORD}-{_WORD}\b")
+# A hyphen before one of these words is suspended ("first- and second-order"),
+# not a broken word.
+_SUSPENDED_NEXT = frozenset({"and", "or", "nor", "to"})
+
+
+def _dehyphenate_prose(segment: str, words: set[str], compounds: set[str]) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        prefix, suffix = match.group(1), match.group(2)
+        # An uppercase next word starts a new name or sentence, and a
+        # conjunction marks a suspended hyphen. Neither is a broken word.
+        if not suffix[0].islower() or suffix.lower() in _SUSPENDED_NEXT:
+            return match.group(0)
+        if (prefix + suffix).lower() in words:
+            return prefix + suffix
+        if f"{prefix}-{suffix}".lower() in compounds:
+            return f"{prefix}-{suffix}"
+        # No evidence either way. Leave the break for T1, which joins it
+        # with a space as before, rather than invent a merged word or a
+        # compound the document never uses.
+        return match.group(0)
+
+    return _HYPHEN_WRAP_RE.sub(_replace, segment)
 
 
 def dehyphenate(text: str, _options: "PipelineOptions") -> str:
-    """T2: Merge soft-hyphenated word breaks across line ends.
+    """T2: Repair words broken by a hyphen at a line end.
 
-    Conservative — only merges when the joined word appears elsewhere
-    (same-doc corroboration). Avoids breaking compound words like
-    'co-pilot' that appear hyphenated genuinely.
+    Runs before T1 so the raw ``word-\nword`` breaks are still visible.
+    Decides from evidence in the same document only:
+
+    - joined form appears elsewhere ("cooperation"): merge the word
+    - hyphenated form appears elsewhere ("co-pilot"): keep the hyphen
+    - suspended hyphen ("first-" before "and"/"or"/"nor"/"to"), an
+      uppercase next word, or no evidence: leave the break as is
+
+    Fenced code blocks are never changed.
     """
-    # Find candidates first
-    candidates = list(_HYPHEN_WRAP_RE.finditer(text))
-    if not candidates:
+    if "-" not in text:
         return text
+    lowered = text.lower()
+    words = set(re.findall(_WORD, lowered))
+    compounds = set(_COMPOUND_RE.findall(lowered))
 
-    # Build set of words that appear in the text (lowercase, alphanumeric)
-    words_in_doc = set(re.findall(r"\b[a-z]+\b", text.lower()))
-
-    def _replace(match: re.Match[str]) -> str:
-        prefix_word = match.group(1)
-        suffix_word = match.group(2)
-        # The full word that would result if we merge
-        joined = prefix_word + suffix_word
-        # Look up: does the joined-form appear elsewhere in the doc?
-        if joined.lower() in words_in_doc:
-            return prefix_word + suffix_word
-        return match.group(0)  # keep hyphen + newline
-
-    return _HYPHEN_WRAP_RE.sub(_replace, text)
+    out: list[str] = []
+    prose: list[str] = []
+    in_fence = False
+    for line in text.split("\n"):
+        if _FENCE_RE.match(line) or in_fence:
+            if prose:
+                out.append(_dehyphenate_prose("\n".join(prose), words, compounds))
+                prose = []
+            if _FENCE_RE.match(line):
+                in_fence = not in_fence
+            out.append(line)
+        else:
+            prose.append(line)
+    if prose:
+        out.append(_dehyphenate_prose("\n".join(prose), words, compounds))
+    return "\n".join(out)
 
 
 _AUTHOR_CONTACT_RE = re.compile(
@@ -478,8 +520,10 @@ def strip_cover_artifacts(text: str, options: "PipelineOptions") -> str:
 
 
 STAGES: list[Stage] = [
-    repair_line_wraps,
+    # T2 must see the raw "word-\nword" breaks, so it runs before T1 joins
+    # wrapped lines. The reverse order disabled T2 entirely before v1.2.1.
     dehyphenate,
+    repair_line_wraps,
     strip_repeated_byline,
     dedupe_paragraphs,
     dedupe_toc_block,

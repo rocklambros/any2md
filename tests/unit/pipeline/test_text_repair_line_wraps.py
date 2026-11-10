@@ -1,5 +1,7 @@
 """Tests for T1 — repair_line_wraps."""
 
+import pytest
+
 from any2md.pipeline import PipelineOptions
 from any2md.pipeline.text import repair_line_wraps
 
@@ -45,3 +47,16 @@ def test_does_not_join_after_heading():
     text = "# Heading\nbody continues\n"
     out = repair_line_wraps(text, PipelineOptions())
     assert "# Heading\nbody continues" in out
+
+
+def test_spaced_dash_at_line_end_keeps_space():
+    # " -" after a space is a dash, not a word break.
+    text = "first part -\nsecond part\n"
+    out = repair_line_wraps(text, PipelineOptions())
+    assert "first part - second part" in out
+
+
+@pytest.mark.parametrize("rule", ["---", "===", "***", "___", "  -----  "])
+def test_setext_underline_and_rules_not_joined(rule):
+    text = f"Some heading text\n{rule}\nbody here\n"
+    assert repair_line_wraps(text, PipelineOptions()) == text
