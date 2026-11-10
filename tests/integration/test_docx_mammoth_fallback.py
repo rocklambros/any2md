@@ -164,3 +164,19 @@ def test_docx_application_real_org_routes_to_organization(
     # filter_organization treats unknown strings as a real organization.
     assert fm["organization"] == "Acme Internal Tooling"
     assert "produced_by" not in fm
+
+
+def test_docx_table_first_row_is_header(fixture_dir, tmp_output_dir, monkeypatch):
+    """mammoth emits <table> without <thead>. markdownify 1.x then writes an
+    empty header row (| | |) and demotes the real header to a data row."""
+    monkeypatch.setattr("any2md.converters.docx.has_docling", lambda: False)
+    ok = convert_docx(
+        fixture_dir / "table_heavy.docx",
+        tmp_output_dir,
+        options=PipelineOptions(),
+        force=True,
+    )
+    assert ok
+    body = next(tmp_output_dir.glob("*.md")).read_text(encoding="utf-8")
+    assert "| Header 1 | Header 2 |\n| --- | --- |\n| Cell A | Cell B |" in body
+    assert "|  |  |" not in body and "| | |" not in body
