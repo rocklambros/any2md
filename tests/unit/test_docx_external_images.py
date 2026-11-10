@@ -145,3 +145,68 @@ def test_old_mammoth_never_opens_images(secret_docx, save_images, monkeypatch):
 def test_mammoth_version_gate(version, expected, monkeypatch):
     monkeypatch.setattr(docx_mod, "_installed_mammoth_version", lambda: version)
     assert docx_mod._mammoth_blocks_external_files() is expected
+
+
+# An embedded image lives inside the DOCX zip (``a:blip r:embed``). Its
+# marker bytes show up base64-encoded in mammoth's HTML only when mammoth
+# reads them, which lets the tests below tell skipped reads from real ones.
+_EMBEDDED_BYTES = b"EMBEDDED-IMAGE-MARKER-BYTES-9876543210"
+
+_EMBED_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+</Relationships>
+"""
+
+
+@pytest.fixture
+def embedded_docx(tmp_path):
+    """A DOCX that embeds its image in the package, with no links."""
+    docx_path = tmp_path / "embedded.docx"
+    document = _DOCUMENT.replace('descr="linked"', 'descr="embedded"').replace(
+        'r:link="rId9"', 'r:embed="rId10"'
+    )
+    with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        z.writestr("_rels/.rels", _RELS)
+        z.writestr("word/_rels/document.xml.rels", _EMBED_RELS)
+        z.writestr("word/document.xml", document)
+        z.writestr("word/media/image1.png", _EMBEDDED_BYTES)
+    return docx_path
+
+
+def _mammoth_html(monkeypatch, docx_path: Path, save_images: bool) -> tuple[str, str]:
+    """Run the mammoth lane and return (mammoth HTML, markdown)."""
+    seen: list[str] = []
+    real = mammoth.convert_to_html
+
+    def spy(fileobj, **kwargs):
+        result = real(fileobj, **kwargs)
+        seen.append(result.value)
+        return result
+
+    monkeypatch.setattr(docx_mod.mammoth, "convert_to_html", spy)
+    md, _ = docx_mod._extract_via_mammoth(
+        docx_path, PipelineOptions(save_images=save_images)
+    )
+    return seen[0], md
+
+
+def test_embedded_image_bytes_not_read_without_save_images(embedded_docx, monkeypatch):
+    if not docx_mod._mammoth_blocks_external_files():
+        pytest.skip("covers the safe-mammoth branch")
+    html, md = _mammoth_html(monkeypatch, embedded_docx, save_images=False)
+    marker = base64.b64encode(_EMBEDDED_BYTES).decode()
+    # Without the skip converter, mammoth inlines the bytes as a data URI.
+    assert marker not in html
+    assert marker not in md
+    assert "Before image." in md
+
+
+def test_embedded_image_kept_with_save_images(embedded_docx, monkeypatch):
+    if not docx_mod._mammoth_blocks_external_files():
+        pytest.skip("covers the safe-mammoth branch")
+    html, md = _mammoth_html(monkeypatch, embedded_docx, save_images=True)
+    marker = base64.b64encode(_EMBEDDED_BYTES).decode()
+    assert marker in html
+    assert marker in md
