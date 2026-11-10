@@ -49,6 +49,14 @@ missing H1 headings in HTML/URL output.
   `token_estimate`, `word_count`, `recommended_chunk_level`, and
   `abstract_for_rag` are computed from the body with the H1 in place.
   PDF, DOCX, and TXT output is unchanged.
+- **HTML/URL heading levels skipped below the H1.** Many CMS templates
+  mark body sections as H3 or H4 directly under the page H1, so the
+  restored H1 surfaced `validator: heading level skip h1 -> h3` (34 of
+  the 320 zenity posts above). Headings are now re-ranked by section
+  depth below the H1: siblings stay siblings, nesting is kept, and only
+  the `#` prefix changes (`H3, H3, H4, H3` becomes `H2, H2, H3, H2`).
+  Bodies without skips are byte-identical. All 320 posts now convert
+  with 0 validator warnings.
 
 ### Added
 

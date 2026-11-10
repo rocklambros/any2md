@@ -436,8 +436,17 @@ chunkers and titlers work reliably. How it is enforced depends on the lane:
 
 ### No skipped levels
 
-Heading levels never skip. An H2 followed by an H4 in the source is rewritten
-to H2 → H3 → H4. A skip emits a non-fatal validator warning during conversion
+Heading levels never skip. How skips are repaired depends on the lane:
+
+- **Structured lane (Docling):** the S4 stage rewrites a heading that jumps
+  more than one level to one level below the previous heading.
+- **HTML / URL:** headings are re-ranked by section depth below the H1. A body
+  whose sections are marked H3 or H4 directly under the H1 becomes H2 sections,
+  sibling headings stay siblings, and nesting is kept (`H3, H3, H4, H3` becomes
+  `H2, H2, H3, H2`). Only the `#` prefix of a heading line changes.
+- **Other text-lane input (pymupdf4llm, mammoth, TXT):** no rewriting.
+
+Any skip that survives emits a non-fatal validator warning during conversion
 (visible in stderr; promoted to a non-zero exit by `--strict`).
 
 ### Citations
