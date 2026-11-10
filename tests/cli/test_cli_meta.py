@@ -20,6 +20,22 @@ def _run(*args):
     )
 
 
+def test_meta_conflicting_keys_fail_cleanly(fixture_dir, tmp_path):
+    """Conflicting nested/scalar --meta keys must error, not silently drop a value."""
+    out = tmp_path / "out"
+    r = _run(
+        "-o",
+        str(out),
+        "--meta",
+        "organization=OWASP",
+        "--meta",
+        "organization.name=OWASP",
+        str(fixture_dir / "ligatures_and_softhyphens.txt"),
+    )
+    assert r.returncode == 1, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "key conflict" in r.stderr
+
+
 def test_meta_simple_override(fixture_dir, tmp_path):
     out = tmp_path / "out"
     r = _run(
