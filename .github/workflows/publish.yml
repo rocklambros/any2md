@@ -38,7 +38,7 @@ jobs:
           EOF
 
       - name: Install build tools
-        run: pip install build twine
+        run: pip install build==1.6.1 twine==7.0.0  # twine 7 reads Metadata-Version 2.5 (hatchling)
 
       - name: Build sdist and wheel
         run: python -m build
@@ -84,7 +84,7 @@ jobs:
           path: dist/
 
       - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3 (bundles twine 7.0.0)
         with:
           repository-url: https://test.pypi.org/legacy/
           attestations: true
@@ -105,6 +105,6 @@ jobs:
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3 (bundles twine 7.0.0)
         with:
           attestations: true

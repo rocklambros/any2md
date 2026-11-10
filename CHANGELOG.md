@@ -69,6 +69,10 @@ missing H1 headings in HTML/URL output.
 - **CI pins ruff to 0.15.22.** Ruff 0.16 and later enable a wider default
   rule set this repo has not adopted, which failed the required lint check
   on an unchanged `main`. The `dev` extra pins the same version.
+- **Release workflow pins `pypa/gh-action-pypi-publish` v1.14.3.** The
+  previous pin bundled twine 6.1, which rejects the Metadata-Version 2.5
+  that current hatchling writes, so uploads failed before reaching the
+  index. The validate step now pins `build==1.6.1` and `twine==7.0.0`.
 - **HTML/URL `title` follows the visible page heading.** `title` is
   still derived from the body H1, and the body H1 is now the page's
   `<h1>`. On pages whose `og:title` differs from their `<h1>`, `title`
