@@ -86,10 +86,11 @@ _COVER_BLURB_KEYWORDS = (
     "all rights reserved",
     "copying and networking prohibited",
 )
-# The lookbehind starts a dot run only at its first dot and the possessive
-# quantifiers never give characters back, so a long run of dots with no
-# page number is rejected in one pass instead of O(n^2) (CWE-1333).
-_TOC_LINE_HINTS_RE = re.compile(r"(?<!\.)\.{3,}+\s*+\d|^\s*page\s+\d", re.IGNORECASE)
+# The lookbehind lets a dot run start only at its first dot, so each run is
+# tried once and backing off inside it costs one step per dot. A long run of
+# dots with no page number is rejected in linear time instead of O(n^2)
+# (CWE-1333).
+_TOC_LINE_HINTS_RE = re.compile(r"(?<!\.)\.{3,}\s*\d|^\s*page\s+\d", re.IGNORECASE)
 
 # Markdown inline link: [text](url) → text
 # Link text may not contain "[" and the URL is length-bounded, so each "["
