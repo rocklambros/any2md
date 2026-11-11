@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Callable, TYPE_CHECKING
 
+from any2md.pipeline.blocks import fenced_lines
+
 if TYPE_CHECKING:
     from any2md.pipeline import PipelineOptions
 
@@ -27,19 +29,6 @@ _TABLE_RE = re.compile(r"^\s*\|")
 _FENCE_RE = re.compile(r"^\s*```")
 
 
-def _fenced(lines: list[str]) -> list[bool]:
-    """Flag each line of a fenced code block, fences included.
-
-    Wraps the CommonMark scanner the structured lane and HTML converter
-    use, so every lane agrees on what is code. The import sits here
-    because structured.py imports this module while it loads, and a
-    module-level import would create a cycle.
-    """
-    from any2md.pipeline.structured import fenced_lines
-
-    return fenced_lines(lines)
-
-
 def _is_structural(line: str) -> bool:
     """A 'structural' line — never join into or out of."""
     return bool(
@@ -54,7 +43,7 @@ def _is_structural(line: str) -> bool:
 def repair_line_wraps(text: str, _options: "PipelineOptions") -> str:
     """T1: Join lines that look like soft wraps inside paragraphs."""
     lines = text.split("\n")
-    fenced = _fenced(lines)
+    fenced = fenced_lines(lines)
     out: list[str] = []
     i = 0
     while i < len(lines):
@@ -142,7 +131,7 @@ def dehyphenate(text: str, _options: "PipelineOptions") -> str:
     out: list[str] = []
     prose: list[str] = []
     lines = text.split("\n")
-    for line, fenced in zip(lines, _fenced(lines)):
+    for line, fenced in zip(lines, fenced_lines(lines)):
         if fenced:
             if prose:
                 out.append(_dehyphenate_prose("\n".join(prose), words, compounds))
@@ -179,7 +168,7 @@ def strip_repeated_byline(text: str, options: "PipelineOptions") -> str:
     if options.profile not in ("aggressive", "maximum"):
         return text
     lines = text.split("\n")
-    fenced = _fenced(lines)
+    fenced = fenced_lines(lines)
     out: list[str] = []
     for i, line in enumerate(lines):
         if fenced[i]:
@@ -217,7 +206,7 @@ def dedupe_paragraphs(text: str, _options: "PipelineOptions") -> str:
     them.
     """
     lines = text.split("\n")
-    fenced = _fenced(lines)
+    fenced = fenced_lines(lines)
     if not any(fenced):
         return _dedupe_prose(text)
     # Dedupe each run of prose lines on its own and copy fenced runs
@@ -300,7 +289,7 @@ def _body_heading_titles(text: str) -> set[str]:
     lines = text.split("\n")
     # A "##" line inside fenced code is a comment, not a body heading, so
     # it must not count as a match for a TOC entry.
-    for line, code in zip(lines, _fenced(lines)):
+    for line, code in zip(lines, fenced_lines(lines)):
         if code:
             continue
         level = len(line) - len(line.lstrip("#"))
@@ -320,7 +309,7 @@ def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
         return text
 
     lines = text.split("\n")
-    fenced = _fenced(lines)
+    fenced = fenced_lines(lines)
     # Find the longest run of consecutive TOC-shaped lines starting near
     # the top. Fenced code ends the run: numbered code lines look like
     # TOC entries.
@@ -390,7 +379,7 @@ def dedupe_toc_table(text: str, options: "PipelineOptions") -> str:
 
     cutoff = max(1, int(len(lines) * 0.3))
     # A table inside fenced code is an example, not the document's TOC.
-    fenced = _fenced(lines)
+    fenced = fenced_lines(lines)
 
     # Find first table block within the first 30% of the doc.
     i = 0
@@ -478,7 +467,7 @@ def strip_running_headers_footers(text: str, _options: "PipelineOptions") -> str
     # Fence flags are per "\n" line, and a "\f" sits inside one such line.
     # Each page after the first starts on the line that holds its "\f",
     # so the line index advances only on a "\n" within a page.
-    fenced = _fenced(text.split("\n"))
+    fenced = fenced_lines(text.split("\n"))
     page_lines: list[list[tuple[str, bool]]] = []
     g = 0
     for page in pages:
@@ -547,7 +536,7 @@ def strip_orphan_punctuation(text: str, options: "PipelineOptions") -> str:
     lines = text.split("\n")
     return "\n".join(
         ln
-        for ln, code in zip(lines, _fenced(lines))
+        for ln, code in zip(lines, fenced_lines(lines))
         if code or not _ORPHAN_PUNCT_RE.match(ln)
     )
 
@@ -558,7 +547,7 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
         return text
     text = strip_orphan_punctuation(text, options)
     lines = text.split("\n")
-    fenced = _fenced(lines)
+    fenced = fenced_lines(lines)
     out: list[str] = []
     n = len(lines)
     # Last non-blank source line before the current one. The v1.0.2 spec
@@ -603,7 +592,7 @@ def restore_lists_and_code(text: str, _options: "PipelineOptions") -> str:
     not already inside a fence.
     """
     lines = text.split("\n")
-    fenced = _fenced(lines)
+    fenced = fenced_lines(lines)
     out: list[str] = []
     i = 0
     while i < len(lines):
@@ -658,7 +647,7 @@ def strip_cover_artifacts(text: str, options: "PipelineOptions") -> str:
     if options.profile not in ("aggressive", "maximum"):
         return text
     lines = text.split("\n")
-    fenced = _fenced(lines)
+    fenced = fenced_lines(lines)
     out: list[str] = []
     seen_h2 = False
     for i, line in enumerate(lines):

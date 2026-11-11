@@ -18,11 +18,8 @@ from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
-from any2md.pipeline.structured import (
-    find_headings,
-    rank_heading_levels,
-    setext_text,
-)
+from any2md.pipeline.blocks import find_headings, setext_text
+from any2md.pipeline.structured import rank_heading_levels
 from any2md.utils import (
     atomic_write_text,
     sanitize_filename,

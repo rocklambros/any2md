@@ -7,9 +7,7 @@ import re
 import unicodedata
 from typing import Callable, TYPE_CHECKING
 
-# structured.py never imports this module, so a module-level import is
-# safe here. text.py needs a deferred import for the same scanner.
-from any2md.pipeline.structured import fenced_lines
+from any2md.pipeline.blocks import fenced_lines
 
 if TYPE_CHECKING:
     from any2md.pipeline import PipelineOptions
