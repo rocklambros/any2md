@@ -29,10 +29,10 @@ def _zip_bytes(tmp_path, members: dict[str, bytes]) -> bytes:
 def test_real_office_files_pass(tmp_path, fixture_dir):
     guard.check_ooxml_archive(SourceFile.from_path(fixture_dir / "table_heavy.docx"))
     guard.check_ooxml_archive(
-        SourceFile.from_path(build_pptx(tmp_path / "d.pptx", [("T", "B")]))
+        SourceFile.from_path(build_pptx(tmp_path / "d.pptx", [("T", "B")])), "pptx"
     )
     guard.check_ooxml_archive(
-        SourceFile.from_path(build_xlsx(tmp_path / "b.xlsx", {"S": [["a"]]}))
+        SourceFile.from_path(build_xlsx(tmp_path / "b.xlsx", {"S": [["a"]]})), "xlsx"
     )
 
 
@@ -142,7 +142,7 @@ def test_xlsx_sheet_part_cap(tmp_path, monkeypatch):
     monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
     data = _workbook(tmp_path, {"xl/worksheets/sheet1.xml": _sheet_xml(1000)})
     with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
-        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data))
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
 
 
 def test_xlsx_sheet_at_nonstandard_path_is_capped(tmp_path, monkeypatch):
@@ -151,7 +151,54 @@ def test_xlsx_sheet_at_nonstandard_path_is_capped(tmp_path, monkeypatch):
     monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
     data = _workbook(tmp_path, {"xl/other/big.xml": _sheet_xml(1000)})
     with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
-        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data))
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_caps_apply_by_format_not_workbook_name(tmp_path, monkeypatch):
+    # openpyxl finds the workbook through [Content_Types].xml and the
+    # package relationships, so a workbook stored as xl/book.xml is still
+    # a workbook. The caps follow the format the converter was given.
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    data = _zip_bytes(
+        tmp_path,
+        {"xl/book.xml": b"<workbook/>", "xl/worksheets/sheet1.xml": _sheet_xml(1000)},
+    )
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_caps_cover_parts_without_xml_extension(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    data = _workbook(tmp_path, {"xl/worksheets/sheet1.bin": _sheet_xml(1000)})
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_total_cap_counts_parts_without_xml_extension(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_TOTAL", 30_000)
+    members = {f"xl/worksheets/sheet{i}.dat": _sheet_xml(500) for i in range(3)}
+    data = _zip_bytes(tmp_path, {"xl/book": b"<workbook/>", **members})
+    with pytest.raises(guard.ArchiveRejected, match="total workbook XML"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_office_passes_its_format_to_the_guard(tmp_path, monkeypatch, capsys):
+    def must_not_run(*a, **k):
+        raise AssertionError("library read a rejected archive")
+
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    monkeypatch.setattr(office, "has_docling", lambda: True)
+    monkeypatch.setattr(office, "_convert_via_docling", must_not_run)
+    monkeypatch.setattr(office, "_read_docx_metadata", must_not_run)
+    data = _zip_bytes(
+        tmp_path, {"xl/book.xml": b"<workbook/>", "xl/s1.bin": _sheet_xml(1000)}
+    )
+
+    ok = office.convert_office(
+        SourceFile("big.xlsx", data=data), tmp_path / "out", "xlsx", force=True
+    )
+    assert ok is False
+    assert "workbook XML part" in capsys.readouterr().err
 
 
 def test_xlsx_total_xml_cap(tmp_path, monkeypatch):
@@ -160,14 +207,14 @@ def test_xlsx_total_xml_cap(tmp_path, monkeypatch):
     members["xl/sharedStrings.xml"] = b"<sst>" + b"<si><t>x</t></si>" * 600 + b"</sst>"
     data = _workbook(tmp_path, members)
     with pytest.raises(guard.ArchiveRejected, match="total workbook XML"):
-        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data))
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
 
 
 def test_xlsx_limits_do_not_apply_to_other_formats(tmp_path, monkeypatch):
     monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
     monkeypatch.setattr(guard, "MAX_XLSX_XML_TOTAL", 10_000)
     data = _zip_bytes(tmp_path, {"word/document.xml": _sheet_xml(1000)})
-    guard.check_ooxml_archive(SourceFile("a.docx", data=data))
+    guard.check_ooxml_archive(SourceFile("a.docx", data=data), "docx")
 
 
 def test_xlsx_limits_sit_below_the_archive_ceiling():

@@ -517,7 +517,7 @@ def convert_docx(
     try:
         # Before mammoth, Docling, or the docProps reader inflate anything.
         # A rejection is a ValueError, reported below as a per-file FAIL.
-        check_ooxml_archive(src)
+        check_ooxml_archive(src, "docx")
 
         # Backend override (PipelineOptions.backend). When set, honor the
         # caller's choice instead of the auto-select. ``pymupdf4llm`` is

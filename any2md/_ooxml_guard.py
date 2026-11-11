@@ -65,8 +65,14 @@ class ArchiveRejected(ValueError):
     """
 
 
-def check_ooxml_archive(src: SourceFile) -> None:
-    """Raise ``ArchiveRejected`` if ``src`` is not a safe-sized zip."""
+def check_ooxml_archive(src: SourceFile, fmt: str | None = None) -> None:
+    """Raise ``ArchiveRejected`` if ``src`` is not a safe-sized zip.
+
+    ``fmt`` is the format the caller will parse the archive as. With
+    ``"xlsx"`` the workbook caps apply as well. The caller knows the
+    format from the converter it chose, which a crafted archive cannot
+    change, while part names inside the archive are the attacker's choice.
+    """
     try:
         with src.open_binary() as fh, zipfile.ZipFile(fh) as z:
             infos = z.infolist()
@@ -93,28 +99,25 @@ def check_ooxml_archive(src: SourceFile) -> None:
                     f"{MAX_COMPRESSION_RATIO}:1 limit"
                 )
 
-    if _is_workbook(infos):
-        _check_workbook_xml(infos)
+    if fmt == "xlsx":
+        _check_workbook_parts(infos)
 
 
-def _is_workbook(infos: list[zipfile.ZipInfo]) -> bool:
-    """Return True when the archive holds a SpreadsheetML workbook part."""
-    return any(info.filename.lower() == "xl/workbook.xml" for info in infos)
+def _check_workbook_parts(infos: list[zipfile.ZipInfo]) -> None:
+    """Apply the workbook caps to every member of the archive.
 
-
-def _check_workbook_xml(infos: list[zipfile.ZipInfo]) -> None:
-    """Apply the workbook XML caps to every ``.xml`` member.
-
-    openpyxl locates sheets and shared strings through the workbook
-    relationships, not through fixed names, so a sheet stored outside
-    ``xl/worksheets/`` would slip past a name filter. Every XML part
-    counts. Styles, themes, and drawings are small in honest files and
-    use little of the budget.
+    openpyxl finds the workbook through ``[Content_Types].xml`` and the
+    package relationships, and the sheets and shared strings through the
+    workbook relationships. None of those lookups depend on a part's
+    name or extension, so a sheet stored as ``xl/worksheets/sheet1.bin``
+    or a workbook at ``xl/book.xml`` parses like any other. A filter on
+    names would let such parts past, so every member counts. Embedded
+    images count too, which costs an honest workbook with hundreds of
+    MiB of pictures its conversion. That trade keeps the check free of
+    any parsing of attacker-controlled XML.
     """
     total = 0
     for info in infos:
-        if not info.filename.lower().endswith(".xml"):
-            continue
         if info.file_size > MAX_XLSX_XML_PART:
             raise ArchiveRejected(
                 f"workbook XML part inflates to {info.file_size} bytes, more "

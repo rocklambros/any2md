@@ -291,7 +291,7 @@ def convert_office(
 
     try:
         # Before Docling or the docProps reader inflate anything.
-        check_ooxml_archive(src)
+        check_ooxml_archive(src, fmt)
     except ArchiveRejected as e:
         _logging.fail(f"{src.name} -- {e}")
         return False
