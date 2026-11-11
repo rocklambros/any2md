@@ -129,6 +129,13 @@ def test_mammoth_without_safe_external_access_saves_no_images(tmp_path, monkeypa
     assert "](" not in body
 
 
+def test_short_figure_line_survives_the_text_lane(tmp_path):
+    """T10 drops short lines after a sentence, but never a figure line."""
+    _, body = _mammoth(tmp_path, ["A full sentence.", DocPicture(alt="Chart"), "End."])
+
+    assert "*Figure: Chart*" in body
+
+
 def test_mammoth_alt_text_brackets_are_escaped(tmp_path):
     _, body = _mammoth(tmp_path, [DocPicture(alt="Plan [draft] v2")])
 

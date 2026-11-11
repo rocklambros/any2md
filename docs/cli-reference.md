@@ -304,7 +304,7 @@ Limits by format and lane:
 | Input | Figure text available | Saved files |
 |---|---|---|
 | PPTX, XLSX | Chart title, Docling description, alt text | PNG. A chart Docling cannot render has no image data, so no file |
-| PDF (Docling) | A caption Docling's layout model links to the picture. A PDF has no alt text | PNG |
+| PDF (Docling) | A caption Docling's layout model links to the picture. A caption it does not link stays a plain paragraph. A PDF has no alt text | PNG |
 | PDF (`--backend pymupdf4llm`) | None. This lane drops pictures | None |
 | DOCX (Docling) | Caption paragraph, alt text. Alt text pairs with Docling's pictures by document order, and is skipped for the file when the two picture counts disagree (for example a drawing Docling splits in two) | PNG. A linked (not embedded) image has no data, so no file |
 | DOCX (mammoth) | Caption paragraph, alt text | The image's own bytes and format: PNG, JPEG, GIF, BMP, TIFF, or WebP, at most 64 MiB. EMF, WMF, and SVG images get no file. A linked image is never read, so no file. With mammoth before 1.11 no image is read at all |

@@ -511,6 +511,9 @@ def strip_running_headers_footers(text: str, _options: "PipelineOptions") -> str
 
 _ORPHAN_PUNCT_RE = re.compile(r"^\s*[|>]+\s*$")
 _TERMINAL_PUNCT_RE = re.compile(r"[.!?:;]$")
+# The *Figure: text* line S1 writes for a picture.
+_FIGURE_LINE_RE = re.compile(r"^\*Figure: [^\n]*\*$")
+
 _HEADING_OR_KNOWN_SHORT_RE = re.compile(
     r"^(Contents|References|Appendix|Notes|Note:|Index|Glossary|"
     r"Acknowledgments|Abstract|Summary)\s*$",
@@ -584,6 +587,8 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
             and len(stripped) <= 25
             and not _TERMINAL_PUNCT_RE.search(stripped)
             and not _HEADING_OR_KNOWN_SHORT_RE.match(stripped)
+            # A figure line is short by nature and is not a fragment.
+            and not _FIGURE_LINE_RE.match(stripped)
             and not stripped.startswith("#")
             and not stripped.startswith("-")
             and not stripped.startswith("|")
