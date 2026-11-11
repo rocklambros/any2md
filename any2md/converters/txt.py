@@ -51,13 +51,20 @@ def _is_title_case(line: str) -> bool:
 def structurize(text: str) -> str:
     """Convert plain text to Markdown by detecting implicit structure.
 
-    Unchanged from v0.7. Output goes through the v1.0 cleanup pipeline.
+    Output goes through the v1.0 cleanup pipeline, and the text lane has
+    no heading pass of its own, so this function keeps the document to
+    one H1.
     """
     text = text.replace("\t", "    ")
     lines = text.split("\n")
     output: list[str] = []
     i = 0
+    # A document gets one H1. The first H1 candidate takes it: an opening
+    # title line or the first "="-underlined heading. After that, "="
+    # headings are H2 sections and other underlined headings sit one
+    # level below the open "=" section, or at H2 before any section.
     title_emitted = False
+    section_open = False
     n = len(lines)
     # Index of the first non-blank line, found once so the title check
     # below stays linear in the file length.
@@ -75,8 +82,14 @@ def structurize(text: str) -> str:
             if prev_stripped and output and output[-1].strip():
                 prev_text = output[-1].strip()
                 if not prev_text.startswith("#"):
-                    if char == "=":
+                    if char == "=" and not title_emitted:
                         output[-1] = "# " + prev_text
+                        title_emitted = True
+                    elif char == "=":
+                        output[-1] = "## " + prev_text
+                        section_open = True
+                    elif section_open:
+                        output[-1] = "### " + prev_text
                     else:
                         output[-1] = "## " + prev_text
                     i += 1

@@ -109,7 +109,7 @@ def _page_sections(doc: Any, fmt: OfficeFormat) -> list[tuple[str | None, str]] 
             heading = _one_line(names[i]) or f"Sheet {i + 1}"
         else:
             # A slide with a title placeholder already opens with it.
-            found = find_headings(md.split("\n"))
+            found = find_headings(md)
             opens_with_title = bool(found) and found[0][0] == 0
             heading = None if opens_with_title else f"Slide {page_no}"
         sections.append((heading, md))
@@ -123,7 +123,7 @@ def _demote_headings(md: str, by: int) -> str:
     and block quotes stay as they are.
     """
     lines = md.split("\n")
-    for heading in reversed(find_headings(lines)):
+    for heading in reversed(find_headings(md)):
         first, last, level = heading
         lines[first : last + 1] = [_render_heading(lines, heading, min(level + by, 6))]
     return "\n".join(lines)

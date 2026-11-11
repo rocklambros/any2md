@@ -13,7 +13,10 @@ created an import cycle.
 
 from __future__ import annotations
 
+import functools
 import re
+from collections.abc import Iterator, Sequence
+from typing import NamedTuple
 
 
 def _blank_from(s: str, i: int) -> bool:
@@ -21,7 +24,7 @@ def _blank_from(s: str, i: int) -> bool:
 
     CommonMark treats only spaces and tabs as blank, so other Unicode
     whitespace such as U+00A0 counts as content. A trailing ``\\r`` left
-    by CRLF input is allowed at the very end.
+    by CRLF input is allowed as the last character.
     """
     last = len(s) - 1
     for j in range(i, len(s)):
@@ -32,7 +35,7 @@ def _blank_from(s: str, i: int) -> bool:
 
 
 def _list_marker(line: str, pos: int, end: int) -> int | None:
-    """Return the index just past a list marker at ``line[pos]``, or None.
+    """Return the index past a list marker at ``line[pos]``, or None.
 
     Markers are ``-``, ``*``, ``+``, and one to nine digits followed by
     ``.`` or ``)``. A marker must be followed by a space or by the end of
@@ -254,37 +257,82 @@ _QUOTE = -1
 Heading = tuple[int, int, int]
 
 
-def fenced_lines(lines: list[str]) -> list[bool]:
-    """Flag each line that belongs to a fenced code block, fences included."""
-    kinds, _ = _scan_blocks(lines)
-    return [bool(kind & _FENCE) for kind in kinds]
+class _BlockMap(NamedTuple):
+    kinds: tuple[int, ...]
+    setext: tuple[Heading, ...]
+    fenced: tuple[bool, ...]
 
 
-def protected_lines(lines: list[str]) -> list[bool]:
+# Every lane stage asks for the map of the text it was handed, and most
+# stages return text equal to their input, so one text-lane run used to
+# scan the same body 15 or more times. Keying on the text makes a repeat
+# a hash lookup. Two entries cover a stage that also scans a slice of its
+# input (T4 and T7 read the body after a TOC). The cache holds whole
+# texts, so it stays small to bound memory on large documents. Results
+# are tuples, so no caller can change a cached map.
+_SCAN_CACHE_SIZE = 2
+
+
+@functools.lru_cache(maxsize=_SCAN_CACHE_SIZE)
+def _scan_text(text: str) -> _BlockMap:
+    kinds, setext = _scan_blocks(text.split("\n"))
+    return _BlockMap(
+        tuple(kinds), tuple(setext), tuple(bool(kind & _FENCE) for kind in kinds)
+    )
+
+
+def fenced_lines(text: str) -> tuple[bool, ...]:
+    """Flag each line that belongs to a fenced code block, fences included.
+
+    Lines are the pieces of ``text.split("\\n")``.
+    """
+    return _scan_text(text).fenced
+
+
+def fence_runs(fenced: Sequence[bool]) -> Iterator[tuple[bool, int, int]]:
+    """Yield ``(is_fenced, start, end)`` for each run of equal fence flags.
+
+    ``end`` is exclusive, and the runs cover every line in order. Stages
+    that treat fenced code and prose differently walk these runs, so the
+    split into runs lives in one place.
+    """
+    start = 0
+    n = len(fenced)
+    for k in range(1, n + 1):
+        if k == n or fenced[k] != fenced[start]:
+            yield fenced[start], start, k
+            start = k
+
+
+def protected_lines(text: str) -> list[bool]:
     """Flag each line where a ``#`` is never a document heading.
 
     That is every line of a fenced code block, a raw HTML block, or a
     block quote. A heading inside a quote belongs to the quoted text,
-    not to the document outline. Both heading passes (S4 and the HTML
-    converter) skip these lines.
+    not to the document outline. find_headings skips these lines, so
+    both heading passes (S4 and the HTML converter) follow this one
+    rule.
     """
-    kinds, _ = _scan_blocks(lines)
-    return [kind != _TEXT for kind in kinds]
+    return [kind != _TEXT for kind in _scan_text(text).kinds]
 
 
-_ATX_LINE_RE = re.compile(r"(#{1,6})[ \t]+\S")
+# Leading form feeds and vertical tabs are zero width, as in _scan_blocks.
+_ATX_LINE_RE = re.compile(r"[\f\v]*(#{1,6})[ \t]+\S")
 
 
-def find_headings(lines: list[str]) -> list[Heading]:
+def find_headings(text: str) -> list[Heading]:
     """Return the headings S4 and the HTML lane rank, in document order.
 
     An ATX heading counts when it starts at column 0 outside fenced
-    code, raw HTML, and block quotes. A setext heading counts when its
+    code, raw HTML, and block quotes. Form feeds and vertical tabs
+    before it take no column. A setext heading counts when its
     paragraph sits at the top level. Headings nested in a list item or
     a block quote are left alone, the same rule the ATX pattern applies
     by requiring column 0.
     """
-    kinds, setext = _scan_blocks(lines)
+    setext = _scan_text(text).setext
+    protected = protected_lines(text)
+    lines = text.split("\n")
     headings: list[Heading] = []
     nxt = 0  # the next setext heading not yet passed
     i = 0
@@ -294,7 +342,7 @@ def find_headings(lines: list[str]) -> list[Heading]:
             i = setext[nxt][1] + 1
             nxt += 1
             continue
-        if kinds[i] == _TEXT:
+        if not protected[i]:
             m = _ATX_LINE_RE.match(lines[i])
             if m:
                 headings.append((i, i, len(m.group(1))))
@@ -309,7 +357,7 @@ def setext_text(lines: list[str], heading: Heading) -> str:
     # one line, so a hard break joins the same way and loses its marker:
     # strip() drops the trailing-spaces form, and _drop_hard_break drops
     # a final unescaped backslash. The last line has no break after it.
-    parts = [line.strip(" \t\r") for line in lines[first:last]]
+    parts = [line.strip(" \t\r\f\v") for line in lines[first:last]]
     parts = [_drop_hard_break(part) for part in parts[:-1]] + parts[-1:]
     text = " ".join(part for part in parts if part)
     head = text.rstrip("#")
@@ -330,6 +378,13 @@ def _drop_hard_break(part: str) -> str:
     if run % 2:
         return part[:-1].rstrip(" \t")
     return part
+
+
+# Form feeds and vertical tabs mark page breaks in extracted text. The
+# scanner reads them as zero width, so a fence, quote, list marker, or
+# heading right after a page break still counts, and a line holding
+# only them is blank, the same as Python's str.strip() sees it.
+_ZERO_WIDTH = str.maketrans("", "", "\f\v")
 
 
 def _skip_spaces(s: str, i: int) -> int:
@@ -370,7 +425,9 @@ def _scan_blocks(lines: list[str]) -> tuple[list[int], list[Heading]]:
     is a heading:
 
     - Tabs expand to 4-column stops in a working copy of each line before
-      indents and list markers are measured. The input is not changed.
+      indents and list markers are measured. Form feeds and vertical tabs
+      are dropped from that copy first, so a page break before a block
+      marker takes no column. The input is not changed.
     - Containers are block quotes and list items, tracked on one stack
       so they nest in any order. A quote line starts with ``>`` after at
       most three spaces, and one space after the ``>`` is part of the
@@ -426,6 +483,8 @@ def _scan_blocks(lines: list[str]) -> tuple[list[int], list[Heading]]:
     empty_item = -1  # stack index of a list item with no content yet, or -1
     for i, line in enumerate(lines):
         # After expansion every index equals its CommonMark column.
+        if "\f" in line or "\v" in line:
+            line = line.translate(_ZERO_WIDTH)
         work = line.expandtabs(4)
         size = len(work)
         end = _content_end(work)

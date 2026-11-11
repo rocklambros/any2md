@@ -2,15 +2,20 @@
 
 import pytest
 
-from any2md.pipeline.blocks import find_headings, fenced_lines, protected_lines
+from any2md.pipeline.blocks import (
+    fence_runs,
+    fenced_lines,
+    find_headings,
+    protected_lines,
+)
 
 
 def _flags(text: str) -> list[bool]:
-    return fenced_lines(text.split("\n"))
+    return list(fenced_lines(text))
 
 
 def _protected(text: str) -> list[bool]:
-    return protected_lines(text.split("\n"))
+    return protected_lines(text)
 
 
 # protected_lines covers fenced code and raw HTML blocks.
@@ -446,7 +451,7 @@ def test_lazy_marker_that_cannot_interrupt_starts_a_list():
 
 
 def _headings(text: str) -> list[tuple[int, int, int]]:
-    return find_headings(text.split("\n"))
+    return find_headings(text)
 
 
 def test_setext_h1_and_h2():
@@ -524,3 +529,107 @@ def test_long_underline_run_is_linear():
 def test_empty_list_item_ends_at_blank_line():
     # An item may not open with a blank line, so "  ```" is top level.
     assert _flags("-\n\n  ```\nx") == [False, False, True, True]
+
+
+# Form feed and vertical tab: extractors put "\f" at page breaks, often
+# right before a block marker. The scanner reads both as zero width, so
+# the marker after them still counts.
+
+
+@pytest.mark.parametrize("sep", ["\f", "\v", "\f\v"])
+def test_separator_before_fence_opener(sep):
+    text = f"intro\n{sep}```\ncode\n```\nrest text\nmore"
+    assert _flags(text) == [False, True, True, True, False, False]
+
+
+def test_separator_before_fence_closer():
+    assert _flags("```\ncode\n\f```\nrest") == [True, True, True, False]
+
+
+def test_separator_before_quote_marker():
+    assert _protected("\f> # x\n\nb") == [True, False, False]
+
+
+def test_separator_before_list_marker():
+    assert _flags("\f- ```\n  x\n  ```\nb") == [True, True, True, False]
+
+
+def test_separator_only_line_is_blank():
+    # A blank line ends the quote, so "b" is not lazy quoted text.
+    assert _protected("> a\n\f\nb") == [True, False, False]
+
+
+def test_separator_before_atx_heading():
+    assert _headings("\f# Title\ntext") == [(0, 0, 1)]
+
+
+def test_separator_before_setext_underline():
+    assert _headings("Title\n\f===") == [(0, 1, 1)]
+
+
+def test_separator_mid_line_does_not_shift_indent():
+    # "\f" is zero width, so the fence still sits at column 3.
+    assert _flags("   \f```\nx\n```") == [True, True, True]
+
+
+@pytest.mark.parametrize(
+    "flags, runs",
+    [
+        ([], []),
+        ([False], [(False, 0, 1)]),
+        ([True, True], [(True, 0, 2)]),
+        (
+            [False, True, True, False, False],
+            [(False, 0, 1), (True, 1, 3), (False, 3, 5)],
+        ),
+    ],
+)
+def test_fence_runs_cover_every_line_in_order(flags, runs):
+    assert list(fence_runs(flags)) == runs
+
+
+def test_scan_runs_once_per_distinct_text(monkeypatch):
+    from any2md.pipeline import blocks
+
+    calls = []
+    real = blocks._scan_blocks
+
+    def counting(lines):
+        calls.append(len(lines))
+        return real(lines)
+
+    monkeypatch.setattr(blocks, "_scan_blocks", counting)
+    blocks._scan_text.cache_clear()
+    text = "a\n```\nx\n```\n# h"
+    same = "".join(list(text))  # equal text, different object
+    assert same is not text
+    fenced_lines(text)
+    fenced_lines(same)
+    find_headings(same)
+    protected_lines(text)
+    assert len(calls) == 1
+    fenced_lines(text + "\nmore")
+    assert len(calls) == 2
+    blocks._scan_text.cache_clear()
+
+
+def test_cached_flags_are_immutable():
+    assert isinstance(fenced_lines("```\nx\n```"), tuple)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "# a\n```\n# b\n```\n> # c\n<div>\n# d\n\n# e",
+        "> a\n# b\n\n<pre>\n# c\n</pre>\n## d",
+        "- > # a\n# b\n~~~\n# c",
+    ],
+)
+def test_find_headings_uses_protected_lines_as_its_rule(text):
+    # Every column-0 ATX line outside protected lines is a heading, and
+    # no protected line is.
+    protected = protected_lines(text)
+    found = {first for first, _, _ in find_headings(text)}
+    for i, line in enumerate(text.split("\n")):
+        is_atx = line.startswith("#")
+        assert (i in found) == (is_atx and not protected[i])

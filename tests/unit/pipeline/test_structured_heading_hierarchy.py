@@ -291,3 +291,10 @@ def test_setext_escaped_backslash_is_kept():
     text = "# T\n\none\\\\\ntwo\n---\n"
     out = enforce_heading_hierarchy(text, PipelineOptions())
     assert out == "# T\n\n## one\\\\ two\n"
+
+
+def test_page_break_before_heading_is_kept_when_ranked():
+    # A "\f" page break before a heading stays in front of the new marker.
+    text = "\f### A\n\n\f#### B\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "\f# A\n\n\f## B\n"

@@ -4,6 +4,9 @@ C1 (NFC), C2 (soft hyphens), and C3 (ligatures and NBSP) still apply
 inside fences on purpose. See the cleanup module docstrings for why.
 """
 
+import random
+import re
+
 import pytest
 
 from any2md import pipeline
@@ -36,12 +39,21 @@ def test_c5_leaves_fenced_whitespace_alone():
 def test_c5_prose_matches_the_unfenced_algorithm(text):
     # Outside fences C5 must keep its v1.2.1 output exactly, including
     # how blank runs at the start and end of the text are capped.
-    def legacy(s: str) -> str:
-        s = c._INTERWORD_RUNS_RE.sub(" ", s)
-        s = "\n".join(line.rstrip(" \t") for line in s.split("\n"))
-        return c._BLANK_RUN_RE.sub("\n\n", s)
+    assert c.collapse_whitespace(text, PipelineOptions()) == _legacy_c5(text)
 
-    assert c.collapse_whitespace(text, PipelineOptions()) == legacy(text)
+
+def _legacy_c5(s: str) -> str:
+    s = c._INTERWORD_RUNS_RE.sub(" ", s)
+    s = "\n".join(line.rstrip(" \t") for line in s.split("\n"))
+    return re.sub(r"\n{3,}", "\n\n", s)
+
+
+def test_c5_random_prose_matches_the_unfenced_algorithm():
+    rng = random.Random(1210)
+    pieces = ["a", "b", " ", "  ", "\t", "\n", "\n\n", "\r", "\f"]
+    for _ in range(2000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randrange(12)))
+        assert c.collapse_whitespace(text, PipelineOptions()) == _legacy_c5(text)
 
 
 def test_c4_leaves_fenced_quotes_and_ellipsis_alone():

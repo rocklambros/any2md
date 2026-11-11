@@ -7,7 +7,7 @@ import re
 import unicodedata
 from typing import Callable, TYPE_CHECKING
 
-from any2md.pipeline.blocks import fenced_lines
+from any2md.pipeline.blocks import fence_runs, fenced_lines, find_headings
 
 if TYPE_CHECKING:
     from any2md.pipeline import PipelineOptions
@@ -19,7 +19,7 @@ def _map_outside_fences(text: str, fn: Callable[[str], str]) -> str:
     """Apply a per-line rewrite to every line outside fenced code."""
     lines = text.split("\n")
     return "\n".join(
-        line if code else fn(line) for line, code in zip(lines, fenced_lines(lines))
+        line if code else fn(line) for line, code in zip(lines, fenced_lines(text))
     )
 
 
@@ -83,7 +83,7 @@ _QUOTE_TABLE = str.maketrans(
 
 
 def normalize_quotes_dashes(text: str, _options: "PipelineOptions") -> str:
-    """C4: Smart quotes → straight; ellipsis → "..."; en/em dashes preserved.
+    """C4: Smart quotes → straight, ellipsis → "...", en/em dashes preserved.
 
     Fenced code is left alone. Curly quotes and an ellipsis there are
     often string content, and straightening them changes what the
@@ -95,54 +95,57 @@ def normalize_quotes_dashes(text: str, _options: "PipelineOptions") -> str:
 
 
 _INTERWORD_RUNS_RE = re.compile(r"(?<=\S)[ \t]{2,}(?=\S)")
-_BLANK_RUN_RE = re.compile(r"\n{3,}")
 
 
 def collapse_whitespace(text: str, _options: "PipelineOptions") -> str:
-    """C5: Collapse inter-word whitespace; trim trailing per line; cap blanks at 2.
+    """C5: Collapse inter-word whitespace, trim trailing space, cap blank runs.
 
     Fenced code is left alone: alignment, trailing spaces, and blank
     runs can be significant there.
     """
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
-    if not any(fenced):
-        return _collapse_prose(text)
-    out: list[str] = []
-    start = 0
     n = len(lines)
-    for k in range(1, n + 1):
-        if k < n and fenced[k] == fenced[start]:
-            continue
-        segment = "\n".join(lines[start:k])
-        if fenced[start]:
-            out.append(segment)
+    out: list[str] = []
+    for code, start, end in fence_runs(fenced_lines(text)):
+        if code:
+            out.extend(lines[start:end])
         else:
-            # A fence line next to this prose run is a non-empty line, and
-            # the blank-run cap counts newlines between non-empty lines.
-            # A one-character sentinel line stands in for the fence line,
-            # so the cap gives the same result it gives on the whole text.
-            before = start > 0
-            after = k < n
-            wrapped = ("x\n" if before else "") + segment + ("\nx" if after else "")
-            done = _collapse_prose(wrapped)
-            if before:
-                done = done[2:]
-            if after:
-                done = done[:-2]
-            out.append(done)
-        start = k
+            out.extend(_collapse_prose(lines[start:end], start == 0, end == n))
     return "\n".join(out)
 
 
-def _collapse_prose(text: str) -> str:
-    text = _INTERWORD_RUNS_RE.sub(" ", text)
+def _collapse_prose(lines: list[str], open_start: bool, open_end: bool) -> list[str]:
+    """Collapse one run of prose lines.
+
+    ``open_start`` and ``open_end`` say whether the run touches the start
+    or end of the text rather than a fence line. The cap matches
+    ``\\n{3,}`` -> ``\\n\\n`` over the whole text. A run of empty lines
+    between two non-empty lines spans one more newline than it has
+    lines, so it keeps one empty line. Each open edge removes one of
+    those newlines, so the run keeps one more empty line per open edge.
+    A fence line counts as non-empty.
+    """
+    text = _INTERWORD_RUNS_RE.sub(" ", "\n".join(lines))
     # Per-line rstrip, not ``[ \\t]+$``: the regex rescans a long run of
     # spaces from every start position when the run does not end the line,
     # which is quadratic (CWE-1333).
-    text = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
-    text = _BLANK_RUN_RE.sub("\n\n", text)
-    return text
+    out: list[str] = []
+    blank = 0
+    at_start = True
+    for row in text.split("\n"):
+        row = row.rstrip(" \t")
+        if not row:
+            blank += 1
+            continue
+        if blank:
+            out.extend([""] * min(blank, 2 if at_start and open_start else 1))
+            blank = 0
+        at_start = False
+        out.append(row)
+    if blank:
+        edges = (at_start and open_start) + open_end
+        out.extend([""] * min(blank, 1 + edges))
+    return out
 
 
 def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
@@ -227,7 +230,7 @@ def strip_footnote_markers(text: str, options: "PipelineOptions") -> str:
     if options.profile not in ("aggressive", "maximum"):
         return text
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     # A "## Notes" line inside a code sample is not the footnotes section.
     heading = next(
         (
@@ -246,20 +249,17 @@ def strip_footnote_markers(text: str, options: "PipelineOptions") -> str:
     return "\n".join(body + lines[heading:])
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})\s+\S", re.MULTILINE)
-
-
 def validate(text: str, _options: "PipelineOptions") -> str:
-    """C7: Read-only sanity checks. Emits warnings via the pipeline contextvar."""
+    """C7: Read-only sanity checks. Emits warnings via the pipeline contextvar.
+
+    Headings come from the shared block scanner, the same list S4 and the
+    HTML lane rank. A ``#`` line in fenced code, raw HTML, or a block
+    quote is not a heading, a setext heading is, and a leading page break
+    does not hide one.
+    """
     from any2md.pipeline import emit_warning
 
-    # A "#" line inside fenced code is a comment, not a heading.
-    lines = text.split("\n")
-    levels = [
-        len(m.group(1))
-        for line, code in zip(lines, fenced_lines(lines))
-        if not code and (m := _HEADING_RE.match(line))
-    ]
+    levels = [level for _, _, level in find_headings(text)]
     h1_count = sum(1 for level in levels if level == 1)
     if h1_count != 1:
         emit_warning(f"validator: H1 count is {h1_count} (expected 1)")

@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Callable, TYPE_CHECKING
 
-from any2md.pipeline.blocks import fenced_lines
+from any2md.pipeline.blocks import fence_runs, fenced_lines
 
 if TYPE_CHECKING:
     from any2md.pipeline import PipelineOptions
@@ -26,16 +26,20 @@ _RULE_RE = re.compile(r"^\s*(?:-{3,}|={3,}|\*{3,}|_{3,})\s*$")
 _LIST_PREFIX_RE = re.compile(r"^\s*(?:[-*+]|\d+\.|[a-z]\.)\s+", re.IGNORECASE)
 _HEADING_RE = re.compile(r"^#{1,6}\s")
 _TABLE_RE = re.compile(r"^\s*\|")
-_FENCE_RE = re.compile(r"^\s*```")
 
 
 def _is_structural(line: str) -> bool:
-    """A 'structural' line — never join into or out of."""
+    """Return True for a line T1 never joins into or out of.
+
+    Fence lines are not tested here. T1 reads them from the block
+    scanner, so a backtick line the scanner calls prose (indented four
+    spaces, or holding a backtick in its info string) joins like prose,
+    and a ``~~~`` fence stays apart.
+    """
     return bool(
         _LIST_PREFIX_RE.match(line)
         or _HEADING_RE.match(line)
         or _TABLE_RE.match(line)
-        or _FENCE_RE.match(line)
         or _RULE_RE.match(line)
     )
 
@@ -43,7 +47,7 @@ def _is_structural(line: str) -> bool:
 def repair_line_wraps(text: str, _options: "PipelineOptions") -> str:
     """T1: Join lines that look like soft wraps inside paragraphs."""
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     i = 0
     while i < len(lines):
@@ -129,18 +133,13 @@ def dehyphenate(text: str, _options: "PipelineOptions") -> str:
     compounds = set(_COMPOUND_RE.findall(lowered))
 
     out: list[str] = []
-    prose: list[str] = []
     lines = text.split("\n")
-    for line, fenced in zip(lines, fenced_lines(lines)):
-        if fenced:
-            if prose:
-                out.append(_dehyphenate_prose("\n".join(prose), words, compounds))
-                prose = []
-            out.append(line)
+    for code, start, end in fence_runs(fenced_lines(text)):
+        if code:
+            out.extend(lines[start:end])
         else:
-            prose.append(line)
-    if prose:
-        out.append(_dehyphenate_prose("\n".join(prose), words, compounds))
+            prose = "\n".join(lines[start:end])
+            out.append(_dehyphenate_prose(prose, words, compounds))
     return "\n".join(out)
 
 
@@ -168,7 +167,7 @@ def strip_repeated_byline(text: str, options: "PipelineOptions") -> str:
     if options.profile not in ("aggressive", "maximum"):
         return text
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     for i, line in enumerate(lines):
         if fenced[i]:
@@ -206,7 +205,7 @@ def dedupe_paragraphs(text: str, _options: "PipelineOptions") -> str:
     them.
     """
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     if not any(fenced):
         return _dedupe_prose(text)
     # Dedupe each run of prose lines on its own and copy fenced runs
@@ -214,24 +213,20 @@ def dedupe_paragraphs(text: str, _options: "PipelineOptions") -> str:
     # the edges of a prose run stay outside the dedupe, since dropping a
     # paragraph also drops the separator it was split from.
     out: list[str] = []
-    start = 0
-    for k in range(1, len(lines) + 1):
-        if k < len(lines) and fenced[k] == fenced[start]:
-            continue
-        run = lines[start:k]
-        if fenced[start]:
+    for code, start, end in fence_runs(fenced):
+        run = lines[start:end]
+        if code:
             out.extend(run)
-        else:
-            lo, hi = 0, len(run)
-            while lo < hi and not run[lo].strip():
-                lo += 1
-            while hi > lo and not run[hi - 1].strip():
-                hi -= 1
-            out.extend(run[:lo])
-            if lo < hi:
-                out.append(_dedupe_prose("\n".join(run[lo:hi])))
-            out.extend(run[hi:])
-        start = k
+            continue
+        lo, hi = 0, len(run)
+        while lo < hi and not run[lo].strip():
+            lo += 1
+        while hi > lo and not run[hi - 1].strip():
+            hi -= 1
+        out.extend(run[:lo])
+        if lo < hi:
+            out.append(_dedupe_prose("\n".join(run[lo:hi])))
+        out.extend(run[hi:])
     return "\n".join(out)
 
 
@@ -289,7 +284,7 @@ def _body_heading_titles(text: str) -> set[str]:
     lines = text.split("\n")
     # A "##" line inside fenced code is a comment, not a body heading, so
     # it must not count as a match for a TOC entry.
-    for line, code in zip(lines, fenced_lines(lines)):
+    for line, code in zip(lines, fenced_lines(text)):
         if code:
             continue
         level = len(line) - len(line.lstrip("#"))
@@ -309,7 +304,7 @@ def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
         return text
 
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     # Find the longest run of consecutive TOC-shaped lines starting near
     # the top. Fenced code ends the run: numbered code lines look like
     # TOC entries.
@@ -379,7 +374,7 @@ def dedupe_toc_table(text: str, options: "PipelineOptions") -> str:
 
     cutoff = max(1, int(len(lines) * 0.3))
     # A table inside fenced code is an example, not the document's TOC.
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
 
     # Find first table block within the first 30% of the doc.
     i = 0
@@ -467,7 +462,7 @@ def strip_running_headers_footers(text: str, _options: "PipelineOptions") -> str
     # Fence flags are per "\n" line, and a "\f" sits inside one such line.
     # Each page after the first starts on the line that holds its "\f",
     # so the line index advances only on a "\n" within a page.
-    fenced = fenced_lines(text.split("\n"))
+    fenced = fenced_lines(text)
     page_lines: list[list[tuple[str, bool]]] = []
     g = 0
     for page in pages:
@@ -536,7 +531,7 @@ def strip_orphan_punctuation(text: str, options: "PipelineOptions") -> str:
     lines = text.split("\n")
     return "\n".join(
         ln
-        for ln, code in zip(lines, fenced_lines(lines))
+        for ln, code in zip(lines, fenced_lines(text))
         if code or not _ORPHAN_PUNCT_RE.match(ln)
     )
 
@@ -547,29 +542,44 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
         return text
     text = strip_orphan_punctuation(text, options)
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     n = len(lines)
-    # Last non-blank source line before the current one. The v1.0.2 spec
-    # (section 5.5) drops a short line only when the text before it ended
-    # a sentence, since that is the shape of a fragment trafilatura cut
-    # from the start of a new paragraph. Without that check the stage
-    # dropped a plain-text title on line one and any short line after a
-    # heading, with no warning.
+    # The nearest kept, non-blank prose line before the current one, or ""
+    # when there is none or a fenced line came after it.
+    # The v1.0.2 spec (section 5.5) drops a short line only when the text
+    # before it ended a sentence, since that is the shape of a fragment
+    # trafilatura cut from the start of a new paragraph. Without that
+    # check the stage dropped a plain-text title on line one and any
+    # short line after a heading, with no warning. A dropped line never
+    # becomes the text before, so a run of fragments goes as one. A fenced
+    # line clears it, since code is not the end of a sentence.
     prev_text = ""
+    skip_blank = False
     for i, line in enumerate(lines):
         stripped = line.strip()
+        if skip_blank:
+            # The blank line after a dropped fragment goes with it. The
+            # blank before it already separates its neighbors, and
+            # keeping both would leave a run of blank lines per drop.
+            skip_blank = False
+            if not stripped:
+                continue
+        if fenced[i]:
+            # Code is not the end of a sentence, and the stage does not
+            # reach back past it, so a short line right after a block is
+            # kept. Nothing proves it is a fragment.
+            prev_text = ""
+            out.append(line)
+            continue
         follows_sentence = bool(
             prev_text
             and not prev_text.startswith("#")
             and _TERMINAL_PUNCT_RE.search(prev_text)
         )
-        if stripped:
-            prev_text = stripped
         # Short incomplete sentence between blank lines
         if (
             follows_sentence
-            and not fenced[i]
             and stripped
             and len(stripped) <= 25
             and not _TERMINAL_PUNCT_RE.search(stripped)
@@ -580,7 +590,10 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
             and (i == 0 or not lines[i - 1].strip())
             and (i == n - 1 or not lines[i + 1].strip())
         ):
+            skip_blank = True
             continue
+        if stripped:
+            prev_text = stripped
         out.append(line)
     return "\n".join(out)
 
@@ -592,7 +605,7 @@ def restore_lists_and_code(text: str, _options: "PipelineOptions") -> str:
     not already inside a fence.
     """
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     i = 0
     while i < len(lines):
@@ -647,7 +660,7 @@ def strip_cover_artifacts(text: str, options: "PipelineOptions") -> str:
     if options.profile not in ("aggressive", "maximum"):
         return text
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     seen_h2 = False
     for i, line in enumerate(lines):
