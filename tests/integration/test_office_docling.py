@@ -11,6 +11,7 @@ from any2md.converters import convert_file  # noqa: E402
 from any2md.pipeline import PipelineOptions  # noqa: E402
 from tests._office_fixtures import (  # noqa: E402
     Picture,
+    SheetPicture,
     Slide,
     build_pptx,
     build_xlsx,
@@ -80,6 +81,66 @@ def test_every_title_placeholder_names_its_slide(tmp_path):
     ]
     assert "Intro." in body
     assert "No title placeholder." in body
+
+
+def _picture_deck(tmp_path):
+    return build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(
+                title=["Cover"],
+                pictures=[Picture(alt="Team logo", box=(457200, 0, 914400, 457200))],
+            ),
+            Slide(pictures=[Picture(alt="Network map", grouped=True)]),
+            Slide(pictures=[Picture()]),
+        ],
+    )
+
+
+def test_pptx_picture_alt_text_becomes_figure_lines(tmp_path):
+    out = tmp_path / "out"
+
+    assert convert_file(_picture_deck(tmp_path), out, force=True)
+
+    _, body = _split((out / "deck.md").read_text(encoding="utf-8"))
+    assert _headings(body) == ["# deck", "## Cover", "## Slide 2", "## Slide 3"]
+    assert "## Cover\n\n*Figure: Team logo*" in body
+    assert "## Slide 2\n\n*Figure: Network map*" in body
+    # Without --save-images no link or placeholder remains.
+    assert "](" not in body
+    assert "<!--" not in body
+
+
+def test_xlsx_picture_alt_text_becomes_a_figure_line(tmp_path):
+    book = build_xlsx(
+        tmp_path / "book.xlsx",
+        {"Data": [["k"], ["v"]]},
+        pictures={"Data": [SheetPicture(alt="Quarterly trend")]},
+    )
+    out = tmp_path / "out"
+
+    assert convert_file(book, out, force=True)
+
+    _, body = _split((out / "book.md").read_text(encoding="utf-8"))
+    assert "*Figure: Quarterly trend*" in body
+
+
+def test_save_images_writes_office_pictures(tmp_path):
+    out = tmp_path / "out"
+
+    assert convert_file(
+        _picture_deck(tmp_path),
+        out,
+        options=PipelineOptions(save_images=True),
+        force=True,
+    )
+
+    images = sorted(p.name for p in (out / "images" / "deck").iterdir())
+    assert images == ["img1.png", "img2.png", "img3.png"]
+    assert (out / "images" / "deck" / "img1.png").read_bytes()[:4] == b"\x89PNG"
+    _, body = _split((out / "deck.md").read_text(encoding="utf-8"))
+    assert "*Figure: Team logo*\n\n![Team logo](images/deck/img1.png)" in body
+    assert "## Slide 3\n\n![](images/deck/img3.png)" in body
 
 
 def test_xlsx_sheets_render_as_tables_under_headings(tmp_path):

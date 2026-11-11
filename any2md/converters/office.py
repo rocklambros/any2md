@@ -25,11 +25,17 @@ from any2md._logging import _sanitize_log_text
 from any2md._ooxml_guard import ArchiveRejected, check_ooxml_archive
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
+from any2md.converters._office_pictures import (
+    PICTURE_TOKEN,
+    fill_pictures,
+    prepare_pictures,
+    read_alt_texts,
+)
 from any2md.converters.docx import _read_docx_metadata
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
 from any2md.pipeline.structured import _render_heading, find_headings
-from any2md.utils import atomic_write_text, sanitize_filename
+from any2md.utils import atomic_write_text, safe_dir_name, sanitize_filename
 
 OfficeFormat = Literal["pptx", "xlsx"]
 
@@ -94,11 +100,14 @@ def _slide_title(doc: Any, page_no: int, title_labels: set[Any]) -> str:
     return _one_line(" ".join(p for p in parts if p))
 
 
-def _page_sections(doc: Any, fmt: OfficeFormat) -> list[tuple[str, str, bool]] | None:
+def _page_sections(
+    doc: Any, fmt: OfficeFormat, figures: dict[int, str]
+) -> list[tuple[str, str, bool]] | None:
     """Split a converted deck or workbook into sections, one per page.
 
-    Each section is (heading, markdown, keep when empty). Only a slide
-    whose title placeholder holds text is kept without a body.
+    Each section is (heading, markdown, keep when empty). A slide whose
+    title placeholder holds text, and a slide or sheet with a picture,
+    keep their section even when nothing in it survives the pipeline.
 
     Docling gives each slide and each sheet its own page. Returns None
     when the split cannot be trusted, and the caller then renders the
@@ -130,25 +139,28 @@ def _page_sections(doc: Any, fmt: OfficeFormat) -> list[tuple[str, str, bool]] |
     sections: list[tuple[str, str, bool]] = []
     for i, page_no in enumerate(pages):
         title = ""
+        export: dict[str, Any] = {
+            "page_no": page_no,
+            "image_placeholder": PICTURE_TOKEN,
+        }
         try:
             if fmt == "xlsx":
                 heading = _one_line(names[i]) or f"Sheet {i + 1}"
-                md = doc.export_to_markdown(page_no=page_no)
             else:
                 title = _slide_title(doc, page_no, title_labels)
                 heading = title or f"Slide {page_no}"
                 # The title is the section heading, so the body leaves it
                 # out. Without title text the body keeps every label, so
                 # a title item Docling could not give text loses nothing.
-                md = (
-                    doc.export_to_markdown(page_no=page_no, labels=body_labels)
-                    if title
-                    else doc.export_to_markdown(page_no=page_no)
-                )
+                if title:
+                    export["labels"] = body_labels
+            md = doc.export_to_markdown(**export)
         except TypeError:
             # docling-core releases without page filtering.
             return None
-        sections.append((heading, md.strip(), bool(title)))
+        has_picture = PICTURE_TOKEN in md
+        md = fill_pictures(doc, md, figures, page_no=page_no).strip()
+        sections.append((heading, md, bool(title) or has_picture))
     return sections
 
 
@@ -165,21 +177,46 @@ def _demote_headings(md: str, by: int) -> str:
     return "\n".join(lines)
 
 
-def _render_markdown(doc: Any, fmt: OfficeFormat, title: str) -> str:
+def _render_markdown(
+    doc: Any, fmt: OfficeFormat, title: str, figures: dict[int, str] | None = None
+) -> str:
+    """Render the deck or workbook. ``figures`` comes from ``prepare_pictures``."""
+    figures = figures or {}
     parts = [f"# {title}"]
-    sections = _page_sections(doc, fmt)
+    sections = _page_sections(doc, fmt, figures)
     if sections is None:
-        parts.append(doc.export_to_markdown())
+        md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
+        parts.append(fill_pictures(doc, md, figures))
     else:
         for heading, md, keep_empty in sections:
             # Blank slides and empty or hidden sheets add nothing to read.
-            # A slide whose title is its only text still gets its section.
             if not md and not keep_empty:
                 continue
             parts.append(f"## {heading}")
             if md:
                 parts.append(_demote_headings(md, 2))
     return "\n\n".join(parts) + "\n"
+
+
+def _prepare_figures(
+    doc: Any,
+    src: SourceFile,
+    fmt: OfficeFormat,
+    output_dir: Path,
+    options: PipelineOptions,
+) -> dict[int, str]:
+    """Build each picture's Markdown, saving images under --save-images.
+
+    Images go to ``<output>/images/<stem>/imgN.png``, the layout the PDF
+    converter uses, and the body links them by that relative path.
+    """
+    if not getattr(doc, "pictures", None):
+        return {}
+    folder = safe_dir_name(src.stem)
+    image_dir = output_dir / "images" / folder if options.save_images else None
+    return prepare_pictures(
+        doc, fmt, read_alt_texts(src, fmt), image_dir, f"images/{folder}"
+    )
 
 
 def _convert_via_docling(src: SourceFile, fmt: OfficeFormat) -> Any:
@@ -250,7 +287,8 @@ def convert_office(
             DoclingLogCapture(_BACKEND_LOGGERS[fmt]) as cap,
         ):
             doc = _convert_via_docling(src, fmt)
-        md_text = _render_markdown(doc, fmt, title)
+        figures = _prepare_figures(doc, src, fmt, output_dir, options)
+        md_text = _render_markdown(doc, fmt, title, figures)
     except Exception as e:  # noqa: BLE001 -- untrusted input, fail this file only
         # Docling and its parsers raise many exception types on a corrupt
         # or hostile package. Any of them must end this file, not the batch.

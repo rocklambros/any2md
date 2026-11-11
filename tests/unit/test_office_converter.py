@@ -21,7 +21,13 @@ from any2md._docling import INSTALL_CMD
 from any2md._safe_open import SourceFile
 from any2md.converters import SUPPORTED_EXTENSIONS, convert_file
 from any2md.pipeline import PipelineOptions
-from tests._office_fixtures import build_pptx, build_xlsx
+from tests._office_fixtures import (
+    Picture,
+    SheetPicture,
+    Slide,
+    build_pptx,
+    build_xlsx,
+)
 
 
 class _Label(NamedTuple):
@@ -44,14 +50,41 @@ def _fake_export_labels(monkeypatch):
     monkeypatch.setattr(office, "_split_labels", lambda: (_TITLE_LABELS, _BODY_LABELS))
 
 
+_BBOX = SimpleNamespace(l=0.0, t=0.0, r=1.0, b=1.0)
+
+
+class _FakeImage:
+    """Stands in for a PIL image: ``save`` writes fixed bytes."""
+
+    def save(self, fp, format):
+        fp.write(b"PNG:" + format.encode())
+
+
+def _picture(caption="", description="", box=None, image=None, sheet=None):
+    """A picture item with the fields ``_office_pictures`` reads."""
+    item = SimpleNamespace(
+        label=_label("picture"),
+        captions=[object()] if caption else [],
+        caption_text=lambda doc: caption,
+        meta=SimpleNamespace(description=SimpleNamespace(text=description))
+        if description
+        else None,
+        get_image=lambda doc: image,
+        parent=SimpleNamespace(resolve=lambda doc: SimpleNamespace(name=sheet)),
+        prov=[],
+        box=box,
+    )
+    return item
+
+
 class _FakeDoc:
     """The slice of DoclingDocument that ``office`` reads.
 
-    ``pages`` maps page number to Markdown, or to a list of
-    ``(label, text)`` items. A "title" item renders as ``# text`` and a
-    "picture" item as the image placeholder, the way Docling writes
-    them. Every item carries a provenance entry for its page unless
-    listed in ``orphans``.
+    ``pages`` maps page number to Markdown, or to a list of items: a
+    ``(label, text)`` pair or a ``_picture`` object. A "title" item
+    renders as ``# text`` and a picture as the image placeholder, the
+    way Docling writes them. Every item carries a provenance entry for
+    its page unless listed in ``orphans``.
     """
 
     def __init__(self, pages, sheet_names=(), orphans=0, page_filter=True):
@@ -63,17 +96,29 @@ class _FakeDoc:
         self.groups = [
             SimpleNamespace(name=n, label=_label("sheet")) for n in sheet_names
         ]
-        self._items = [
-            SimpleNamespace(
-                label=_label(label),
-                text=text,
-                captions=[],
-                prov=[SimpleNamespace(page_no=n)],
-            )
-            for n, items in self._pages.items()
-            for label, text in items
-        ] + [SimpleNamespace(label=_label("paragraph"), text="", prov=[])] * orphans
+        self._items = []
+        for n, items in self._pages.items():
+            for spec in items:
+                if isinstance(spec, tuple):
+                    label, text = spec
+                    spec = SimpleNamespace(label=_label(label), text=text, prov=[])
+                if not spec.prov:
+                    box = getattr(spec, "box", None)
+                    bbox = (
+                        SimpleNamespace(l=box[0], t=box[1], r=box[2], b=box[3])
+                        if box
+                        else _BBOX
+                    )
+                    spec.prov = [SimpleNamespace(page_no=n, bbox=bbox)]
+                self._items.append(spec)
+        self._items += [
+            SimpleNamespace(label=_label("paragraph"), text="", prov=[])
+        ] * orphans
         self._page_filter = page_filter
+
+    @property
+    def pictures(self):
+        return [i for i in self._items if i.label.value == "picture"]
 
     def iterate_items(self, page_no=None, **_kwargs):
         for item in self._items:
@@ -327,7 +372,7 @@ def test_each_sheet_gets_a_heading(monkeypatch, tmp_path):
 
 def test_item_without_page_falls_back_to_whole_document():
     doc = _FakeDoc({1: "# One", 2: "# Two"}, orphans=1)
-    assert office._page_sections(doc, "pptx") is None
+    assert office._page_sections(doc, "pptx", {}) is None
     md = office._render_markdown(doc, "pptx", "Deck")
     assert md.startswith("# Deck\n\n# One")
     assert "# Two" in md
@@ -335,12 +380,12 @@ def test_item_without_page_falls_back_to_whole_document():
 
 def test_sheet_count_mismatch_falls_back():
     doc = _FakeDoc({1: "t1", 2: "t2"}, sheet_names=["only one"])
-    assert office._page_sections(doc, "xlsx") is None
+    assert office._page_sections(doc, "xlsx", {}) is None
 
 
 def test_docling_core_without_page_filter_falls_back():
     doc = _FakeDoc({1: "t1"}, sheet_names=["S"], page_filter=False)
-    assert office._page_sections(doc, "xlsx") is None
+    assert office._page_sections(doc, "xlsx", {}) is None
     assert "t1" in office._render_markdown(doc, "xlsx", "Book")
 
 
@@ -363,15 +408,12 @@ def test_title_below_other_content_still_names_the_slide():
     """Docling orders shapes by position, so the title need not come first."""
     doc = _FakeDoc(
         {
-            1: [("picture", ""), ("title", "Cover"), ("paragraph", "Subtitle")],
+            1: [_picture(), ("title", "Cover"), ("paragraph", "Subtitle")],
             2: [("paragraph", "Intro."), ("title", "Agenda")],
         }
     )
     md = office._render_markdown(doc, "pptx", "Deck")
-    assert (
-        md
-        == "# Deck\n\n## Cover\n\n<!-- image -->\n\nSubtitle\n\n## Agenda\n\nIntro.\n"
-    )
+    assert md == "# Deck\n\n## Cover\n\nSubtitle\n\n## Agenda\n\nIntro.\n"
 
 
 def test_title_paragraphs_join_into_one_heading():
@@ -384,6 +426,200 @@ def test_title_only_slide_keeps_its_section():
     doc = _FakeDoc({1: [("title", "Thank you")], 2: "", 3: "Body"})
     md = office._render_markdown(doc, "pptx", "Deck")
     assert md == "# Deck\n\n## Thank you\n\n## Slide 3\n\nBody\n"
+
+
+# ---- pictures ----------------------------------------------------------
+
+
+def _convert_with(monkeypatch, tmp_path, doc, fmt="pptx", **opts):
+    """Run ``convert_office`` on a fixture with ``doc`` as Docling's output."""
+    if fmt == "pptx":
+        src = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
+    else:
+        src = build_xlsx(tmp_path / "deck.xlsx", {"S": [["a"]]})
+    _fake_docling(monkeypatch, doc)
+    out = tmp_path / "out"
+    assert office.convert_office(
+        src, out, fmt, options=PipelineOptions(**opts), force=True
+    )
+    return out, _body(out / "deck.md")
+
+
+def test_picture_caption_becomes_a_figure_line(monkeypatch, tmp_path):
+    doc = _FakeDoc({1: [("title", "Results"), _picture(caption="Revenue by region")]})
+
+    _, body = _convert_with(monkeypatch, tmp_path, doc)
+
+    assert "## Results\n\n*Figure: Revenue by region*" in body
+    # The caption moves into the figure line, so it is not repeated.
+    assert body.count("Revenue by region") == 1
+    assert "<!--" not in body
+
+
+def test_picture_description_becomes_a_figure_line(monkeypatch, tmp_path):
+    doc = _FakeDoc(
+        {1: [_picture(description="Logo of the team", sheet="S")]}, sheet_names=["S"]
+    )
+
+    _, body = _convert_with(monkeypatch, tmp_path, doc, fmt="xlsx")
+
+    assert "## S\n\n*Figure: Logo of the team*" in body
+
+
+def test_alt_text_pairs_with_the_picture_at_its_position(monkeypatch, tmp_path):
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(
+                title=["Map"],
+                pictures=[
+                    Picture(alt="Office map", box=(457200, 0, 914400, 457200)),
+                    Picture(alt="", box=(4572000, 0, 914400, 457200)),
+                ],
+            )
+        ],
+    )
+    doc = _FakeDoc(
+        {
+            1: [
+                _picture(box=(4572000, 0, 5486400, 457200)),
+                _picture(box=(457200, 0, 1371600, 457200)),
+                ("title", "Map"),
+            ]
+        }
+    )
+    _fake_docling(monkeypatch, doc)
+    out = tmp_path / "out"
+
+    assert office.convert_office(deck, out, "pptx", force=True)
+
+    body = _body(out / "deck.md")
+    assert body.count("*Figure:") == 1
+    assert "## Map\n\n*Figure: Office map*" in body
+
+
+def test_caption_wins_over_alt_text(monkeypatch, tmp_path):
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [Slide(pictures=[Picture(alt="Alt", box=(0, 0, 914400, 914400))])],
+    )
+    doc = _FakeDoc({1: [_picture(caption="Chart title", box=(0, 0, 914400, 914400))]})
+    _fake_docling(monkeypatch, doc)
+    out = tmp_path / "out"
+
+    assert office.convert_office(deck, out, "pptx", force=True)
+    assert "*Figure: Chart title*" in _body(out / "deck.md")
+
+
+def test_picture_only_slide_keeps_its_section(monkeypatch, tmp_path):
+    doc = _FakeDoc(
+        {
+            1: [("title", "Intro")],
+            2: [_picture()],
+            3: "",
+            4: [_picture(caption="Org chart")],
+        }
+    )
+
+    _, body = _convert_with(monkeypatch, tmp_path, doc)
+
+    headings = [line for line in body.splitlines() if line.startswith("#")]
+    # Slide 3 holds nothing and adds no section. Slide 2 holds a picture
+    # without text, so its section stays to show the slide was there.
+    assert headings == ["# deck", "## Intro", "## Slide 2", "## Slide 4"]
+    assert "## Slide 4\n\n*Figure: Org chart*" in body
+
+
+def test_figure_text_brackets_are_escaped(monkeypatch, tmp_path):
+    doc = _FakeDoc({1: [_picture(caption="Plan [draft] v2")]})
+
+    _, body = _convert_with(monkeypatch, tmp_path, doc)
+
+    assert "*Figure: Plan \\[draft\\] v2*" in body
+
+
+def test_save_images_writes_and_links_each_picture(monkeypatch, tmp_path):
+    doc = _FakeDoc(
+        {
+            1: [_picture(caption="Chart", image=_FakeImage())],
+            2: [_picture(image=_FakeImage())],
+            3: [_picture(caption="No pixels")],
+        }
+    )
+
+    out, body = _convert_with(monkeypatch, tmp_path, doc, save_images=True)
+
+    assert (out / "images" / "deck" / "img1.png").read_bytes() == b"PNG:PNG"
+    assert (out / "images" / "deck" / "img2.png").exists()
+    assert not (out / "images" / "deck" / "img3.png").exists()
+    assert "*Figure: Chart*\n\n![Chart](images/deck/img1.png)" in body
+    assert "## Slide 2\n\n![](images/deck/img2.png)" in body
+    # A picture without image data keeps its figure line and gets no link.
+    assert "## Slide 3\n\n*Figure: No pixels*\n" in body
+
+
+def test_without_save_images_nothing_is_written(monkeypatch, tmp_path):
+    doc = _FakeDoc({1: [_picture(caption="Chart", image=_FakeImage())]})
+
+    out, body = _convert_with(monkeypatch, tmp_path, doc)
+
+    assert not (out / "images").exists()
+    assert "](" not in body
+
+
+def test_read_alt_texts_maps_group_transforms_and_clamps(tmp_path):
+    from any2md.converters._office_pictures import read_alt_texts
+
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(),
+            Slide(
+                pictures=[
+                    Picture(
+                        alt="Grouped", box=(457200, 0, 914400, 914400), grouped=True
+                    ),
+                    Picture(alt="Off slide", box=(-914400, 0, 1828800, 914400)),
+                    Picture(alt="Two  words\n", box=(0, 914400, 914400, 914400)),
+                ]
+            ),
+        ],
+    )
+
+    alt = read_alt_texts(SourceFile.from_path(deck), "pptx")
+
+    # The group doubles the picture and moves it one inch right.
+    assert alt.take(2, (1371600, 0, 3200400, 1828800)) == "Grouped"
+    # Docling clamps a box to the slide, so the key is clamped too.
+    assert alt.take(2, (0, 0, 914400, 914400)) == "Off slide"
+    assert alt.take(2, (0, 914400, 914400, 1828800)) == "Two words"
+    # Each entry pairs once, and a slide without pictures has none.
+    assert alt.take(2, (0, 914400, 914400, 1828800)) == ""
+    assert alt.take(1, (0, 0, 914400, 914400)) == ""
+
+
+def test_read_alt_texts_keys_sheet_pictures_by_name_and_cells(tmp_path):
+    from any2md.converters._office_pictures import read_alt_texts
+
+    book = build_xlsx(
+        tmp_path / "book.xlsx",
+        {"Data": [["a"]], "Charts": [["b"]]},
+        pictures={"Charts": [SheetPicture(alt="Trend", cells=(1, 2, 4, 9))]},
+    )
+
+    alt = read_alt_texts(SourceFile.from_path(book), "xlsx")
+
+    assert alt.take("Data", (1, 2, 5, 10)) == ""
+    assert alt.take("Charts", (1, 2, 5, 10)) == "Trend"
+
+
+def test_read_alt_texts_on_a_broken_package_finds_none(tmp_path):
+    from any2md.converters._office_pictures import read_alt_texts
+
+    bad = tmp_path / "bad.pptx"
+    bad.write_bytes(b"PK\x03\x04 not really a zip")
+
+    assert read_alt_texts(SourceFile.from_path(bad), "pptx").by_page == {}
 
 
 @pytest.mark.parametrize(

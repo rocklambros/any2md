@@ -281,22 +281,36 @@ stderr regardless of network availability.
 
 ### `--save-images`
 
-Save images extracted from PDFs to `<output>/images/<source_stem>/imgN.png`
-and reference them from the body. Implies `--high-fidelity`.
+Keep the images of a document. Implies `--high-fidelity`, so it needs the
+`[high-fidelity]` install. What it does depends on the input format:
+
+| Input | Files written | Body |
+|---|---|---|
+| PPTX, XLSX | `<output>/images/<source_stem>/imgN.png`, one per picture, numbered in document order | `![text](images/<source_stem>/imgN.png)` below each picture's `*Figure: text*` line, or `![](...)` alone for a picture with no text |
+| PDF (Docling) | `<output>/images/<source_stem>/imgN.png` | No image references |
+| DOCX (Docling) | None | No image references |
+| DOCX (mammoth) | None | Each image inline as `![alt](data:image/...;base64,...)` |
+
+Without `--save-images`, a PPTX or XLSX picture still leaves a
+`*Figure: text*` line when it has text: its Docling caption (a chart title),
+else the description Docling recorded, else the alt text typed in PowerPoint
+or Excel. A picture with none of these leaves no trace. DOCX and PDF pictures
+produce no `*Figure:*` line on either setting. A caption Docling links to a
+PDF picture stays in the body as a plain paragraph.
 
 **Use this when** the images are part of the document's content (architecture
 diagrams, figures referenced by ID in the prose) and downstream consumers can
 display them.
 
 **Don't use this when** images are decorative, or your retrieval pipeline
-doesn't render images — the default caption-only mode produces smaller output.
+doesn't render images. The default caption-only mode produces smaller output.
 
 ```bash
-any2md --save-images architecture.pdf
+any2md --save-images deck.pptx
 ```
 
-You'll see an `images/` subdirectory created under your output directory and
-`![figure](images/architecture/img1.png)`-style references in the body.
+You'll see an `images/deck/` subdirectory created under your output directory
+and `![...](images/deck/img1.png)` references in the body.
 
 ## Frontmatter overrides
 
