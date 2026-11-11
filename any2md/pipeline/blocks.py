@@ -14,6 +14,7 @@ created an import cycle.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator, Sequence
 
 
 def _blank_from(s: str, i: int) -> bool:
@@ -258,6 +259,21 @@ def fenced_lines(lines: list[str]) -> list[bool]:
     """Flag each line that belongs to a fenced code block, fences included."""
     kinds, _ = _scan_blocks(lines)
     return [bool(kind & _FENCE) for kind in kinds]
+
+
+def fence_runs(fenced: Sequence[bool]) -> Iterator[tuple[bool, int, int]]:
+    """Yield ``(is_fenced, start, end)`` for each run of equal fence flags.
+
+    ``end`` is exclusive, and the runs cover every line in order. Stages
+    that treat fenced code and prose differently walk these runs, so the
+    split into runs lives in one place.
+    """
+    start = 0
+    n = len(fenced)
+    for k in range(1, n + 1):
+        if k == n or fenced[k] != fenced[start]:
+            yield fenced[start], start, k
+            start = k
 
 
 def protected_lines(lines: list[str]) -> list[bool]:

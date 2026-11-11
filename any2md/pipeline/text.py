@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Callable, TYPE_CHECKING
 
-from any2md.pipeline.blocks import fenced_lines
+from any2md.pipeline.blocks import fence_runs, fenced_lines
 
 if TYPE_CHECKING:
     from any2md.pipeline import PipelineOptions
@@ -133,18 +133,13 @@ def dehyphenate(text: str, _options: "PipelineOptions") -> str:
     compounds = set(_COMPOUND_RE.findall(lowered))
 
     out: list[str] = []
-    prose: list[str] = []
     lines = text.split("\n")
-    for line, fenced in zip(lines, fenced_lines(lines)):
-        if fenced:
-            if prose:
-                out.append(_dehyphenate_prose("\n".join(prose), words, compounds))
-                prose = []
-            out.append(line)
+    for code, start, end in fence_runs(fenced_lines(lines)):
+        if code:
+            out.extend(lines[start:end])
         else:
-            prose.append(line)
-    if prose:
-        out.append(_dehyphenate_prose("\n".join(prose), words, compounds))
+            prose = "\n".join(lines[start:end])
+            out.append(_dehyphenate_prose(prose, words, compounds))
     return "\n".join(out)
 
 
@@ -218,24 +213,20 @@ def dedupe_paragraphs(text: str, _options: "PipelineOptions") -> str:
     # the edges of a prose run stay outside the dedupe, since dropping a
     # paragraph also drops the separator it was split from.
     out: list[str] = []
-    start = 0
-    for k in range(1, len(lines) + 1):
-        if k < len(lines) and fenced[k] == fenced[start]:
-            continue
-        run = lines[start:k]
-        if fenced[start]:
+    for code, start, end in fence_runs(fenced):
+        run = lines[start:end]
+        if code:
             out.extend(run)
-        else:
-            lo, hi = 0, len(run)
-            while lo < hi and not run[lo].strip():
-                lo += 1
-            while hi > lo and not run[hi - 1].strip():
-                hi -= 1
-            out.extend(run[:lo])
-            if lo < hi:
-                out.append(_dedupe_prose("\n".join(run[lo:hi])))
-            out.extend(run[hi:])
-        start = k
+            continue
+        lo, hi = 0, len(run)
+        while lo < hi and not run[lo].strip():
+            lo += 1
+        while hi > lo and not run[hi - 1].strip():
+            hi -= 1
+        out.extend(run[:lo])
+        if lo < hi:
+            out.append(_dedupe_prose("\n".join(run[lo:hi])))
+        out.extend(run[hi:])
     return "\n".join(out)
 
 

@@ -2,7 +2,12 @@
 
 import pytest
 
-from any2md.pipeline.blocks import find_headings, fenced_lines, protected_lines
+from any2md.pipeline.blocks import (
+    fence_runs,
+    fenced_lines,
+    find_headings,
+    protected_lines,
+)
 
 
 def _flags(text: str) -> list[bool]:
@@ -565,3 +570,19 @@ def test_separator_before_setext_underline():
 def test_separator_mid_line_does_not_shift_indent():
     # "\f" is zero width, so the fence still sits at column 3.
     assert _flags("   \f```\nx\n```") == [True, True, True]
+
+
+@pytest.mark.parametrize(
+    "flags, runs",
+    [
+        ([], []),
+        ([False], [(False, 0, 1)]),
+        ([True, True], [(True, 0, 2)]),
+        (
+            [False, True, True, False, False],
+            [(False, 0, 1), (True, 1, 3), (False, 3, 5)],
+        ),
+    ],
+)
+def test_fence_runs_cover_every_line_in_order(flags, runs):
+    assert list(fence_runs(flags)) == runs
