@@ -334,6 +334,15 @@ any2md --meta-file ./corpus-defaults.toml ./corpus
 You'll see frontmatter with all keys from `[meta]` in the TOML file, plus any
 `[document_id]` overrides applied to `--auto-id` outputs.
 
+Values in `[meta]` (here and in `.any2md.toml`) can be strings, integers,
+floats, booleans, tables, arrays of those scalars, and TOML dates, times, and
+datetimes. Dates and times come out as quoted ISO 8601 strings at any depth,
+matching the built-in `date` field: `reviewed = 2026-01-01` becomes
+`reviewed: "2026-01-01"`, and `published = 1979-05-27T07:32:00Z` becomes
+`published: "1979-05-27T07:32:00+00:00"`. Array items come out as quoted
+strings. An array of tables (`[[meta.reviewers]]`) or a nested array has no
+frontmatter form, so each file fails with a `FAIL:` line.
+
 ### `.any2md.toml` (auto-discovery)
 
 When neither `--meta-file` nor `--meta` is sufficient, drop a `.any2md.toml`

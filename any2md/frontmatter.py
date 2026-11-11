@@ -15,6 +15,7 @@ import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date as _date_cls
+from datetime import time as _time_cls
 from typing import Any, Literal
 
 from any2md import heuristics
@@ -241,7 +242,33 @@ def _emit_value(value: Any) -> str:
         return f'"{_yaml_escape(value)}"'
     if isinstance(value, (int, float)):
         return str(value)
+    if isinstance(value, (_date_cls, _time_cls)):
+        # TOML dates, times, and datetimes from --meta-file or .any2md.toml.
+        # Emit them quoted, the same way the built-in ``date`` field is
+        # emitted. Unquoted, a YAML 1.1 loader such as PyYAML returns date
+        # and datetime objects but leaves a time as a string, and YAML 1.2
+        # core-schema loaders return strings for all three. Quoting gives
+        # every consumer the same string type for every value.
+        # ``datetime`` subclasses ``date``, so this branch covers all three.
+        return f'"{value.isoformat()}"'
     raise FrontmatterEmitError(f"unsupported frontmatter value: {type(value).__name__}")
+
+
+def _list_item_text(value: Any) -> str:
+    """Convert one list item to the string the flow-list emitter quotes."""
+    if isinstance(value, (dict, list)):
+        # Lists emit in flow style as quoted strings. A TOML array of tables
+        # or a nested array would come out as Python repr text, so fail the
+        # file instead. A block-style emitter for mappings inside lists is
+        # out of proportion for SAGE fields, which are flat scalar lists.
+        raise FrontmatterEmitError(
+            f"unsupported frontmatter list item: {type(value).__name__}"
+        )
+    if isinstance(value, (_date_cls, _time_cls)):
+        # ``str(datetime)`` uses a space separator. Use the same ISO form
+        # the scalar path emits.
+        return value.isoformat()
+    return str(value)
 
 
 def _emit_array(values: list[str]) -> str:
@@ -382,8 +409,9 @@ def _emit_field(key: str, value: Any, lines: list[str], depth: int = 0) -> None:
             _emit_field(subkey, subval, lines, depth + 1)
         return
     if isinstance(value, list):
-        # Only string-lists are supported for now (matches SAGE §3 fields).
-        lines.append(f"{indent}{key}: {_emit_array([str(v) for v in value])}")
+        # Items emit as quoted strings (matches SAGE §3 fields).
+        items = [_list_item_text(v) for v in value]
+        lines.append(f"{indent}{key}: {_emit_array(items)}")
         return
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         lines.append(f"{indent}{key}: {value}")
