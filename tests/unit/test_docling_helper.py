@@ -107,6 +107,30 @@ def test_error_filter_cannot_fail_a_conversion_after_it_succeeds():
     assert cap.messages == ["UserWarning: counted, not raised"]
 
 
+def test_warnings_from_other_libraries_are_not_counted():
+    """torch, transformers, numpy, or PIL warnings during model loading or
+    conversion are not document problems. They meet the caller's own
+    filters untouched."""
+    torch_file = "/venv/lib/python3.12/site-packages/torch/nn/modules/module.py"
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        with DoclingWarningCapture() as cap:
+            _warn("weights loaded in float16", UserWarning, filename=torch_file)
+            _warn("bbox outside page")
+
+    assert cap.messages == ["UserWarning: bbox outside page"]
+    assert [(w.category, w.filename) for w in seen] == [(UserWarning, torch_file)]
+
+
+def test_a_caller_error_filter_still_applies_to_other_libraries():
+    torch_file = "/venv/lib/python3.12/site-packages/torch/nn/modules/module.py"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with DoclingWarningCapture():
+            with pytest.raises(UserWarning):
+                _warn("not ours", UserWarning, filename=torch_file)
+
+
 def test_notes_join_the_counted_messages():
     cap = DoclingWarningCapture()
     with cap:

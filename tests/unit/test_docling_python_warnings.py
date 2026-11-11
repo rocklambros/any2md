@@ -18,9 +18,22 @@ from any2md.pipeline import PipelineOptions
 _BBOX = "Provenance bbox coordinate b on page 2 is outside page bounds: value=9"
 
 
+_DOCLING_FILE = "/venv/lib/python3.12/site-packages/docling_core/types/doc/document.py"
+
+
+def _docling_warning(args, kwargs):
+    """Raise the bbox warning from a docling-core file, inside the capture
+    the converter passed (positionally for DOCX, by name for PDF)."""
+    capture = kwargs.get("capture") or (args[4] if len(args) > 4 else None)
+    with capture:
+        warnings.warn_explicit(
+            _BBOX, UserWarning, _DOCLING_FILE, 333, module="docling_core.types"
+        )
+
+
 def _warn_then(result):
-    def fake(*_args, **_kwargs):
-        warnings.warn(_BBOX, UserWarning, stacklevel=1)
+    def fake(*args, **kwargs):
+        _docling_warning(args, kwargs)
         return result
 
     return fake
@@ -79,8 +92,8 @@ def test_failed_docling_attempt_does_not_count_its_warnings(
 ):
     """A PDF that falls back to pymupdf4llm keeps only that lane's warnings."""
 
-    def fail(*_args, **_kwargs):
-        warnings.warn(_BBOX, UserWarning, stacklevel=1)
+    def fail(*args, **kwargs):
+        _docling_warning(args, kwargs)
         raise RuntimeError("docling broke")
 
     monkeypatch.setattr(pdf_mod, "has_docling", lambda: True)

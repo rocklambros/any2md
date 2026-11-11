@@ -15,6 +15,7 @@ import sys
 import threading
 import warnings
 from importlib.util import find_spec
+from pathlib import Path
 
 from any2md._logging import safe_oneline
 
@@ -87,23 +88,41 @@ _COUNTED_WARNINGS: tuple[type[Warning], ...] = (
 )
 
 
+# Only warnings raised from Docling's own packages describe the document.
+# torch, transformers, numpy, or PIL warnings during model loading or
+# conversion go to the caller's normal handling. The filter's module
+# pattern matches the warning's module name, and the display hook checks
+# the file the warning names.
+_DOCLING_MODULE_RE = r"docling(_core)?(\.|$)"
+_DOCLING_PACKAGES = frozenset({"docling", "docling_core"})
+
+
+def _from_docling(filename: str) -> bool:
+    """True when ``filename`` lies inside the docling or docling_core package."""
+    return not _DOCLING_PACKAGES.isdisjoint(Path(filename).parts)
+
+
 class DoclingWarningCapture:
     """Record the Python warnings raised during one Docling conversion.
 
     docling-core reports some document problems with ``warnings.warn``
     rather than logging (for example "Provenance bbox coordinate ... is
     outside page bounds"). Python prints those raw to stderr. Inside
-    this context manager a warning of a counted category is collected
+    this context manager a warning of a counted category raised from
+    Docling's own packages (docling, docling_core) is collected
     instead, and ``messages`` returns each one sanitized to one line,
     for the run's warning bucket. They count toward ``--strict`` like
     Docling's logged warnings.
 
-    Only the counted categories are touched. An "always" filter for each
-    one goes first, so a repeat counts every time and a caller's "error"
-    or "ignore" filter cannot raise or hide it mid-conversion. Every
-    other category (deprecations, resource warnings) meets the caller's
-    own filters and display hook as it is raised, with its own module
-    and line, and nothing is recorded or replayed afterward.
+    Only those warnings are touched. An "always" filter for each counted
+    category, limited to Docling's modules, goes first, so a repeat
+    counts every time and a caller's "error" or "ignore" filter cannot
+    raise or hide it mid-conversion. Every other warning (deprecations,
+    and anything torch, transformers, numpy, or PIL raise while models
+    load) meets the caller's own filters and display hook as it is
+    raised, with its own module and line, and nothing is recorded or
+    replayed afterward. Converters also build their Docling converter
+    outside the capture, so it covers the conversion and export only.
 
     ``warnings.catch_warnings`` saves the process-wide filters and
     display hook on entry and restores them on exit, so a library
@@ -121,11 +140,13 @@ class DoclingWarningCapture:
         self._context = warnings.catch_warnings()
         self._context.__enter__()
         for category in _COUNTED_WARNINGS:
-            warnings.filterwarnings("always", category=category)
+            warnings.filterwarnings(
+                "always", category=category, module=_DOCLING_MODULE_RE
+            )
         shown = warnings.showwarning
 
         def collect(message, category, filename, lineno, file=None, line=None):
-            if issubclass(category, _COUNTED_WARNINGS):
+            if issubclass(category, _COUNTED_WARNINGS) and _from_docling(filename):
                 self._messages.append(
                     f"{category.__name__}: {safe_oneline(str(message))}"
                 )

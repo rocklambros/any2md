@@ -15,6 +15,7 @@ import zipfile
 
 from defusedxml.ElementTree import ParseError as _XmlParseError
 from defusedxml.ElementTree import parse as _xml_parse
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
 
@@ -154,6 +155,7 @@ def _extract_via_docling(
     options: PipelineOptions | None = None,
     output_dir: Path | None = None,
     force: bool = False,
+    capture: DoclingWarningCapture | None = None,
 ) -> tuple[str, str, list[str]]:
     """Returns (markdown, 'docling', captured_warnings).
 
@@ -165,6 +167,10 @@ def _extract_via_docling(
     and XLSX. Under ``--save-images`` (``options.save_images`` with an
     ``output_dir``) each picture is written to
     ``<output_dir>/images/<stem>/imgN.png`` and linked.
+
+    ``capture`` counts Python warnings from the conversion, export, and
+    fill. The converter is built before it starts, so construction and
+    model-loading warnings never count.
 
     v1.1.0: uses the persistent ConverterCache rather than constructing
     a fresh DocumentConverter per call. On any convert exception the
@@ -178,7 +184,8 @@ def _extract_via_docling(
 
     src = as_source(docx_path)
     converter = get_docx_converter()
-    with _DoclingMswordWarningCapture() as cap:
+    counted = capture if capture is not None else nullcontext()
+    with _DoclingMswordWarningCapture() as cap, counted:
         try:
             # Never a str: see SourceFile.docling_input.
             result = converter.convert(src.docling_input())
@@ -197,11 +204,14 @@ def _extract_via_docling(
         if not discarded:
             writer = ImageWriter(output_dir, src.name, overwrite=force)
     try:
-        figures: dict[int, str] = {}
-        if getattr(doc, "pictures", None):
-            figures = prepare_pictures(doc, "docx", read_alt_texts(src, "docx"), writer)
-        md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
-        md = fill_pictures(doc, md, figures)
+        with capture if capture is not None else nullcontext():
+            figures: dict[int, str] = {}
+            if getattr(doc, "pictures", None):
+                figures = prepare_pictures(
+                    doc, "docx", read_alt_texts(src, "docx"), writer
+                )
+            md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
+            md = fill_pictures(doc, md, figures)
     except Exception:
         # The caller falls back to mammoth, which saves its own images.
         if writer is not None:
@@ -454,18 +464,18 @@ def convert_docx(
             )
             lane = "text"
         elif options.backend == "docling":
-            with DoclingWarningCapture() as cap:
-                md_text, extracted_via, docling_warnings = _extract_via_docling(
-                    src, options, output_dir, force
-                )
+            cap = DoclingWarningCapture()
+            md_text, extracted_via, docling_warnings = _extract_via_docling(
+                src, options, output_dir, force, cap
+            )
             py_warnings = cap.messages
             lane = "structured"
         elif has_docling():
             try:
-                with DoclingWarningCapture() as cap:
-                    md_text, extracted_via, docling_warnings = _extract_via_docling(
-                        src, options, output_dir, force
-                    )
+                cap = DoclingWarningCapture()
+                md_text, extracted_via, docling_warnings = _extract_via_docling(
+                    src, options, output_dir, force, cap
+                )
                 py_warnings = cap.messages
                 lane = "structured"
             except Exception as e:  # noqa: BLE001 — fall back rather than fail

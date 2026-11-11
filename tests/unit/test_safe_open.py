@@ -464,7 +464,7 @@ def test_pdf_docling_fallback_reuses_the_document(fixture_dir, tmp_path, monkeyp
     monkeypatch.setattr(pdf_mod, "has_docling", lambda: True)
     seen = []
 
-    def failing_docling(src, options, output_dir, data=None, force=False):
+    def failing_docling(src, options, output_dir, data=None, force=False, capture=None):
         seen.append(data)
         raise RuntimeError("docling broke")
 

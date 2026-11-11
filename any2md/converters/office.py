@@ -15,6 +15,7 @@ becomes the heading.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal
@@ -218,14 +219,21 @@ def _prepare_figures(
     return prepare_pictures(doc, fmt, read_alt_texts(src, fmt), writer)
 
 
-def _convert_via_docling(src: SourceFile, fmt: OfficeFormat) -> Any:
-    """Return the DoclingDocument for ``src``. Raises on Docling errors."""
+def _convert_via_docling(
+    src: SourceFile, fmt: OfficeFormat, capture: DoclingWarningCapture | None = None
+) -> Any:
+    """Return the DoclingDocument for ``src``. Raises on Docling errors.
+
+    The converter is built before ``capture`` starts, so only warnings
+    from the conversion itself are counted.
+    """
     from any2md._docling_cache import evict_on_convert_failure, get_office_converter
 
     converter = get_office_converter(fmt)
     try:
-        # Never a str: see SourceFile.docling_input.
-        return converter.convert(src.docling_input()).document
+        with capture if capture is not None else nullcontext():
+            # Never a str: see SourceFile.docling_input.
+            return converter.convert(src.docling_input()).document
     except Exception:
         evict_on_convert_failure(fmt, None)
         raise
@@ -291,14 +299,15 @@ def convert_office(
         # still propagate, so a caller's own logging setup sees them.
         # docling-core also raises Python warnings, during conversion and
         # during Markdown export, so both run inside the warning capture.
+        py_warnings = DoclingWarningCapture()
         with (
             DoclingLogCapture("docling"),
             DoclingLogCapture(_BACKEND_LOGGERS[fmt]) as cap,
-            DoclingWarningCapture() as py_warnings,
         ):
-            doc = _convert_via_docling(src, fmt)
-            figures = _prepare_figures(doc, src, fmt, writer)
-            md_text = _render_markdown(doc, fmt, title, figures)
+            doc = _convert_via_docling(src, fmt, py_warnings)
+            with py_warnings:
+                figures = _prepare_figures(doc, src, fmt, writer)
+                md_text = _render_markdown(doc, fmt, title, figures)
     except Exception as e:  # noqa: BLE001 -- untrusted input, fail this file only
         # Docling and its parsers raise many exception types on a corrupt
         # or hostile package. Any of them must end this file, not the batch.

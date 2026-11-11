@@ -156,7 +156,7 @@ def _fake_docling(monkeypatch, doc):
     """Make ``office`` believe Docling is installed and returns ``doc``."""
     seen: list[SourceFile] = []
 
-    def fake_convert(src, fmt):
+    def fake_convert(src, fmt, capture=None):
         seen.append(src)
         return doc
 
@@ -252,7 +252,7 @@ def test_non_docling_backend_is_rejected(monkeypatch, tmp_path, capsys, backend,
 def test_docling_error_fails_only_this_file(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(office, "has_docling", lambda: True)
 
-    def boom(src, fmt):
+    def boom(src, fmt, capture=None):
         raise RuntimeError("Pipeline SimplePipeline failed\nsecond line")
 
     monkeypatch.setattr(office, "_convert_via_docling", boom)
@@ -831,7 +831,7 @@ def test_scanned_file_over_size_cap_is_skipped(monkeypatch, tmp_path, capsys):
 def _docling_that_logs(monkeypatch, logger_name, message, doc):
     import logging
 
-    def fake_convert(src, fmt):
+    def fake_convert(src, fmt, capture=None):
         logging.getLogger(logger_name).warning(message)
         logging.getLogger(logger_name).info("below WARNING, not counted")
         return doc
@@ -872,22 +872,38 @@ def test_backend_warnings_reach_the_run_bucket(
     assert "1 warning(s)" in capsys.readouterr().out
 
 
-def _docling_that_warns(monkeypatch, doc, during_render=False):
-    """Raise a docling-core style Python warning in convert or in export."""
+_DOCLING_FILE = "/venv/lib/python3.12/site-packages/docling_core/types/doc/document.py"
+_TORCH_FILE = "/venv/lib/python3.12/site-packages/torch/nn/modules/module.py"
+
+
+def _warn_from(filename, message):
+    """Raise a UserWarning as if from ``filename``."""
     import warnings
 
+    module = "docling_core.types" if "docling" in filename else "torch.nn"
+    warnings.warn_explicit(message, UserWarning, filename, 1, module=module)
+
+
+def _docling_that_warns(monkeypatch, doc, during_render=False):
+    """Raise a docling-core style Python warning in convert or in export.
+
+    The fake converter enters the capture the way ``_convert_via_docling``
+    does, and also raises a torch warning, which must not be counted.
+    """
     message = "Provenance bbox coordinate t on page 1 is outside page bounds"
 
-    def fake_convert(src, fmt):
-        if not during_render:
-            warnings.warn(message, UserWarning, stacklevel=1)
+    def fake_convert(src, fmt, capture=None):
+        with capture:
+            _warn_from(_TORCH_FILE, "weights loaded in float16")
+            if not during_render:
+                _warn_from(_DOCLING_FILE, message)
         return doc
 
     if during_render:
         plain_export = doc.export_to_markdown
 
         def warning_export(**kwargs):
-            warnings.warn(message, UserWarning, stacklevel=1)
+            _warn_from(_DOCLING_FILE, message)
             return plain_export(**kwargs)
 
         doc.export_to_markdown = warning_export
@@ -912,9 +928,36 @@ def test_python_warnings_are_counted_not_printed(
     got = collected_warnings()
     reset_warnings()
     assert f"UserWarning: {message}" in got
+    # The torch warning is not a document problem.
+    assert not any("float16" in w for w in got)
     captured = capsys.readouterr()
     assert "outside page bounds" not in captured.err
     assert "warning(s)" in captured.out
+
+
+def test_converter_is_built_outside_the_warning_capture(monkeypatch, tmp_path):
+    """Model loading or converter construction warnings never count."""
+    import any2md._docling_cache as cache_mod
+    from any2md.converters import collected_warnings, reset_warnings
+
+    class Converter:
+        def convert(self, source):
+            return SimpleNamespace(document=_FakeDoc({1: "Body"}))
+
+    def build(fmt):
+        _warn_from(_DOCLING_FILE, "raised while building the converter")
+        return Converter()
+
+    monkeypatch.setattr(office, "has_docling", lambda: True)
+    monkeypatch.setattr(cache_mod, "get_office_converter", build)
+    deck = build_pptx(tmp_path / "deck.pptx", [("T", "B")])
+    reset_warnings()
+
+    assert office.convert_office(deck, tmp_path / "out", "pptx", force=True)
+
+    got = collected_warnings()
+    reset_warnings()
+    assert not any("building the converter" in w for w in got)
 
 
 def test_strict_exits_3_on_python_warning(monkeypatch, tmp_path):
@@ -954,7 +997,7 @@ def test_docling_log_line_does_not_reach_stderr(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(logging.root, "handlers", [])
 
-    def failing_convert(src, fmt):
+    def failing_convert(src, fmt, capture=None):
         logging.getLogger("docling.document_converter").warning(
             "Input document %s is not valid.", src.name
         )
@@ -986,7 +1029,7 @@ def test_docling_logs_still_reach_configured_handlers(monkeypatch, tmp_path):
 
     monkeypatch.setattr(logging.root, "handlers", [Keep()])
 
-    def failing_convert(src, fmt):
+    def failing_convert(src, fmt, capture=None):
         logging.getLogger("docling.document_converter").warning("not valid")
         raise RuntimeError("boom")
 

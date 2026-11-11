@@ -9,8 +9,10 @@ beyond surfacing the requested backend in extracted_via.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pymupdf
 import pymupdf4llm
@@ -134,12 +136,27 @@ def _doc_looks_complex(doc: "pymupdf.Document") -> bool:
         return False
 
 
+def _load_pdf_models(converter: Any) -> None:
+    """Load the PDF pipeline's models now, outside any warning capture.
+
+    Docling loads them on the first convert otherwise. A converter
+    without ``initialize_pipeline`` (an older Docling) loads them there.
+    """
+    initialize = getattr(converter, "initialize_pipeline", None)
+    if initialize is None:
+        return
+    from docling.datamodel.base_models import InputFormat
+
+    initialize(InputFormat.PDF)
+
+
 def _extract_via_docling(
     pdf_path: Path | SourceFile,
     options: PipelineOptions,
     output_dir: Path,
     data: bytes | None = None,
     force: bool = False,
+    capture: DoclingWarningCapture | None = None,
 ) -> tuple[str, str]:
     """Returns (markdown, 'docling'). Raises on Docling errors.
 
@@ -150,6 +167,10 @@ def _extract_via_docling(
     written to ``<output_dir>/images/<pdf_stem>/imgN.png`` and linked
     from the body. With ``force`` they are regenerated and stale ones
     removed.
+
+    ``capture`` counts Python warnings from the conversion and export.
+    The converter is built and its models loaded before it starts, so
+    torch or transformers warnings from model loading never count.
 
     v1.1.0: uses the persistent ConverterCache rather than constructing
     a fresh DocumentConverter per call. On any convert exception the
@@ -171,9 +192,12 @@ def _extract_via_docling(
 
     src = as_source(pdf_path)
     converter = get_pdf_converter(pipeline_opts)
+    counted = capture if capture is not None else nullcontext()
     try:
-        # Never a str: see SourceFile.docling_input.
-        result = converter.convert(src.docling_input(data))
+        _load_pdf_models(converter)
+        with counted:
+            # Never a str: see SourceFile.docling_input.
+            result = converter.convert(src.docling_input(data))
     except Exception:
         evict_on_convert_failure("pdf", pipeline_opts)
         raise
@@ -195,11 +219,12 @@ def _extract_via_docling(
         else None
     )
     try:
-        figures: dict[int, str] = {}
-        if getattr(doc, "pictures", None):
-            figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
-        md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
-        md = fill_pictures(doc, md, figures)
+        with capture if capture is not None else nullcontext():
+            figures: dict[int, str] = {}
+            if getattr(doc, "pictures", None):
+                figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
+            md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
+            md = fill_pictures(doc, md, figures)
     except Exception:
         # The caller falls back to pymupdf4llm, which links no images.
         if writer is not None:
@@ -282,10 +307,10 @@ def convert_pdf(
             py_warnings: list[str] = []
             if use_docling:
                 try:
-                    with DoclingWarningCapture() as cap:
-                        md_text, extracted_via = _extract_via_docling(
-                            src, options, output_dir, data=data, force=force
-                        )
+                    cap = DoclingWarningCapture()
+                    md_text, extracted_via = _extract_via_docling(
+                        src, options, output_dir, data=data, force=force, capture=cap
+                    )
                     py_warnings = cap.messages
                     lane = "structured"
                 except Exception as e:  # noqa: BLE001 — fall back rather than fail
