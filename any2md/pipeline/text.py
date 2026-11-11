@@ -26,16 +26,20 @@ _RULE_RE = re.compile(r"^\s*(?:-{3,}|={3,}|\*{3,}|_{3,})\s*$")
 _LIST_PREFIX_RE = re.compile(r"^\s*(?:[-*+]|\d+\.|[a-z]\.)\s+", re.IGNORECASE)
 _HEADING_RE = re.compile(r"^#{1,6}\s")
 _TABLE_RE = re.compile(r"^\s*\|")
-_FENCE_RE = re.compile(r"^\s*```")
 
 
 def _is_structural(line: str) -> bool:
-    """A 'structural' line — never join into or out of."""
+    """Return True for a line T1 never joins into or out of.
+
+    Fence lines are not tested here. T1 reads them from the block
+    scanner, so a backtick line the scanner calls prose (indented four
+    spaces, or holding a backtick in its info string) joins like prose,
+    and a ``~~~`` fence stays apart.
+    """
     return bool(
         _LIST_PREFIX_RE.match(line)
         or _HEADING_RE.match(line)
         or _TABLE_RE.match(line)
-        or _FENCE_RE.match(line)
         or _RULE_RE.match(line)
     )
 

@@ -67,3 +67,22 @@ def test_form_feed_before_fence_does_not_hide_the_opener():
     text = "intro\n\f```\ncode\n```\nrest text\nmore"
     out = repair_line_wraps(text, PipelineOptions())
     assert out == "intro\n\f```\ncode\n```\nrest text more"
+
+
+@pytest.mark.parametrize(
+    "second",
+    [
+        "    ```code``` sits here",  # indented, so not a fence opener
+        "```a` b is inline code",  # backtick in the info string
+    ],
+)
+def test_backtick_line_that_is_not_a_fence_still_joins(second):
+    # T1 and the block scanner agree on what is a fence line.
+    text = f"a wrapped line of prose\n{second}"
+    out = repair_line_wraps(text, PipelineOptions())
+    assert out == f"a wrapped line of prose {second.lstrip()}"
+
+
+def test_tilde_fence_is_never_joined():
+    text = "a wrapped line of prose\n~~~\ncode\n~~~\nafter"
+    assert repair_line_wraps(text, PipelineOptions()) == text
