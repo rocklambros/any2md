@@ -387,180 +387,427 @@ def _is_atx_heading(rest: str) -> bool:
     return 1 <= run <= 6 and (run == len(rest) or rest[run] == " ")
 
 
-# Line kinds reported by _scan_blocks.
-_TEXT, _FENCE, _HTML = 0, 1, 2
+# Line kinds reported by _scan_blocks. _QUOTED is a flag added to the
+# others, so a fence line inside a block quote is ``_FENCE | _QUOTED``.
+_TEXT, _FENCE, _HTML, _QUOTED = 0, 1, 2, 4
+
+# A block quote on the container stack. A list item stores its width
+# instead: its content column minus the column its parent's content
+# starts at. The width is relative because a quote prefix may sit at a
+# different column on each line, and it is always positive.
+_QUOTE = -1
+
+# What the rest of a line starts, after its container prefixes.
+(
+    _INDENTED,
+    _EMPTY,
+    _BREAK,
+    _SETEXT,
+    _CONTINUATION,
+    _LEAF,
+    _FENCE_START,
+    _HTML_START,
+    _ATX,
+    _PARAGRAPH,
+) = range(10)
+
+# A heading as (first line index, last line index, level). An ATX
+# heading spans one line. A setext heading spans its paragraph lines and
+# its underline.
+Heading = tuple[int, int, int]
 
 
 def fenced_lines(lines: list[str]) -> list[bool]:
     """Flag each line that belongs to a fenced code block, fences included."""
-    return [kind == _FENCE for kind in _scan_blocks(lines)]
+    kinds, _ = _scan_blocks(lines)
+    return [bool(kind & _FENCE) for kind in kinds]
 
 
 def protected_lines(lines: list[str]) -> list[bool]:
-    """Flag each line where a ``#`` is never a heading.
+    """Flag each line where a ``#`` is never a document heading.
 
-    That is every line of a fenced code block or a raw HTML block. Both
-    heading passes (S4 and the HTML converter) skip these lines.
+    That is every line of a fenced code block, a raw HTML block, or a
+    block quote. A heading inside a quote belongs to the quoted text,
+    not to the document outline. Both heading passes (S4 and the HTML
+    converter) skip these lines.
     """
-    return [kind != _TEXT for kind in _scan_blocks(lines)]
+    kinds, _ = _scan_blocks(lines)
+    return [kind != _TEXT for kind in kinds]
 
 
-def _scan_blocks(lines: list[str]) -> list[int]:
-    """Classify each line as text, fenced code, or raw HTML block.
+_ATX_LINE_RE = re.compile(r"(#{1,6})[ \t]+\S")
 
-    Returns ``_TEXT``, ``_FENCE``, or ``_HTML`` per line. Fence lines
+
+def find_headings(lines: list[str]) -> list[Heading]:
+    """Return the headings S4 and the HTML lane rank, in document order.
+
+    An ATX heading counts when it starts at column 0 outside fenced
+    code, raw HTML, and block quotes. A setext heading counts when its
+    paragraph sits at the top level. Headings nested in a list item or
+    a block quote are left alone, the same rule the ATX pattern applies
+    by requiring column 0.
+    """
+    kinds, setext = _scan_blocks(lines)
+    headings: list[Heading] = []
+    nxt = 0  # the next setext heading not yet passed
+    i = 0
+    while i < len(lines):
+        if nxt < len(setext) and setext[nxt][0] == i:
+            headings.append(setext[nxt])
+            i = setext[nxt][1] + 1
+            nxt += 1
+            continue
+        if kinds[i] == _TEXT:
+            m = _ATX_LINE_RE.match(lines[i])
+            if m:
+                headings.append((i, i, len(m.group(1))))
+        i += 1
+    return headings
+
+
+def setext_text(lines: list[str], heading: Heading) -> str:
+    """Return a setext heading's content as the text of one ATX line."""
+    first, last, _ = heading
+    # A soft line break inside a heading renders as a space. ATX holds
+    # one line, so a hard break joins the same way and loses its marker:
+    # strip() drops the trailing-spaces form, and _drop_hard_break drops
+    # a final unescaped backslash. The last line has no break after it.
+    parts = [line.strip(" \t\r") for line in lines[first:last]]
+    parts = [_drop_hard_break(part) for part in parts[:-1]] + parts[-1:]
+    text = " ".join(part for part in parts if part)
+    head = text.rstrip("#")
+    if head != text and head[-1:] in ("", " ", "\t"):
+        # In ATX form a final "#" run after a space is a closing
+        # sequence and would drop out of the heading text.
+        text = head + "\\" + text[len(head) :]
+    return text
+
+
+def _drop_hard_break(part: str) -> str:
+    """Remove a backslash hard break from the end of ``part``.
+
+    Only an odd run of trailing backslashes ends in a break. An even run
+    is escaped backslashes, which are text.
+    """
+    run = len(part) - len(part.rstrip("\\"))
+    if run % 2:
+        return part[:-1].rstrip(" \t")
+    return part
+
+
+def _skip_spaces(s: str, i: int) -> int:
+    while i < len(s) and s[i] == " ":
+        i += 1
+    return i
+
+
+def _content_end(s: str) -> int:
+    """Return the index past the last character ``_blank_from`` counts."""
+    end = len(s)
+    if end and s[end - 1] == "\r":
+        end -= 1
+    while end and s[end - 1] in " \t":
+        end -= 1
+    return end
+
+
+def _setext_level(s: str, i: int, end: int) -> int:
+    """Return 1 or 2 when ``s[i:end]`` is a setext underline, else 0."""
+    ch = s[i]
+    j = i
+    while j < end and s[j] == ch:
+        j += 1
+    if j < end:
+        return 0
+    return 1 if ch == "=" else 2
+
+
+def _scan_blocks(lines: list[str]) -> tuple[list[int], list[Heading]]:
+    """Classify each line and find the top-level setext headings.
+
+    Returns one kind per line (``_TEXT``, ``_FENCE``, or ``_HTML``, plus
+    the ``_QUOTED`` flag for lines inside a block quote) and the setext
+    headings whose paragraph sits outside every container. Fence lines
     and HTML block start and end lines count as part of their block.
     Models the CommonMark block rules that decide whether a ``#`` line
     is a heading:
 
     - Tabs expand to 4-column stops in a working copy of each line before
       indents and list markers are measured. The input is not changed.
+    - Containers are block quotes and list items, tracked on one stack
+      so they nest in any order. A quote line starts with ``>`` after at
+      most three spaces, and one space after the ``>`` is part of the
+      prefix. A list item continues on a line indented to its content
+      column, or on a blank line. A blank line ends a block quote.
     - A fence opens with three or more backticks or tildes and closes
       only on a run of the same character at least as long, followed by
       nothing but spaces or tabs (and a final ``\\r`` from CRLF input). A
       backtick opener's info string may not hold a backtick.
     - An opener or closer may sit at most three columns past its base:
-      column 0 at top level, or the content column of the enclosing list
-      item. Deeper indentation is indented code, not a fence.
+      the column after its container prefixes. Deeper indentation is
+      indented code, not a fence.
     - An unclosed top-level fence runs to the end of the text. A fence
-      inside a list item also ends when the item ends: a non-blank line
-      left of the item's content column closes the fence and is then
-      read as an ordinary line.
+      inside a container ends when the container does, and the line
+      that ends it is then read as an ordinary line.
     - A thematic break (``* * *``, ``- - -``, ``___``) is never a list
-      item, and one line may open several items (``- - ```` or
-      ``1. - ````). Every marker is consumed before the fence test.
+      item, and one line may open several containers (``- - ````,
+      ``1. - ````, ``> - > ````). Every marker is consumed before the
+      fence test.
     - A list item may interrupt a paragraph only when it is not empty
       and, if ordered, starts at 1. Otherwise the line is paragraph text.
+      An item that is still empty ends at the next blank line, since an
+      item may not open with a blank line.
+    - Lazy continuation: a paragraph line that does not match every open
+      container still continues the paragraph, and keeps the containers
+      open, unless it starts another block. Lazy lines never continue a
+      fence or an HTML block.
+    - Setext headings: a ``=`` or ``-`` run (at most three spaces in,
+      trailing spaces or tabs allowed) after paragraph text in the same
+      container is an underline. It wins over a thematic break and an
+      empty list item, and it is never a lazy line. After a blank line,
+      ``---`` is a thematic break.
     - Raw HTML blocks (CommonMark 4.6 types 1 to 7) hide fence lines
       and headings. An ATX heading line never starts one.
       Types 1 to 5 end at their end marker, types 6 and 7 at a blank
       line, and type 7 cannot interrupt a paragraph. HTML blocks may
-      start inside list items and end when the item ends.
+      start inside containers and end when the container ends.
 
-    List items are tracked with a stack of content columns, so nested
-    items work. Lazy continuation lines and block quotes are not
-    modeled: a non-blank line left of the item's content column ends the
-    item. Setext underlines are read as paragraph text or thematic
-    breaks. One pass, linear in the input length. Shared by
-    structured-lane S4 and the HTML converter so both lanes agree on
-    what is code or raw HTML.
+    Not modeled: link reference definitions, which cannot hold a heading
+    line. One pass, linear in the input length.
+    Shared by structured-lane S4 and the HTML converter so both lanes
+    agree on what is code, raw HTML, quoted text, or a heading.
     """
     kinds: list[int] = []
-    fence: tuple[str, int, int] | None = None  # (char, run length, base column)
-    html: tuple[tuple[str, ...], int] | None = None  # (end markers, base column)
-    list_cols: list[int] = []  # content columns of open list items
+    setext: list[Heading] = []
+    stack: list[int] = []  # open containers, outermost first
+    quote_at: list[int] = []  # stack indices of the open block quotes
+    fence: tuple[str, int] | None = None  # (char, run length) of the open fence
+    html: tuple[str, ...] | None = None  # end markers of the open HTML block
     in_paragraph = False  # the previous line was paragraph text
-    for line in lines:
+    para_start = 0  # index of the open paragraph's first line
+    empty_item = -1  # stack index of a list item with no content yet, or -1
+    for i, line in enumerate(lines):
         # After expansion every index equals its CommonMark column.
         work = line.expandtabs(4)
-        blank = _blank_from(work, 0)
-        col = len(work) - len(work.lstrip(" "))
-        if fence is not None:
-            ch, length, base = fence
-            # Base 0 is a top-level fence, which only a closer can end.
-            if base > 0 and not blank and col < base:
-                fence = None  # the list item ended, so its fence did too
+        size = len(work)
+        end = _content_end(work)
+
+        # Match open containers, outermost first. A quote consumes its
+        # ">" and each list item consumes its width, so a non-blank line
+        # matches at most one container per column. ``ns`` is the first
+        # non-space at or after ``pos``, so the spaces of a line are read
+        # once however deep the stack is.
+        pos = 0
+        ns = _skip_spaces(work, 0)
+        matched = 0
+        quotes_matched = 0
+        while matched < len(stack):
+            if stack[matched] == _QUOTE:
+                if ns - pos > 3 or ns >= size or work[ns] != ">":
+                    break
+                pos = ns + 1
+                if pos < size and work[pos] == " ":
+                    pos += 1
+                ns = _skip_spaces(work, pos)
+                matched += 1
+                quotes_matched += 1
+            elif ns >= end:
+                # A blank rest matches every list item up to the next
+                # quote, which it cannot match. Jumping there keeps a
+                # blank line O(1) under a deep list.
+                if quotes_matched < len(quote_at):
+                    matched = quote_at[quotes_matched]
+                else:
+                    matched = len(stack)
+                break
+            elif ns - pos >= stack[matched]:
+                pos += stack[matched]
+                matched += 1
             else:
-                kinds.append(_FENCE)
-                if col - base <= 3 and _fence_closes(work[col:], ch, length):
+                break
+        blank = ns >= end
+        if blank and 0 <= empty_item < matched:
+            matched = empty_item
+        all_matched = matched == len(stack)
+
+        if fence is not None or html is not None:
+            quoted = _QUOTED if quote_at else 0
+            if not all_matched:
+                # Lazy continuation never extends a fence or HTML block,
+                # so the leaf ends with its container.
+                fence = html = None
+            elif fence is not None:
+                kinds.append(_FENCE | quoted)
+                if ns - pos <= 3 and _fence_closes(work[ns:], fence[0], fence[1]):
                     fence = None
                 continue
-        if html is not None:
-            ends, base = html
-            if base > 0 and not blank and col < base:
-                html = None  # the list item ended, so its HTML block did too
-            elif not ends and blank:
+            elif not html and blank:
                 # The blank line ends a type 6 or 7 block and is not part
                 # of it, so it falls through as an ordinary blank line.
                 html = None
             else:
-                kinds.append(_HTML)
-                if ends and any(e in work.lower() for e in ends):
+                kinds.append(_HTML | quoted)
+                if html and any(e in work[pos:].lower() for e in html):
                     html = None
                 continue
-        kinds.append(_TEXT)
+
         if blank:
+            del stack[matched:]
+            while quote_at and quote_at[-1] >= matched:
+                quote_at.pop()
+            kinds.append(_QUOTED if quote_at else _TEXT)
             in_paragraph = False
+            empty_item = -1
             continue
-        while list_cols and col < list_cols[-1]:
-            list_cols.pop()
-        base = list_cols[-1] if list_cols else 0
-        if col - base > 3:
-            # Indented code, or paragraph continuation text when a
-            # paragraph is open. Either way in_paragraph keeps its value.
-            continue
-        # Consume every list marker on the line, tracking positions by
-        # index so a long run of markers stays linear. Each marker makes
-        # its item's content column the base for the rest of the line.
-        end = len(work.rstrip(" \t\r"))
+
+        # Find what the rest of the line starts. New containers go to
+        # ``opened`` first: a lazy line keeps the old stack instead.
+        # ``p`` is the column indents count from, ``q`` the first
+        # non-space at or after it.
+        interrupting = in_paragraph and all_matched
+        opened: list[int] = []
+        p, q = pos, ns
         breaks: list[bool] | None = None
-        pos = col
-        is_break = False
-        continuation = False
-        while pos < end:
-            if work[pos] in "-*_":
+        level = 0
+        while True:
+            if q - p > 3:
+                result = _INDENTED
+                break
+            if q >= end:
+                result = _EMPTY
+                break
+            ch = work[q]
+            if ch == ">":
+                opened.append(_QUOTE)
+                p = q + 1
+                if p < size and work[p] == " ":
+                    p += 1
+                q = _skip_spaces(work, p)
+                continue
+            if ch in "=-" and interrupting and not opened:
+                # Checked before thematic breaks and list items, which a
+                # setext underline wins over. Only one check runs per
+                # line, so a long underline stays linear.
+                level = _setext_level(work, q, end)
+                if level:
+                    result = _SETEXT
+                    break
+            if ch in "-*_":
                 if breaks is None:
                     breaks = _break_starts(work)
-                if breaks[pos]:
-                    is_break = True
+                if breaks[q]:
+                    result = _BREAK
                     break
-            after = _list_marker(work, pos, end)
+            after = _list_marker(work, q, end)
             if after is None:
+                result = _LEAF
                 break
-            nxt = after
-            while nxt < end and work[nxt] == " ":
-                nxt += 1
+            nxt = _skip_spaces(work, after)
             empty = nxt >= end
-            ordered = work[pos] not in "-*+"
-            if in_paragraph and (
-                empty or (ordered and int(work[pos : after - 1]) != 1)
+            ordered = work[q] not in "-*+"
+            if (
+                interrupting
+                and not opened
+                and (empty or (ordered and int(work[q : after - 1]) != 1))
             ):
-                continuation = True  # this item may not interrupt a paragraph
+                result = _CONTINUATION  # this item may not interrupt a paragraph
                 break
-            in_paragraph = False
             spaces = nxt - after
             # An empty item, or five or more spaces (indented code inside
             # the item), puts the content column one space past the marker.
-            base = after + (spaces if 0 < spaces <= 4 and not empty else 1)
-            list_cols.append(base)
-            pos = nxt
-            if pos - base > 3:
-                break  # indented code inside the item holds no marker
-        if continuation:
-            continue  # paragraph text, in_paragraph stays True
-        if is_break or pos >= end or pos - base > 3:
-            in_paragraph = False
+            content = after + (spaces if 0 < spaces <= 4 and not empty else 1)
+            opened.append(content - p)
+            p = content
+            q = nxt
+
+        ends: tuple[str, ...] | None = None
+        opener: tuple[str, int] | None = None
+        if result == _LEAF:
+            rest = work[q:end]
+            opener = _fence_opener(rest)
+            if opener is not None:
+                result = _FENCE_START
+            else:
+                if rest[0] == "<":
+                    # Type 7 may not interrupt a paragraph, which a lazy
+                    # line would otherwise continue.
+                    ends = _html_block_start(rest, in_paragraph and not opened)
+                if ends is not None:
+                    result = _HTML_START
+                elif _is_atx_heading(rest):
+                    result = _ATX
+                else:
+                    result = _PARAGRAPH
+
+        if (
+            not all_matched
+            and in_paragraph
+            and not opened
+            and result in (_INDENTED, _PARAGRAPH)
+        ):
+            # Lazy continuation: the line stays in the open paragraph and
+            # every container stays open.
+            kinds.append(_QUOTED if quote_at else _TEXT)
+            empty_item = -1
             continue
-        rest = work[pos:end]
-        opener = _fence_opener(rest)
+
+        del stack[matched:]
+        while quote_at and quote_at[-1] >= matched:
+            quote_at.pop()
+        for entry in opened:
+            if entry == _QUOTE:
+                quote_at.append(len(stack))
+            stack.append(entry)
+        quoted = _QUOTED if quote_at else 0
+        continues = interrupting and not opened
+        empty_item = -1
+        if result == _EMPTY and opened[-1] != _QUOTE:
+            empty_item = len(stack) - 1
+
         if opener is not None:
-            fence = (opener[0], opener[1], base)
-            kinds[-1] = _FENCE
+            fence = opener
+            kinds.append(_FENCE | quoted)
             in_paragraph = False
-            continue
-        if rest[0] == "<":
-            ends = _html_block_start(rest, in_paragraph)
-            if ends is not None:
-                kinds[-1] = _HTML
-                # Types 1 to 5 may end on their start line.
-                if not ends or not any(e in rest.lower() for e in ends):
-                    html = (ends, base)
+        elif ends is not None:
+            kinds.append(_HTML | quoted)
+            # Types 1 to 5 may end on their start line.
+            if not ends or not any(e in work[q:end].lower() for e in ends):
+                html = ends
+            in_paragraph = False
+        else:
+            kinds.append(_TEXT | quoted)
+            if result == _SETEXT:
+                if not stack:
+                    setext.append((para_start, i, level))
                 in_paragraph = False
-                continue
-        in_paragraph = not _is_atx_heading(rest)
-    return kinds
+            elif result == _PARAGRAPH:
+                if not continues:
+                    para_start = i
+                in_paragraph = True
+            elif result in (_INDENTED, _CONTINUATION):
+                # Indented text continues an open paragraph and is code
+                # otherwise. A marker that may not interrupt is text.
+                in_paragraph = continues
+            else:
+                in_paragraph = False
+    return kinds, setext
 
 
-def _protected_line_starts(text: str) -> set[int]:
-    """Return the offsets of every line that ``protected_lines`` flags."""
-    starts: set[int] = set()
-    offset = 0
-    lines = text.split("\n")
-    for line, protected in zip(lines, protected_lines(lines)):
-        if protected:
-            starts.add(offset)
-        offset += len(line) + 1
-    return starts
+def _render_heading(lines: list[str], heading: Heading, level: int) -> str:
+    """Return ``heading`` written as one ATX line at ``level``.
+
+    S4 writes every heading in ATX form, setext ones included, so its
+    output has one heading syntax. The C7 validator and the frontmatter
+    title pass read ATX only, and S4 already rewrites every ATX line it
+    ranks, so converting setext lines here keeps that behavior uniform.
+    """
+    first, last, _ = heading
+    if first == last:
+        m = _HEADING_LINE_RE.match(lines[first])
+        if m is None:  # find_headings matched it, so this cannot happen
+            return lines[first]
+        return "#" * level + " " + m.group(2).rstrip()
+    return "#" * level + " " + setext_text(lines, heading)
 
 
 def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
@@ -571,16 +818,16 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
     - Remaining levels are ranked with ``rank_heading_levels``: each
       heading sits one level below its nearest shallower ancestor, so
       sibling H3s under an H1 all become H2.
-    - Lines inside fenced code or raw HTML blocks are never treated as
-      headings.
+    - Setext headings count like ATX headings and are written as ATX.
+    - Lines inside fenced code, raw HTML blocks, or block quotes are
+      never treated as headings.
     """
-    protected = _protected_line_starts(text)
-    matches = [m for m in _HEADING_LINE_RE.finditer(text) if m.start() not in protected]
-    if not matches:
+    lines = text.split("\n")
+    headings = find_headings(lines)
+    if not headings:
         return text
 
-    # Pass 1: collect (level, title, span)
-    levels = [len(m.group(1)) for m in matches]
+    levels = [level for _, _, level in headings]
 
     # Promote first heading to H1 if no H1
     if 1 not in levels:
@@ -599,15 +846,14 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
     # section parents and their skipped children nest under them.
     levels = rank_heading_levels(levels)
 
-    # Pass 2: rewrite
-    out = []
+    out: list[str] = []
     last = 0
-    for new_level, m in zip(levels, matches):
-        out.append(text[last : m.start()])
-        out.append("#" * new_level + " " + m.group(2).rstrip())
-        last = m.end()
-    out.append(text[last:])
-    return "".join(out)
+    for heading, new_level in zip(headings, levels):
+        out.extend(lines[last : heading[0]])
+        out.append(_render_heading(lines, heading, new_level))
+        last = heading[1] + 1
+    out.extend(lines[last:])
+    return "\n".join(out)
 
 
 STAGES.append(enforce_heading_hierarchy)

@@ -2,7 +2,7 @@
 
 import pytest
 
-from any2md.pipeline.structured import fenced_lines, protected_lines
+from any2md.pipeline.structured import find_headings, fenced_lines, protected_lines
 
 
 def _flags(text: str) -> list[bool]:
@@ -96,9 +96,15 @@ def test_fence_inside_nested_list_item():
     assert _flags(text) == [False, False, False, True, True, True]
 
 
-def test_unindented_paragraph_ends_list_context():
-    # "para" ends the list, so a 4-space fence after it is indented code.
-    assert _flags("- item\npara\n\n    ```\nx") == [False] * 5
+def test_lazy_paragraph_line_keeps_list_item_open():
+    # "para" is a lazy continuation of the item's paragraph, so the item
+    # stays open and the 4-space fence after the blank line sits inside it.
+    assert _flags("- item\npara\n\n    ```\nx") == [False, False, False, True, False]
+
+
+def test_unindented_heading_ends_list_context():
+    # A heading is not paragraph text, so it ends the list.
+    assert _flags("- item\n# H\n\n    ```\nx") == [False] * 5
 
 
 def test_fence_on_list_marker_line():
@@ -303,3 +309,218 @@ def test_long_attribute_list_is_linear():
     start = time.perf_counter()
     assert _flags(f"{line}\n```\nx") == [False, False, False]
     assert time.perf_counter() - start < 2.0
+
+
+# Block quotes: a ">" prefix opens a container that fences, HTML blocks,
+# list items, and headings can sit inside.
+
+
+def test_quoted_lines_are_protected():
+    # A quoted heading is quoted content, never a document heading.
+    assert _protected("a\n\n> # x\n> text\n\nb") == [
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+    ]
+
+
+def test_blank_line_ends_quote():
+    assert _protected("> # x\n\n# y") == [True, False, False]
+
+
+def test_fence_inside_quote():
+    assert _flags("> ```\n> # x\n> ```\nb") == [True, True, True, False]
+
+
+def test_quote_prefix_without_space_and_indented_marker():
+    assert _flags(">```\n   >x\n>```\nb") == [True, True, True, False]
+
+
+def test_fence_inside_quote_ends_with_quote():
+    # The quote ends at the line with no ">", so its fence ends too and
+    # "```" there opens a new top-level fence.
+    assert _flags("> ```\n> x\n```\ny") == [True, True, True, True]
+
+
+def test_blank_line_ends_quote_and_its_fence():
+    assert _flags("> ```\n\n```\nx") == [True, False, True, True]
+
+
+def test_fence_does_not_take_lazy_continuation():
+    # "x" lacks ">", and lazy continuation never extends a fence.
+    assert _flags("> ```\nx\n```") == [True, False, True]
+
+
+def test_html_block_inside_quote_ends_with_quote():
+    assert _protected("> <pre>\n> # x\n# y") == [True, True, False]
+
+
+def test_nested_quotes():
+    assert _flags("> > ```\n> > x\n> y\n```") == [True, True, False, True]
+
+
+def test_list_item_inside_quote():
+    text = "> - a\n>\n>     ```\n>     x\n>     ```\nb"
+    assert _flags(text) == [False, False, True, True, True, False]
+
+
+def test_quote_inside_list_item():
+    text = "- > ```\n  > x\n  > ```\nb"
+    assert _flags(text) == [True, True, True, False]
+
+
+def test_quote_four_space_indent_is_code():
+    assert _protected("    > # x") == [False]
+
+
+def test_long_quote_run_is_linear():
+    import time
+
+    text = "> " * 200_000 + "x\n" + ">" * 200_000 + "\n" + "\n" * 1000 + "y"
+    start = time.perf_counter()
+    flags = _protected(text)
+    assert flags[:2] == [True, True] and flags[-1] is False
+    assert time.perf_counter() - start < 2.0
+
+
+def test_deep_list_then_blank_lines_is_linear():
+    import time
+
+    text = "- " * 100_000 + "x" + "\n" * 100_000 + "> y"
+    start = time.perf_counter()
+    assert _protected(text)[-1] is True
+    assert time.perf_counter() - start < 2.0
+
+
+# Lazy continuation: a paragraph line may drop the ">" or the list
+# indent and still belong to the paragraph.
+
+
+def test_lazy_line_stays_in_quote():
+    # "b" continues the quoted paragraph, so it is quoted content.
+    assert _protected("> a\nb\n\nc") == [True, True, False, False]
+
+
+def test_lazy_line_in_nested_quote():
+    assert _protected("> > a\n> b\nc\n\nd") == [True, True, True, False, False]
+
+
+def test_lazy_line_keeps_quote_open_for_fence():
+    assert _flags("> a\nb\n> ```\n> x") == [False, False, True, True]
+
+
+def test_heading_after_quote_is_not_lazy():
+    assert _protected("> a\n# b") == [True, False]
+
+
+def test_thematic_break_after_quote_is_not_lazy():
+    assert _protected("> a\n---\nb") == [True, False, False]
+
+
+def test_fence_after_quote_is_not_lazy():
+    assert _flags("> a\n```\nx") == [False, True, True]
+
+
+def test_lazy_line_after_heading_is_not_continuation():
+    # The quote holds a heading, not a paragraph, so "b" ends the quote.
+    assert _protected("> # a\nb") == [True, False]
+
+
+def test_indented_lazy_line_is_continuation():
+    assert _protected("> a\n    b") == [True, True]
+
+
+def test_lazy_line_in_list_keeps_item_open():
+    assert _flags("- a\nb\n  ```\n  x") == [False, False, True, True]
+
+
+def test_lazy_marker_that_cannot_interrupt_starts_a_list():
+    # The item is not matched, so "2." is a new list, not lazy text.
+    assert _flags("- a\n2. b\n\n   ```\nx") == [False, False, False, True, False]
+
+
+# Setext headings: a paragraph followed by a "=" or "-" underline.
+
+
+def _headings(text: str) -> list[tuple[int, int, int]]:
+    return find_headings(text.split("\n"))
+
+
+def test_setext_h1_and_h2():
+    assert _headings("Title\n=====\n\nSub\n---") == [(0, 1, 1), (3, 4, 2)]
+
+
+def test_setext_multiline_paragraph():
+    assert _headings("a\nb\n===") == [(0, 2, 1)]
+
+
+def test_setext_underline_indent_and_trailing_space():
+    assert _headings("a\n   ==  \t") == [(0, 1, 1)]
+
+
+def test_setext_underline_four_spaces_is_text():
+    assert _headings("a\n    ===") == []
+
+
+def test_dash_after_blank_line_is_thematic_break():
+    assert _headings("a\n\n---") == []
+
+
+def test_setext_wins_over_empty_list_item():
+    assert _headings("a\n-") == [(0, 1, 2)]
+
+
+def test_spaced_dashes_are_a_thematic_break():
+    assert _headings("a\n- - -") == []
+
+
+def test_equals_with_inner_space_is_text():
+    assert _headings("a\n= =") == []
+
+
+def test_setext_after_atx_is_text():
+    assert _headings("# a\n===") == [(0, 0, 1)]
+
+
+def test_setext_mixed_with_atx_in_order():
+    assert _headings("# T\n\nA\n---\n\n### B") == [(0, 0, 1), (2, 3, 2), (5, 5, 3)]
+
+
+def test_setext_inside_quote_is_not_a_document_heading():
+    assert _headings("> a\n> ---") == []
+
+
+def test_setext_underline_is_not_lazy():
+    # "---" lacks ">", cannot be a lazy line, and so is a thematic break.
+    assert _headings("> a\n---") == []
+    assert _headings("> a\n===") == []
+
+
+def test_setext_inside_list_item_is_not_a_document_heading():
+    assert _headings("- a\n  ---") == []
+
+
+def test_list_item_underline_after_paragraph_in_item():
+    # "  ---" inside the item is a setext underline, so it is not a list.
+    assert _flags("- a\n  ---\n\n    ```\nx") == [False, False, False, True, False]
+
+
+def test_headings_skip_fenced_and_quoted_lines():
+    assert _headings("```\n# x\n```\n> # y\n## z") == [(4, 4, 2)]
+
+
+def test_long_underline_run_is_linear():
+    import time
+
+    text = "a\n" + "=" * 400_000 + "\nb\n" + "-" * 400_000 + " x"
+    start = time.perf_counter()
+    assert _headings(text) == [(0, 1, 1)]
+    assert time.perf_counter() - start < 2.0
+
+
+def test_empty_list_item_ends_at_blank_line():
+    # An item may not open with a blank line, so "  ```" is top level.
+    assert _flags("-\n\n  ```\nx") == [False, False, True, True]
