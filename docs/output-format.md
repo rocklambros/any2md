@@ -125,7 +125,7 @@ can use semantic version-style values without breaking the type.
 **Derivation:** From source-side metadata where available, then today's date.
 For local files, the file `mtime`. For URL fetches, the HTTP `Last-Modified`
 header (single best-effort HEAD request after the SSRF check passes); falls
-back to today on HEAD failure. For PDFs and DOCX, parsed from the embedded
+back to today on HEAD failure. For PDFs, DOCX, PPTX, and XLSX, parsed from the embedded
 `creation` / `modified` properties when present. For TXT files without an
 mtime, today.
 
@@ -178,7 +178,7 @@ infer it from a generic document.
 **auto** | type: `array<string>` (may be empty)
 
 **Derivation:** From source-side metadata when extractable. PDF `/Author`,
-DOCX `dc:creator`, HTML `<meta name="author">` (via trafilatura). The PDF
+DOCX, PPTX, and XLSX `dc:creator`, HTML `<meta name="author">` (via trafilatura). The PDF
 extractor splits on common separators (`,`, `;`, ` and `, ` & `). Always an
 array even if there's a single author.
 
@@ -194,7 +194,7 @@ array. Use the comma-array syntax: `--meta authors="Alice, Bob"` or, in
 
 **auto** | type: `string`
 
-**Derivation:** PDF/DOCX `Company` field; HTML `og:site_name` via trafilatura;
+**Derivation:** PDF/DOCX/PPTX/XLSX `Company` field; HTML `og:site_name` via trafilatura;
 otherwise empty. User overrides commonly set this for corpus-wide attribution.
 
 **Example empty:** `""`
@@ -332,7 +332,7 @@ document.
 
 ### `type`
 
-**auto** | type: `string` (`"pdf"`, `"docx"`, `"html"`, `"txt"`)
+**auto** | type: `string` (`"pdf"`, `"docx"`, `"pptx"`, `"xlsx"`, `"html"`, `"txt"`)
 
 **Derivation:** Source format. any2md extension field.
 
@@ -346,7 +346,7 @@ document.
 
 | Value | When |
 |---|---|
-| `"docling"` | PDF or DOCX with `[high-fidelity]` extras installed |
+| `"docling"` | PDF or DOCX with `[high-fidelity]` extras installed, and every PPTX or XLSX |
 | `"pymupdf4llm"` | PDF without Docling |
 | `"mammoth+markdownify"` | DOCX without Docling |
 | `"trafilatura"` | HTML or URL (primary path) |
@@ -367,7 +367,7 @@ otherwise-similar inputs produced different output shapes.
 | Source | Where the value comes from |
 |---|---|
 | PDF | The `/Creator` metadata field, after passing through `heuristics.filter_organization`. Software-pattern matches (LaTeX, acmart, Adobe InDesign, Microsoft Word, Pandoc, etc.) populate `produced_by`; non-software values populate `organization` instead. |
-| DOCX | The `<Application>` element of `docProps/app.xml`. Routed through the same `filter_organization` check. The `<Company>` element (a real organization) takes priority over `<Application>` for the `organization` field. |
+| DOCX, PPTX, XLSX | The `<Application>` element of `docProps/app.xml`. Routed through the same `filter_organization` check. The `<Company>` element (a real organization) takes priority over `<Application>` for the `organization` field. |
 | HTML / URL | Not populated; trafilatura's `sitename` is treated as a real site, not software. |
 | TXT | Not populated; the format does not expose a producer. |
 
@@ -412,7 +412,7 @@ Disclosure"`.
 **auto, conditional** | type: `integer`
 
 **Derivation:** any2md extension fields. `pages` is set for PDFs only.
-`word_count` is set for DOCX, HTML, and TXT (post-cleanup body word count via
+`word_count` is set for DOCX, PPTX, XLSX, HTML, and TXT (post-cleanup body word count via
 whitespace splitting). Both are omitted entirely when not set.
 
 ## The body shape
@@ -427,6 +427,10 @@ chunkers and titlers work reliably. How it is enforced depends on the lane:
 
 - **Structured lane (Docling):** the S4 stage promotes the first heading to H1
   if no H1 was present in the source, and demotes any subsequent H1s to H2.
+- **PPTX / XLSX (Docling):** the converter writes the deck or workbook title
+  as the H1, then one H2 per slide (its title placeholder, else `Slide N`) or
+  per sheet (the sheet name), with each section's own headings nested below.
+  S4 then runs as for any structured-lane input.
 - **HTML / URL:** the converter restores the page title as the H1 when
   trafilatura drops it (a page `<h1>` outside the article container is not
   extracted). If the first body line already repeats the title as plain or
@@ -814,7 +818,7 @@ from the frontmatter when not set. SAGE-only fields a user might add (`tlp`,
     },
     "type": {
       "type": "string",
-      "enum": ["pdf", "docx", "html", "txt"]
+      "enum": ["pdf", "docx", "pptx", "xlsx", "html", "txt"]
     },
     "extracted_via": {
       "type": "string",

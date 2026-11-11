@@ -20,9 +20,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
-_MAX_RESIDENT = 2  # Empirically: pdf + docx are the only construction
-# sites; 2 slots covers 99% of mixed batches with
-# bounded RSS (~1GB extra steady-state worst case).
+_MAX_RESIDENT = 2  # Empirically: pdf + docx are the model-loading
+# construction sites; 2 slots covers 99% of mixed batches with
+# bounded RSS (~1GB extra steady-state worst case). The pptx and xlsx
+# converters load no ML models, so evicting one costs a cheap rebuild.
 
 _CACHE_DISABLED_ENV = "ANY2MD_DOCLING_CACHE"
 
@@ -71,7 +72,7 @@ class _Key:
     produces the same zero bytes for both PDF and DOCX call sites).
     """
 
-    fmt: str  # "pdf" | "docx"
+    fmt: str  # "pdf" | "docx" | "pptx" | "xlsx"
     digest: bytes  # 32-byte sha256 of canonical opts json (or zeros for None)
 
 
@@ -407,6 +408,32 @@ def get_docx_converter() -> Any:
         return DocumentConverter()
 
     return _get_instance().get_or_build("docx", None, _build)
+
+
+# Formats served by ``get_office_converter``. Each maps to the Docling
+# ``InputFormat`` member of the same name.
+OFFICE_FORMATS = ("pptx", "xlsx")
+
+
+def get_office_converter(fmt: str) -> Any:
+    """Return a cached DocumentConverter that accepts only ``fmt``.
+
+    ``fmt`` is ``"pptx"`` or ``"xlsx"``. Docling picks a backend from
+    the file's content, not its name, so an unrestricted converter
+    would hand a PDF renamed to ``deck.pptx`` to the PDF pipeline and
+    its OCR models. Allowing one format makes Docling reject a file
+    whose content does not match its extension.
+    """
+    if fmt not in OFFICE_FORMATS:
+        raise ValueError(f"unsupported office format: {fmt!r}")
+
+    def _build():
+        from docling.datamodel.base_models import InputFormat
+        from docling.document_converter import DocumentConverter
+
+        return DocumentConverter(allowed_formats=[InputFormat(fmt)])
+
+    return _get_instance().get_or_build(fmt, None, _build)
 
 
 def evict_on_convert_failure(fmt: str, opts: Any | None) -> None:

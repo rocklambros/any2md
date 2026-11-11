@@ -4,7 +4,7 @@
 
 # any2md
 
-Convert PDFs, DOCX, HTML, URLs, and plain text into structured, machine-consumable Markdown for downstream RAG pipelines.
+Convert PDFs, DOCX, PowerPoint (PPTX), Excel (XLSX), HTML, URLs, and plain text into structured, machine-consumable Markdown for downstream RAG pipelines.
 
 ## What's new in 1.0.3
 
@@ -202,7 +202,7 @@ You'd run this when you mostly handle clean single-column PDFs, well-formed DOCX
 pip install any2md
 ```
 
-The default backends are `pymupdf4llm` (PDF), `mammoth` + `markdownify` (DOCX), `trafilatura` (HTML/URL), and a heuristic structurizer (TXT). When you hand the tool a multi-column or table-heavy PDF without Docling installed, you'll see a one-time warning recommending the high-fidelity install.
+The default backends are `pymupdf4llm` (PDF), `mammoth` + `markdownify` (DOCX), `trafilatura` (HTML/URL), and a heuristic structurizer (TXT). PPTX and XLSX have no lightweight backend: they need the high-fidelity install, and without it each such file fails with an install hint while the rest of the batch converts. When you hand the tool a multi-column or table-heavy PDF without Docling installed, you'll see a one-time warning recommending the high-fidelity install.
 
 ### High-fidelity (Docling)
 
@@ -212,7 +212,7 @@ You'd run this when your corpus has multi-column PDFs, complex tables, or scanne
 pip install "any2md[high-fidelity]"
 ```
 
-After install, the CLI auto-detects Docling and uses it for PDF and DOCX. To force it explicitly (and fail fast when it isn't installed), pass `-H` / `--high-fidelity`. To require it (treat fallback as an error), combine with `--strict`. Use `--backend pymupdf4llm` to force the lightweight backend even when Docling is installed (useful when Docling produces extraction artifacts on a specific input).
+After install, the CLI auto-detects Docling and uses it for PDF and DOCX, and it enables PPTX and XLSX input. To force it explicitly (and fail fast when it isn't installed), pass `-H` / `--high-fidelity`. To require it (treat fallback as an error), combine with `--strict`. Use `--backend pymupdf4llm` to force the lightweight backend even when Docling is installed (useful when Docling produces extraction artifacts on a specific input).
 
 ### When do I need high-fidelity?
 
@@ -270,6 +270,19 @@ any2md proposal.docx
 ```
 
 You'll see the OK line with `extracted_via: docling` (if Docling installed) or `extracted_via: mammoth+markdownify` (fallback). Frontmatter pulls authors, organization, and modified date from `docProps/core.xml` and `docProps/app.xml` directly, with no `python-docx` dependency.
+
+### PowerPoint and Excel
+
+You'd convert slide decks and workbooks when they hold content you want in the same index as your documents. Both need the high-fidelity install, since Docling is their only backend. Docling's PowerPoint and Excel backends read the file directly and load no ML models:
+
+```bash
+pip install "any2md[high-fidelity]"
+any2md roadmap.pptx budget.xlsx
+```
+
+The output opens with one H1 for the deck or workbook (the `docProps/core.xml` title, else the file name). Each slide becomes an H2 section titled by its title placeholder, or `Slide N` when it has none. Each sheet becomes an H2 section named after the sheet, with its cells as a Markdown table. Frontmatter carries `type: "pptx"` or `type: "xlsx"` and `extracted_via: "docling"`. Without Docling, each PPTX or XLSX file fails with `FAIL: <name> -- PPTX input needs Docling, which is not installed. Install it with: pip install "any2md[high-fidelity]"` and the batch continues. `--backend pymupdf4llm` and `--backend mammoth` fail these files, because neither backend reads them. A warning from Docling's PowerPoint or Excel backend (for example a chart it could not read) counts as a conversion warning, so `--strict` exits 3 on it.
+
+Legacy binary `.ppt` and `.xls` files are not supported, since no any2md backend reads them. Name one on the command line and you'll see `UNSUPPORTED FORMAT: deck.ppt -- legacy binary PowerPoint format (.ppt) is not supported. Save it as .pptx and convert that file.` A directory scan reports each one with a `SKIP (legacy format)` line and carries on. Open the file in PowerPoint or Excel (or LibreOffice) and save it as `.pptx` or `.xlsx`.
 
 ### HTML files and URLs
 
@@ -546,6 +559,7 @@ any2md handles untrusted input (URLs, files of unknown provenance) and applies s
 - **SSRF protection on URL fetching.** Before any HTTP request, the URL's hostname is resolved and the resulting IP is checked against private (RFC 1918), reserved, loopback, and link-local ranges. Hits in any of those ranges are rejected. The check happens in the connection adapter, so it covers redirects too — a public URL that 30x-redirects to `http://169.254.169.254/` (cloud metadata service) is still blocked.
 - **Scheme allowlist.** Only `http://` and `https://` URLs are accepted. `file://`, `gopher://`, `data://`, and other schemes are rejected at argument parse time.
 - **File size limits.** Local files larger than `--max-file-size` (default 100 MB) are skipped with a logged warning. URL responses are bounded by the same limit, enforced via streaming reads with a running byte counter so an oversize response is aborted mid-stream rather than buffered.
+- **Zip-bomb guard.** DOCX, PPTX, and XLSX files are zip archives. Before mammoth, Docling, or the metadata reader opens one, any2md reads its central directory and fails the file if the parts inflate past 1 GiB in total, if a member over 10 MiB compresses more than 250:1, or if the archive holds more than 10,000 members. A file that is not a zip at all fails the same way.
 - **Filename sanitization.** Output filenames are stripped of control characters, null bytes, path separators, and Unicode dashes that look like ASCII hyphens. The output stays inside the configured `--output-dir`.
 - **Trust model.** any2md is a converter, not a sandbox. It does not execute embedded scripts, macros, or JavaScript from any input format. PDFs, DOCX, and HTML are read for text content only — DOCX macros are not evaluated, PDF JavaScript actions are not invoked, and HTML `<script>` blocks are stripped before extraction. The tool processes whatever you point it at, so apply the same source-vetting practices you'd use for any document ingestion pipeline. URLs are fetched server-side from wherever any2md runs; if you run it on a machine with sensitive network access, the SSRF protections above are your primary defense, not the only one.
 
