@@ -203,10 +203,18 @@ def test_embedded_image_bytes_not_read_without_save_images(embedded_docx, monkey
     assert "Before image." in md
 
 
-def test_embedded_image_kept_with_save_images(embedded_docx, monkeypatch):
+def test_embedded_image_saved_to_a_file_with_save_images(
+    embedded_docx, tmp_path, monkeypatch
+):
+    """The bytes go to images/<stem>/, never into the Markdown as a data URI."""
     if not docx_mod._mammoth_blocks_external_files():
         pytest.skip("covers the safe-mammoth branch")
-    html, md = _mammoth_html(monkeypatch, embedded_docx, save_images=True)
+    out = tmp_path / "out"
+    md, _ = docx_mod._extract_via_mammoth(
+        embedded_docx, PipelineOptions(save_images=True), out
+    )
     marker = base64.b64encode(_EMBEDDED_BYTES).decode()
-    assert marker in html
-    assert marker in md
+    assert marker not in md
+    assert "data:" not in md
+    assert (out / "images" / "embedded" / "img1.png").read_bytes() == _EMBEDDED_BYTES
+    assert "*Figure: embedded*\n\n![embedded](images/embedded/img1.png)" in md

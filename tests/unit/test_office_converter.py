@@ -556,6 +556,7 @@ def test_save_images_writes_and_links_each_picture(monkeypatch, tmp_path):
     assert "## Slide 2\n\n![](images/deck/img2.png)" in body
     # A picture without image data keeps its figure line and gets no link.
     assert "## Slide 3\n\n*Figure: No pixels*\n" in body
+    assert "No pixels](" not in body
 
 
 def test_without_save_images_nothing_is_written(monkeypatch, tmp_path):

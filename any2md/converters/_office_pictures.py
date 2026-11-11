@@ -34,15 +34,12 @@ from defusedxml.ElementTree import ParseError, fromstring
 
 from any2md import _logging
 from any2md._safe_open import SourceFile
+from any2md.pipeline.structured import NO_IMAGE_LINK
 
 # Docling writes this in place of each picture. A comment, so the
 # Markdown stays valid if a picture is ever left unfilled, and a name no
 # document text produces.
 PICTURE_TOKEN = "<!-- any2md-picture -->"
-
-# S1 drops the link of a Markdown image unless --save-images is set, so
-# a picture with no saved file still needs a syntactically valid one.
-_NO_LINK = "#"
 
 _P = "http://schemas.openxmlformats.org/presentationml/2006/main"
 _A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -508,7 +505,7 @@ def _position_key(doc: Any, item: Any, fmt: str) -> tuple[Any, Box] | None:
     return getattr(sheet, "name", None), box
 
 
-def _alt_markdown(text: str) -> str:
+def alt_markdown(text: str) -> str:
     """Escape figure text for the alt part of ``![...](...)``.
 
     S1's image pattern stops the alt text at an unescaped bracket.
@@ -623,7 +620,7 @@ def prepare_pictures(
             if _save_picture(doc, item, image_dir / name):
                 link = f"{link_dir}/{name}"
         if text or link:
-            figures[id(item)] = f"![{_alt_markdown(text)}]({link or _NO_LINK})"
+            figures[id(item)] = f"![{alt_markdown(text)}]({link or NO_IMAGE_LINK})"
         else:
             figures[id(item)] = ""
     return figures

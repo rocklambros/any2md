@@ -71,18 +71,38 @@ def _save_image_safely(img_path: Path, pil_image) -> None:
     is_symlink() check and the actual write. On EEXIST we skip
     (image already saved this run); on ELOOP we warn and skip.
     """
+    fd = _open_new_image(img_path)
+    if fd is None:
+        return
+    with os.fdopen(fd, "wb") as fp:
+        pil_image.save(fp, format="PNG")
+
+
+def _save_bytes_safely(img_path: Path, data: bytes) -> None:
+    """Write ``data`` to ``img_path`` with the same no-follow rules.
+
+    For an image kept in its own format, such as one mammoth reads from
+    a DOCX package.
+    """
+    fd = _open_new_image(img_path)
+    if fd is None:
+        return
+    with os.fdopen(fd, "wb") as fp:
+        fp.write(data)
+
+
+def _open_new_image(img_path: Path) -> int | None:
+    """Create ``img_path`` for writing, or None when it exists or is a link."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     try:
-        fd = os.open(img_path, flags, 0o600)
+        return os.open(img_path, flags, 0o600)
     except FileExistsError:
-        return  # already exists — leave it
+        return None  # already exists, leave it
     except OSError as e:
         if getattr(e, "errno", None) in (errno.ELOOP, errno.EMLINK):
             _logging.warn(f"refusing to write through symlink at {img_path}")
-            return
+            return None
         raise
-    with os.fdopen(fd, "wb") as fp:
-        pil_image.save(fp, format="PNG")
 
 
 def _open_pdf(src: SourceFile, data: bytes | None = None) -> "pymupdf.Document":
