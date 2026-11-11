@@ -87,8 +87,15 @@ def _deep_merge_overrides(
     return out
 
 
-def _scan_directory(root: Path, recursive: bool) -> list[Path]:
+def _scan_directory(
+    root: Path, recursive: bool, legacy: list[Path] | None = None
+) -> list[Path]:
     """Return supported regular files under ``root``, sorted.
+
+    Legacy ``.ppt`` and ``.xls`` files found on the way are appended to
+    ``legacy`` when the caller passes a list. The caller prints their
+    SKIP lines and counts them, after it drops repeat inputs, so a file
+    seen by two scans is reported once and the summary matches.
 
     Never follows symlinks below ``root``. An untrusted document tree can
     hold a link such as ``report.txt -> ~/.ssh/id_rsa``, and following it
@@ -136,13 +143,10 @@ def _scan_directory(root: Path, recursive: bool) -> list[Path]:
                     # Other unsupported files stay quiet in a scan. A legacy
                     # .ppt or .xls gets one SKIP line, because the user can
                     # fix it by re-saving, and silence would hide that.
-                    legacy = legacy_format_message(Path(entry.name).suffix)
                     if legacy is not None and os.path.normcase(entry.name).endswith(
                         legacy_suffixes
                     ):
-                        _logging.warn(
-                            f"{path} -- {legacy}", prefix="SKIP (legacy format)"
-                        )
+                        legacy.append(path)
                     continue
                 # FIFOs and device nodes can hang the read or never end.
                 if not entry.is_file(follow_symlinks=False):
@@ -442,6 +446,8 @@ def main():
     # _safe_open.open_scanned). Named files follow links, because the
     # user chose them.
     file_paths: list[tuple[Path, Path | None]] = []
+    # Legacy .ppt and .xls files the scans found. Each one is a skip.
+    legacy_found: list[Path] = []
 
     if args.files:
         for f in args.files:
@@ -458,7 +464,8 @@ def main():
                 continue
             if p.is_dir():
                 file_paths.extend(
-                    (found, p) for found in _scan_directory(p, args.recursive)
+                    (found, p)
+                    for found in _scan_directory(p, args.recursive, legacy_found)
                 )
                 continue
             if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
@@ -475,21 +482,27 @@ def main():
             sys.exit(1)
         file_paths = [
             (found, args.input_dir)
-            for found in _scan_directory(args.input_dir, args.recursive)
+            for found in _scan_directory(args.input_dir, args.recursive, legacy_found)
         ]
     else:
         file_paths = [
-            (found, script_dir) for found in _scan_directory(script_dir, args.recursive)
+            (found, script_dir)
+            for found in _scan_directory(script_dir, args.recursive, legacy_found)
         ]
 
     file_paths = _dedupe_inputs(file_paths)
     urls = list(dict.fromkeys(urls))
+    # Paired with a scan root so the identity check uses lstat, as the scan
+    # that found them never followed a link.
+    legacy_skips = [path for path, _ in _dedupe_inputs([(p, p) for p in legacy_found])]
 
-    if not file_paths and not urls:
+    if not file_paths and not urls and not legacy_skips:
         print("No supported files to process.")
         sys.exit(0)
 
-    total = len(file_paths) + len(urls)
+    # Legacy files count toward the total and the skips, so the summary
+    # adds up to the number of files the run reported on.
+    total = len(file_paths) + len(urls) + len(legacy_skips)
     print(
         f"Processing {total} file(s) → {_logging.safe_oneline(str(args.output_dir))}/\n"
     )
@@ -497,6 +510,10 @@ def main():
     ok = 0
     fail = 0
     skip = 0
+    for path in legacy_skips:
+        legacy = legacy_format_message(path.suffix)
+        _logging.warn(f"{path} -- {legacy}", prefix="SKIP (legacy format)")
+        skip += 1
     # Output names come from source stems, so two inputs in one run can map
     # to one file (a/x.pdf and b/x.pdf under -r, or deck.pptx next to
     # deck.docx). The second would be skipped as "exists" or, with --force,

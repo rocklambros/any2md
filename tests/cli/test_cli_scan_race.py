@@ -47,8 +47,8 @@ def tree(tmp_path):
 def _run_main_with_swap(monkeypatch, argv, swap):
     real_scan = cli._scan_directory
 
-    def scan_then_swap(root, recursive):
-        found = real_scan(root, recursive)
+    def scan_then_swap(*args, **kwargs):
+        found = real_scan(*args, **kwargs)
         swap()
         return found
 
@@ -167,8 +167,8 @@ def test_fifo_swapped_in_after_scan_does_not_hang(tree, tmp_path):
         corpus = Path(sys.argv[1])
         real_scan = cli._scan_directory
 
-        def scan_then_swap(root, recursive):
-            found = real_scan(root, recursive)
+        def scan_then_swap(*args, **kwargs):
+            found = real_scan(*args, **kwargs)
             (corpus / "report.txt").unlink()
             os.mkfifo(corpus / "report.txt")
             return found
