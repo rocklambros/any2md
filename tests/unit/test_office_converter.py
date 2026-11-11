@@ -590,6 +590,49 @@ def test_force_regenerates_images_and_drops_stale_ones(monkeypatch, tmp_path):
     assert "img2" not in _body(out / "deck.md")
 
 
+def _linked_images(body: str) -> list[str]:
+    """Image links in ``body``, read with S1's own pattern.
+
+    The pattern honors backslash escapes in the alt text, the way
+    CommonMark does, so ``![a \\[b\\]](x)`` counts as a link to ``x``.
+    """
+    from any2md.pipeline.structured import _IMG_LINK_RE
+
+    return [m.group(2) for m in _IMG_LINK_RE.finditer(body)]
+
+
+def test_every_saved_image_is_linked_once_and_nothing_else_is_saved(
+    monkeypatch, tmp_path
+):
+    """Identical pictures, on one slide and across slides, each keep their
+    own file and link, also with brackets in the alt text."""
+    deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
+    out = tmp_path / "out"
+    same = b"same-bytes"
+    doc = _FakeDoc(
+        {
+            1: [
+                ("title", "One"),
+                _picture(caption="Plan [v2]", image=_FakeImage(same)),
+                _picture(caption="Plan [v2]", image=_FakeImage(same)),
+            ],
+            2: [("title", "Two"), _picture(image=_FakeImage(same))],
+        }
+    )
+
+    assert _run_saving(monkeypatch, deck, out, doc, force=True)
+
+    body = _body(out / "deck.md")
+    links = _linked_images(body)
+    saved = {f"images/deck/{p.name}" for p in (out / "images" / "deck").iterdir()}
+    assert len(links) == len(set(links)) == 3
+    assert set(links) == saved
+    # Each link sits in its own slide's section.
+    one, two = body.split("## Two")
+    assert _linked_images(one) == ["images/deck/img1.png", "images/deck/img2.png"]
+    assert _linked_images(two) == ["images/deck/img3.png"]
+
+
 def test_force_with_no_pictures_left_removes_every_old_image(monkeypatch, tmp_path):
     deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
     out = tmp_path / "out"

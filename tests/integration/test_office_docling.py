@@ -164,6 +164,46 @@ def test_off_slide_picture_warning_is_counted_not_printed(tmp_path, capsys):
     assert "warning(s)" in captured.out
 
 
+def test_identical_pictures_each_get_a_saved_and_linked_file(tmp_path):
+    """Invariant: the set of saved files equals the set of linked files.
+
+    Three pictures with the same image bytes, two on one slide and one
+    on the next, with brackets in the alt text, which Markdown escapes.
+    """
+    from any2md.pipeline.structured import _IMG_LINK_RE
+
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(
+                title=["One"],
+                pictures=[
+                    Picture(alt="Plan [v2]", box=(457200, 0, 914400, 914400)),
+                    Picture(alt="Plan [v2]", box=(4572000, 0, 914400, 914400)),
+                ],
+            ),
+            Slide(title=["Two"], pictures=[Picture(alt="Plan [v2]")]),
+        ],
+    )
+    out = tmp_path / "out"
+
+    assert convert_file(
+        deck, out, options=PipelineOptions(save_images=True), force=True
+    )
+
+    _, body = _split((out / "deck.md").read_text(encoding="utf-8"))
+    links = [m.group(2) for m in _IMG_LINK_RE.finditer(body)]
+    saved = {f"images/deck/{p.name}" for p in (out / "images" / "deck").iterdir()}
+    assert len(links) == len(set(links)) == 3
+    assert set(links) == saved
+    one, two = body.split("## Two")
+    assert [m.group(2) for m in _IMG_LINK_RE.finditer(one)] == [
+        "images/deck/img1.png",
+        "images/deck/img2.png",
+    ]
+    assert [m.group(2) for m in _IMG_LINK_RE.finditer(two)] == ["images/deck/img3.png"]
+
+
 def test_xlsx_sheets_render_as_tables_under_headings(tmp_path):
     book = build_xlsx(
         tmp_path / "budget.xlsx",

@@ -117,6 +117,22 @@ def test_mammoth_lane_save_images_writes_embedded_images_only(tmp_path):
     assert "data:" not in body
 
 
+def test_mammoth_identical_pictures_each_get_a_saved_and_linked_file(tmp_path):
+    """Invariant: the set of saved files equals the set of linked files."""
+    from any2md.pipeline.structured import _IMG_LINK_RE
+
+    out, body = _mammoth(
+        tmp_path,
+        ["A.", DocPicture(alt="Plan [v2]"), DocPicture(alt="Plan [v2]"), "B."],
+        save_images=True,
+    )
+
+    links = [m.group(2) for m in _IMG_LINK_RE.finditer(body)]
+    saved = {f"images/report/{p.name}" for p in (out / "images" / "report").iterdir()}
+    assert len(links) == len(set(links)) == 2
+    assert set(links) == saved
+
+
 def test_mammoth_force_rerun_drops_stale_images(tmp_path):
     _mammoth(tmp_path, _BLOCKS, save_images=True)
 
