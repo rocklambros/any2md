@@ -282,8 +282,10 @@ def test_close_is_idempotent_and_blocks_later_reads(tree):
     assert _open_fds() == before
     with pytest.raises(ValueError, match="closed"):
         src.read_bytes()
-    with pytest.raises(ValueError, match="closed"):
-        src.open_binary()
+    # The with block keeps the stream managed even though opening it must
+    # raise on a closed source.
+    with pytest.raises(ValueError, match="closed"), src.open_binary():
+        pass
 
 
 @posix_only
