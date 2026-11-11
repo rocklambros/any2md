@@ -153,9 +153,8 @@ def _load_pdf_models(converter: Any) -> None:
 def _extract_via_docling(
     pdf_path: Path | SourceFile,
     options: PipelineOptions,
-    output_dir: Path,
+    writer: ImageWriter | None = None,
     data: bytes | None = None,
-    force: bool = False,
     capture: DoclingWarningCapture | None = None,
 ) -> tuple[str, str]:
     """Returns (markdown, 'docling'). Raises on Docling errors.
@@ -163,10 +162,10 @@ def _extract_via_docling(
     ``data`` is the file's bytes when the caller already read them, so
     a descriptor-backed source is not read a second time.
 
-    When ``options.save_images`` is True, extracted picture images are
-    written to ``<output_dir>/images/<pdf_stem>/imgN.png`` and linked
-    from the body. With ``force`` they are regenerated and stale ones
-    removed.
+    With a ``writer`` (``--save-images``), picture images are staged as
+    ``images/<pdf_stem>/imgN.png`` and linked from the body. The caller
+    commits them with the final Markdown once it is written, or discards
+    them if anything fails first.
 
     ``capture`` counts Python warnings from the conversion and export.
     The converter is built and its models loaded before it starts, so
@@ -213,24 +212,11 @@ def _extract_via_docling(
     )
 
     doc = result.document
-    writer = (
-        ImageWriter(output_dir, src.name, overwrite=force)
-        if options.save_images
-        else None
-    )
-    try:
-        with capture if capture is not None else nullcontext():
-            figures: dict[str, str] = {}
-            if getattr(doc, "pictures", None):
-                figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
-            md = fill_pictures(export_markdown(doc), figures)
-    except Exception:
-        # The caller falls back to pymupdf4llm, which links no images.
-        if writer is not None:
-            writer.discard()
-        raise
-    if writer is not None:
-        writer.commit(md)
+    with capture if capture is not None else nullcontext():
+        figures: dict[str, str] = {}
+        if getattr(doc, "pictures", None):
+            figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
+        md = fill_pictures(export_markdown(doc), figures)
     return md, "docling"
 
 
@@ -263,6 +249,11 @@ def convert_pdf(
         print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
         return True
 
+    # Images the Docling lane staged. They are published only after the
+    # Markdown is written, with that Markdown, so a failed write keeps the
+    # old images its old Markdown links and a link a pipeline stage drops
+    # publishes nothing. Anything that fails first discards them.
+    writer: ImageWriter | None = None
     try:
         # Backend override (PipelineOptions.backend). When set, honor the
         # caller's choice instead of the auto-select. ``mammoth`` is
@@ -305,14 +296,20 @@ def convert_pdf(
             # raised falls back to pymupdf4llm, and its warnings go with it.
             py_warnings: list[str] = []
             if use_docling:
+                if options.save_images:
+                    writer = ImageWriter(output_dir, src.name, overwrite=force)
                 try:
                     cap = DoclingWarningCapture()
                     md_text, extracted_via = _extract_via_docling(
-                        src, options, output_dir, data=data, force=force, capture=cap
+                        src, options, writer, data=data, capture=cap
                     )
                     py_warnings = cap.messages
                     lane = "structured"
                 except Exception as e:  # noqa: BLE001 -- fall back rather than fail
+                    # pymupdf4llm links no images.
+                    if writer is not None:
+                        writer.discard()
+                        writer = None
                     _logging.warn(
                         f"Docling extraction failed for {src.name}: {e}; "
                         f"falling back to pymupdf4llm."
@@ -350,6 +347,8 @@ def convert_pdf(
 
         output_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_text(out_path, full)
+        if writer is not None:
+            writer.commit(full)
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
             print(
@@ -361,3 +360,7 @@ def convert_pdf(
     except (OSError, ValueError, RuntimeError) as e:
         _logging.fail(f"{src.name} -- {e}")
         return False
+    finally:
+        # A no-op after commit. Otherwise it drops what failed to publish.
+        if writer is not None:
+            writer.discard()

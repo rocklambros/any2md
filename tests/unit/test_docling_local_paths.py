@@ -79,7 +79,7 @@ def test_pdf_docling_receives_path(
     rel = Path(template.format(ext="pdf"))
     rel.write_bytes(b"not used")
 
-    pdf_mod._extract_via_docling(rel, PipelineOptions(), tmp_path / "out")
+    pdf_mod._extract_via_docling(rel, PipelineOptions())
 
     assert len(conv.sources) == 1
     assert isinstance(conv.sources[0], Path)

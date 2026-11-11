@@ -7,10 +7,12 @@ one ``ImageWriter``, which owns ``<output>/images/<stem>/``. The rules:
   same folder with ``O_EXCL|O_NOFOLLOW`` (``tempfile.mkstemp``), then
   renamed onto ``imgN.<ext>``. A rename replaces a symlink at the target
   rather than writing through it, so no write ever follows a link.
-- Images are staged first and published by ``commit`` only once the
-  converter's Markdown is complete. ``discard`` drops them when the
-  conversion fails, so a failed lane (for example Docling before its
-  mammoth fallback) leaves no files behind and none get linked.
+- Images are staged first and published by ``commit`` only after the
+  converter has written its final Markdown, which ``commit`` receives.
+  ``discard`` drops them when the conversion or the write fails, so a
+  failed lane (for example Docling before its mammoth fallback) leaves
+  no files behind, and a failed write under ``--force`` leaves the old
+  images its old Markdown links.
 - The folder must stay inside the output directory. ``images`` or
   ``<stem>`` being a symlink, or the folder resolving anywhere else,
   stops all writes for the file with a warning.

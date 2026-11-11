@@ -17,6 +17,7 @@ import mammoth.docx.files
 import pytest
 
 import any2md.converters.docx as docx_mod
+from any2md._image_files import ImageWriter
 from any2md.pipeline import PipelineOptions
 
 _SECRET = b"TOP-SECRET-KEY-MATERIAL-0123456789"
@@ -210,9 +211,11 @@ def test_embedded_image_saved_to_a_file_with_save_images(
     if not docx_mod._mammoth_blocks_external_files():
         pytest.skip("covers the safe-mammoth branch")
     out = tmp_path / "out"
+    writer = ImageWriter(out, embedded_docx.name, overwrite=False)
     md, _ = docx_mod._extract_via_mammoth(
-        embedded_docx, PipelineOptions(save_images=True), out
+        embedded_docx, PipelineOptions(save_images=True), writer
     )
+    writer.commit(md)
     marker = base64.b64encode(_EMBEDDED_BYTES).decode()
     assert marker not in md
     assert "data:" not in md

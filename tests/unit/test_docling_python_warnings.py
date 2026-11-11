@@ -11,6 +11,7 @@ from __future__ import annotations
 import warnings
 
 import any2md.converters.docx as docx_mod
+from any2md._docling import DoclingWarningCapture
 import any2md.converters.pdf as pdf_mod
 from any2md.converters import collected_warnings, reset_warnings
 from any2md.pipeline import PipelineOptions
@@ -24,7 +25,9 @@ _DOCLING_FILE = "/venv/lib/python3.12/site-packages/docling_core/types/doc/docum
 def _docling_warning(args, kwargs):
     """Raise the bbox warning from a docling-core file, inside the capture
     the converter passed (positionally for DOCX, by name for PDF)."""
-    capture = kwargs.get("capture") or (args[4] if len(args) > 4 else None)
+    capture = kwargs.get("capture") or next(
+        a for a in args if isinstance(a, DoclingWarningCapture)
+    )
     with capture:
         warnings.warn_explicit(
             _BBOX, UserWarning, _DOCLING_FILE, 333, module="docling_core.types"
