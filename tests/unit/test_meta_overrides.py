@@ -8,6 +8,8 @@ derived values; nested dicts merge recursively; lists/scalars replace.
 
 from __future__ import annotations
 
+import tomllib
+
 import pytest
 import yaml
 
@@ -138,3 +140,74 @@ def test_unsupported_value_raises_value_error():
             PipelineOptions(),
             overrides={"a": {"b": object()}},
         )
+
+
+def _compose_toml(toml_text: str) -> str:
+    """Compose with overrides parsed by tomllib, the same path config uses."""
+    return compose(
+        "# T\n\nbody\n",
+        _meta(),
+        PipelineOptions(),
+        overrides=tomllib.loads(toml_text),
+    )
+
+
+def test_toml_date_emits_quoted_iso_string():
+    out = _compose_toml("reviewed = 2026-01-01\n")
+    assert '\nreviewed: "2026-01-01"\n' in out
+    assert _fm(out)["reviewed"] == "2026-01-01"
+
+
+def test_toml_offset_datetime_keeps_its_offset():
+    out = _compose_toml(
+        "published = 1979-05-27T07:32:00Z\nedited = 1979-05-27T00:32:00-07:00\n"
+    )
+    fm = _fm(out)
+    assert fm["published"] == "1979-05-27T07:32:00+00:00"
+    assert fm["edited"] == "1979-05-27T00:32:00-07:00"
+
+
+def test_toml_local_datetime_and_time():
+    out = _compose_toml("stamp = 1979-05-27T07:32:00.5\nat = 07:32:00\n")
+    fm = _fm(out)
+    assert fm["stamp"] == "1979-05-27T07:32:00.500000"
+    assert fm["at"] == "07:32:00"
+
+
+def test_toml_date_inside_nested_table():
+    out = _compose_toml(
+        "[review]\nwhen = 2026-01-01\n[review.audit]\nat = 2026-02-03\n"
+    )
+    assert _fm(out)["review"] == {"when": "2026-01-01", "audit": {"at": "2026-02-03"}}
+
+
+def test_toml_date_list_emits_iso_strings():
+    # str() of a datetime uses a space separator, so the list path must
+    # format items the same way the scalar path does.
+    out = _compose_toml(
+        "dates = [2026-01-01, 1979-05-27T07:32:00Z]\n[review]\ndays = [2026-03-04]\n"
+    )
+    assert '\ndates: ["2026-01-01", "1979-05-27T07:32:00+00:00"]\n' in out
+    fm = _fm(out)
+    assert fm["dates"] == ["2026-01-01", "1979-05-27T07:32:00+00:00"]
+    assert fm["review"] == {"days": ["2026-03-04"]}
+
+
+def test_toml_date_override_matches_builtin_date_format():
+    derived = compose("# T\n\nbody\n", _meta(date="2025-12-31"), PipelineOptions())
+    assert '\ndate: "2025-12-31"\n' in derived
+    out = _compose_toml("date = 2026-01-01\n")
+    assert '\ndate: "2026-01-01"\n' in out
+
+
+def test_list_of_tables_raises_value_error():
+    # ``[[reviewers]]`` parses to a list of dicts. The flow-list emitter
+    # has no mapping form, so the file must fail instead of emitting
+    # Python repr text inside quotes.
+    with pytest.raises(ValueError, match="list item"):
+        _compose_toml('[[reviewers]]\nname = "A"\n')
+
+
+def test_nested_list_raises_value_error():
+    with pytest.raises(ValueError, match="list item"):
+        _compose_toml("grid = [[1, 2], [3]]\n")
