@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import any2md._docling_cache as docling_cache
 import any2md.converters.office as office
 from any2md._docling import INSTALL_CMD
 from any2md._safe_open import SourceFile
@@ -177,16 +178,12 @@ def test_existing_output_is_skipped(monkeypatch, tmp_path, capsys):
 
 
 def test_unknown_office_format_is_refused():
-    from any2md._docling_cache import get_office_converter
-
     with pytest.raises(ValueError):
-        get_office_converter("pdf")
+        docling_cache.get_office_converter("pdf")
 
 
 def test_docling_receives_path_never_str(monkeypatch, tmp_path):
     """A path-backed source reaches Docling as a Path (a str is a URL)."""
-    import any2md._docling_cache as cache
-
     got = []
 
     class FakeConverter:
@@ -194,7 +191,9 @@ def test_docling_receives_path_never_str(monkeypatch, tmp_path):
             got.append(source)
             return SimpleNamespace(document="doc")
 
-    monkeypatch.setattr(cache, "get_office_converter", lambda fmt: FakeConverter())
+    monkeypatch.setattr(
+        docling_cache, "get_office_converter", lambda fmt: FakeConverter()
+    )
     src = SourceFile.from_path(tmp_path / "http:evil#.pptx")
 
     assert office._convert_via_docling(src, "pptx") == "doc"
@@ -203,17 +202,17 @@ def test_docling_receives_path_never_str(monkeypatch, tmp_path):
 
 
 def test_convert_failure_evicts_cache_slot(monkeypatch, tmp_path):
-    import any2md._docling_cache as cache
-
     evicted = []
 
     class FailingConverter:
         def convert(self, source):
             raise RuntimeError("corrupt")
 
-    monkeypatch.setattr(cache, "get_office_converter", lambda fmt: FailingConverter())
     monkeypatch.setattr(
-        cache, "evict_on_convert_failure", lambda fmt, opts: evicted.append(fmt)
+        docling_cache, "get_office_converter", lambda fmt: FailingConverter()
+    )
+    monkeypatch.setattr(
+        docling_cache, "evict_on_convert_failure", lambda fmt, opts: evicted.append(fmt)
     )
 
     with pytest.raises(RuntimeError):
