@@ -132,6 +132,8 @@ class _FakeDoc:
         label = item.label.value
         if label == "title":
             return f"# {item.text}"
+        if label == "section_header":
+            return f"## {item.text}"
         if label == "picture":
             return kwargs.get("image_placeholder", "<!-- image -->")
         return item.text
@@ -423,6 +425,22 @@ def test_title_paragraphs_join_into_one_heading():
     doc = _FakeDoc({1: [("title", "Two line"), ("title", "title"), ("paragraph", "B")]})
     md = office._render_markdown(doc, "pptx", "Deck")
     assert md == "# Deck\n\n## Two line title\n\nB\n"
+
+
+def test_slide_opening_with_a_subheading_keeps_its_own_section():
+    """Only a title placeholder names a slide. A slide whose Markdown opens
+    with an H2 (a section header, a subtitle) still gets "Slide N", so it
+    never folds into the slide before it."""
+    doc = _FakeDoc(
+        {
+            1: [("title", "Intro"), ("paragraph", "Welcome.")],
+            2: [("section_header", "Subtitle"), ("paragraph", "Body.")],
+        }
+    )
+    md = office._render_markdown(doc, "pptx", "Deck")
+    assert md == (
+        "# Deck\n\n## Intro\n\nWelcome.\n\n## Slide 2\n\n#### Subtitle\n\nBody.\n"
+    )
 
 
 def test_title_only_slide_keeps_its_section():
