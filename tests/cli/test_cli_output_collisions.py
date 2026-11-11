@@ -82,3 +82,76 @@ def test_distinct_names_still_convert(tmp_path):
     r = _run(str(src), "-o", str(tmp_path / "out"))
     assert r.returncode == 0, r.stderr
     assert "collision" not in r.stderr
+
+
+def test_skipped_hard_link_does_not_claim_the_name(tmp_path):
+    # a/report.txt is skipped as a hard link, so b/report.txt owns the name.
+    src = tmp_path / "src"
+    (src / "a").mkdir(parents=True)
+    (src / "b").mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("Outside text.\n", encoding="utf-8")
+    (src / "a" / "report.txt").hardlink_to(outside)
+    (src / "b" / "report.txt").write_text("Bravo text second.\n", encoding="utf-8")
+    out = tmp_path / "out"
+    r = _run(str(src), "-r", "-o", str(out))
+    assert r.returncode == 0, r.stderr
+    assert "collision" not in r.stderr
+    assert "Bravo" in (out / "report.md").read_text(encoding="utf-8")
+
+
+def test_skipped_large_file_does_not_claim_the_name(tmp_path):
+    src = tmp_path / "src"
+    (src / "a").mkdir(parents=True)
+    (src / "b").mkdir()
+    (src / "a" / "report.txt").write_text("Large text. " * 200, encoding="utf-8")
+    (src / "b" / "report.txt").write_text("Bravo small.\n", encoding="utf-8")
+    out = tmp_path / "out"
+    r = _run(str(src), "-r", "-o", str(out), "--max-file-size", "500")
+    assert r.returncode == 0, r.stderr
+    assert "SKIP (too large)" in r.stderr
+    assert "collision" not in r.stderr
+    assert "Bravo" in (out / "report.md").read_text(encoding="utf-8")
+
+
+def test_skipped_named_large_file_does_not_claim_the_name(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    big = tmp_path / "a" / "report.txt"
+    big.write_text("Large text. " * 200, encoding="utf-8")
+    small = tmp_path / "b" / "report.txt"
+    small.write_text("Bravo small.\n", encoding="utf-8")
+    out = tmp_path / "out"
+    r = _run(str(big), str(small), "-o", str(out), "--max-file-size", "500")
+    assert r.returncode == 0, r.stderr
+    assert "collision" not in r.stderr
+    assert "Bravo" in (out / "report.md").read_text(encoding="utf-8")
+
+
+def test_same_file_named_twice_converts_once(tmp_path):
+    f = tmp_path / "one.txt"
+    f.write_text("First file.\n", encoding="utf-8")
+    r = _run(str(f), str(f), "-o", str(tmp_path / "out"))
+    assert r.returncode == 0, r.stderr
+    assert "collision" not in r.stderr
+    assert "1 converted" in r.stdout
+
+
+def test_directory_and_file_inside_it_convert_once(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    f = src / "one.txt"
+    f.write_text("First file.\n", encoding="utf-8")
+    r = _run(str(src), str(f), "-o", str(tmp_path / "out"))
+    assert r.returncode == 0, r.stderr
+    assert "collision" not in r.stderr
+    assert "1 converted" in r.stdout
+
+
+def test_existing_output_still_reports_collision_before_exists(tmp_path):
+    # The second file of a colliding pair must FAIL, not SKIP (exists),
+    # even though the first one has written report.md by then.
+    out = tmp_path / "out"
+    r = _run(str(_tree(tmp_path)), "-r", "-o", str(out))
+    assert "SKIP (exists)" not in r.stdout
+    assert "output name collision" in r.stderr

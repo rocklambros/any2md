@@ -155,6 +155,49 @@ def _scan_directory(root: Path, recursive: bool) -> list[Path]:
     return sorted(found)
 
 
+def _input_identity(path: Path, scan_root: Path | None) -> tuple[int, int] | str:
+    """Return a key that is equal for two inputs naming the same file.
+
+    The device and inode pair catches every spelling of one file: a
+    relative and an absolute path, a case variant on a case-insensitive
+    file system, or a named link next to its target. Scanned entries use
+    ``lstat`` because the scan never follows a link. A file with several
+    hard links keys on its resolved path instead, so each scanned name
+    still reaches open_scanned and prints its own SKIP (hard link) line.
+    The resolved path is also the fallback when the file cannot be
+    stat'ed, and the later open reports that error.
+    """
+    resolved = os.path.normcase(os.path.realpath(path))
+    try:
+        st = path.lstat() if scan_root is not None else path.stat()
+    except OSError:
+        return resolved
+    if st.st_nlink > 1:
+        return resolved
+    return (st.st_dev, st.st_ino)
+
+
+def _dedupe_inputs(
+    file_paths: list[tuple[Path, Path | None]],
+) -> list[tuple[Path, Path | None]]:
+    """Drop repeat inputs that name a file already in the list.
+
+    ``any2md a.pdf a.pdf``, or a directory plus a file inside it, would
+    otherwise convert one file twice and report the second pass as an
+    output name collision. The first occurrence wins, which keeps the
+    order the user gave.
+    """
+    seen: set[tuple[int, int] | str] = set()
+    unique: list[tuple[Path, Path | None]] = []
+    for path, scan_root in file_paths:
+        key = _input_identity(path, scan_root)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((path, scan_root))
+    return unique
+
+
 def main():
     script_dir = Path.cwd()
     default_output_dir = script_dir / "Text"
@@ -439,6 +482,9 @@ def main():
             (found, script_dir) for found in _scan_directory(script_dir, args.recursive)
         ]
 
+    file_paths = _dedupe_inputs(file_paths)
+    urls = list(dict.fromkeys(urls))
+
     if not file_paths and not urls:
         print("No supported files to process.")
         sys.exit(0)
@@ -456,6 +502,11 @@ def main():
     # deck.docx). The second would be skipped as "exists" or, with --force,
     # overwrite the first. Names compare case-folded because the default
     # macOS and Windows file systems ignore case.
+    # A name is claimed only right before conversion starts. A file that
+    # is skipped (exists, too large, hard link) or fails to open writes
+    # nothing, so it must not block a later file that maps to the same name.
+    # The collision test still runs before the exists test, so the second
+    # file of a pair reports the collision instead of SKIP (exists).
     claimed: dict[str, str] = {}
 
     def _collides(out_name: str, source: str) -> bool:
@@ -466,8 +517,10 @@ def main():
                 f"written by {claimed[key]} in this run. Rename one of them."
             )
             return True
-        claimed[key] = source
         return False
+
+    def _claim(out_name: str, source: str) -> None:
+        claimed[out_name.casefold()] = source
 
     # Process URLs
     for url in urls:
@@ -481,6 +534,7 @@ def main():
             skip += 1
             continue
 
+        _claim(out_name, url)
         result = convert_url(
             url,
             args.output_dir,
@@ -543,6 +597,7 @@ def main():
                 continue
             source = file_path
 
+        _claim(out_name, str(file_path))
         try:
             result = convert_file(
                 source,
