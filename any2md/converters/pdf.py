@@ -19,6 +19,7 @@ import pymupdf4llm
 
 from any2md import _logging, pipeline
 from any2md._docling import has_docling, install_hint
+from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
@@ -84,7 +85,14 @@ def _save_image_safely(img_path: Path, pil_image) -> None:
         pil_image.save(fp, format="PNG")
 
 
-def pdf_looks_complex(pdf_path: Path) -> bool:
+def _open_pdf(src: SourceFile) -> "pymupdf.Document":
+    """Open a PDF from its path, or from bytes the CLI already read."""
+    if src.path is not None:
+        return pymupdf.open(str(src.path))
+    return pymupdf.open(stream=src.data, filetype="pdf")
+
+
+def pdf_looks_complex(pdf_path: Path | SourceFile) -> bool:
     """Cheap heuristic: is this PDF likely to produce artifacts on pymupdf4llm?
 
     Returns True when at least one signal suggests a complex layout that
@@ -96,7 +104,7 @@ def pdf_looks_complex(pdf_path: Path) -> bool:
     Sampling: at most 5 pages, evenly distributed.
     """
     try:
-        with pymupdf.open(str(pdf_path)) as doc:
+        with _open_pdf(as_source(pdf_path)) as doc:
             page_count = len(doc)
             if page_count <= 5:
                 return False
@@ -133,7 +141,7 @@ def pdf_looks_complex(pdf_path: Path) -> bool:
 
 
 def _extract_via_docling(
-    pdf_path: Path, options: PipelineOptions, output_dir: Path
+    pdf_path: Path | SourceFile, options: PipelineOptions, output_dir: Path
 ) -> tuple[str, str]:
     """Returns (markdown, 'docling'). Raises on Docling errors.
 
@@ -158,11 +166,11 @@ def _extract_via_docling(
         generate_picture_images=options.save_images,
     )
 
+    src = as_source(pdf_path)
     converter = get_pdf_converter(pipeline_opts)
     try:
-        # Docling resolves a str source as a URL first, so a file named
-        # ``http:host#.pdf`` would be fetched. A Path is read from disk.
-        result = converter.convert(Path(pdf_path))
+        # Never a str: see SourceFile.docling_input.
+        result = converter.convert(src.docling_input())
     except Exception:
         evict_on_convert_failure("pdf", pipeline_opts)
         raise
@@ -170,7 +178,7 @@ def _extract_via_docling(
     if options.save_images:
         pictures = getattr(result.document, "pictures", None) or []
         if pictures:
-            images_dir = output_dir / "images" / safe_dir_name(pdf_path.stem)
+            images_dir = output_dir / "images" / safe_dir_name(src.stem)
             images_dir.mkdir(parents=True, exist_ok=True)
             for i, picture in enumerate(pictures):
                 try:
@@ -197,7 +205,7 @@ def _extract_via_pymupdf4llm(doc: "pymupdf.Document") -> tuple[str, str]:
 
 
 def convert_pdf(
-    pdf_path: Path,
+    pdf_path: Path | SourceFile,
     output_dir: Path,
     options: PipelineOptions | None = None,
     force: bool = False,
@@ -205,8 +213,11 @@ def convert_pdf(
 ) -> bool:
     if options is None:
         options = PipelineOptions(strip_links=strip_links_flag)
+    # A path, or a SourceFile the CLI already opened. Every read below
+    # goes through ``src`` so a scanned file is never reopened by name.
+    src = as_source(pdf_path)
 
-    out_name = sanitize_filename(pdf_path.name)
+    out_name = sanitize_filename(src.name)
     out_path = output_dir / out_name
     if out_path.exists() and not force:
         print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
@@ -218,7 +229,7 @@ def convert_pdf(
         # invalid for PDFs — fail the file with a clear error.
         if options.backend == "mammoth":
             _logging.fail(
-                f"{pdf_path.name} -- backend 'mammoth' is not "
+                f"{src.name} -- backend 'mammoth' is not "
                 f"valid for PDF input (mammoth processes DOCX only)."
             )
             return False
@@ -236,12 +247,12 @@ def convert_pdf(
         else:
             use_docling = has_docling()
 
-        if not use_docling and options.backend is None and pdf_looks_complex(pdf_path):
+        if not use_docling and options.backend is None and pdf_looks_complex(src):
             install_hint()
 
         # Always extract metadata via PyMuPDF — independent of which
         # backend produces the markdown body.
-        with pymupdf.open(str(pdf_path)) as doc:
+        with _open_pdf(src) as doc:
             page_count = len(doc)
             props = _parse_pdf_metadata(doc)
             fallback_md = None
@@ -251,16 +262,14 @@ def convert_pdf(
 
         if use_docling:
             try:
-                md_text, extracted_via = _extract_via_docling(
-                    pdf_path, options, output_dir
-                )
+                md_text, extracted_via = _extract_via_docling(src, options, output_dir)
                 lane = "structured"
             except Exception as e:  # noqa: BLE001 — fall back rather than fail
                 _logging.warn(
-                    f"Docling extraction failed for {pdf_path.name}: {e}; "
+                    f"Docling extraction failed for {src.name}: {e}; "
                     f"falling back to pymupdf4llm."
                 )
-                with pymupdf.open(str(pdf_path)) as doc:
+                with _open_pdf(src) as doc:
                     md_text, extracted_via = _extract_via_pymupdf4llm(doc)
                 lane = "text"
         else:
@@ -273,14 +282,11 @@ def convert_pdf(
             title_hint=props["title_hint"],
             authors=props["authors"],
             organization=props["organization"],
-            date=(
-                props["date"]
-                or date.fromtimestamp(pdf_path.stat().st_mtime).isoformat()
-            ),
+            date=(props["date"] or date.fromtimestamp(src.mtime()).isoformat()),
             keywords=props["keywords"],
             pages=page_count,
             word_count=None,
-            source_file=pdf_path.name,
+            source_file=src.name,
             source_url=None,
             doc_type="pdf",
             extracted_via=extracted_via,
@@ -300,5 +306,5 @@ def convert_pdf(
         return True
 
     except (OSError, ValueError, RuntimeError) as e:
-        _logging.fail(f"{pdf_path.name} -- {e}")
+        _logging.fail(f"{src.name} -- {e}")
         return False

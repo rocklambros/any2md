@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from any2md import _logging
+from any2md._safe_open import SkipSource, SourceFile, open_scanned
 from any2md.config import (
     discover_config,
     extract_document_id_settings,
@@ -376,7 +377,12 @@ def main():
         sys.exit(1)
 
     urls = []
-    file_paths = []
+    # Each entry pairs a file with the directory scan that found it, or
+    # with None when the user named the file. Scanned files are opened
+    # relative to their scan root with no link followed (see
+    # _safe_open.open_scanned). Named files follow links, because the
+    # user chose them.
+    file_paths: list[tuple[Path, Path | None]] = []
 
     if args.files:
         for f in args.files:
@@ -392,21 +398,28 @@ def main():
                 _logging.fail(f"{f}", prefix="NOT FOUND")
                 continue
             if p.is_dir():
-                file_paths.extend(_scan_directory(p, args.recursive))
+                file_paths.extend(
+                    (found, p) for found in _scan_directory(p, args.recursive)
+                )
                 continue
             if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 _logging.fail(f"{f}", prefix="UNSUPPORTED FORMAT")
                 continue
-            file_paths.append(p)
+            file_paths.append((p, None))
     elif args.input_dir:
         if not args.input_dir.is_dir():
             sys.stderr.write(
                 f"Error: not a directory: {_logging.safe_oneline(str(args.input_dir))}\n"
             )
             sys.exit(1)
-        file_paths = _scan_directory(args.input_dir, args.recursive)
+        file_paths = [
+            (found, args.input_dir)
+            for found in _scan_directory(args.input_dir, args.recursive)
+        ]
     else:
-        file_paths = _scan_directory(script_dir, args.recursive)
+        file_paths = [
+            (found, script_dir) for found in _scan_directory(script_dir, args.recursive)
+        ]
 
     if not file_paths and not urls:
         print("No supported files to process.")
@@ -442,7 +455,7 @@ def main():
             fail += 1
 
     # Process local files
-    for file_path in file_paths:
+    for file_path, scan_root in file_paths:
         # sanitize_filename strips only C0 and DEL, so C1 controls and bidi
         # overrides survive into out_name. Every status line that prints it
         # goes through safe_oneline as well.
@@ -453,24 +466,43 @@ def main():
             skip += 1
             continue
 
-        # File size check
-        try:
-            file_size = file_path.stat().st_size
-        except OSError as e:
-            _logging.fail(f"{file_path.name} -- {e}")
-            fail += 1
-            continue
+        source: Path | SourceFile
+        if scan_root is not None:
+            # The tree may have changed since the scan. open_scanned binds
+            # the file to a no-follow descriptor, checks type and size on
+            # that descriptor, and reads at most --max-file-size bytes.
+            try:
+                source = open_scanned(
+                    scan_root, file_path.relative_to(scan_root), args.max_file_size
+                )
+            except SkipSource as e:
+                _logging.warn(e.detail, prefix=e.prefix)
+                skip += 1
+                continue
+            except OSError as e:
+                _logging.fail(f"{file_path.name} -- {e}")
+                fail += 1
+                continue
+        else:
+            # File size check
+            try:
+                file_size = file_path.stat().st_size
+            except OSError as e:
+                _logging.fail(f"{file_path.name} -- {e}")
+                fail += 1
+                continue
 
-        if file_size > args.max_file_size:
-            _logging.warn(
-                f"{file_path.name} ({file_size} bytes, max {args.max_file_size})",
-                prefix="SKIP (too large)",
-            )
-            skip += 1
-            continue
+            if file_size > args.max_file_size:
+                _logging.warn(
+                    f"{file_path.name} ({file_size} bytes, max {args.max_file_size})",
+                    prefix="SKIP (too large)",
+                )
+                skip += 1
+                continue
+            source = file_path
 
         result = convert_file(
-            file_path,
+            source,
             args.output_dir,
             options=options,
             force=args.force,

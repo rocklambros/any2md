@@ -70,12 +70,22 @@ def atomic_write_text(out_path: Path, content: str) -> None:
         raise
 
 
+def decode_text_with_fallback(data: bytes) -> str:
+    """Decode bytes as utf-8, falling back to latin-1.
+
+    Newlines are normalized the way ``Path.read_text`` does it, so text
+    read from an open descriptor matches text read from a path.
+    """
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = data.decode("latin-1")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def read_text_with_fallback(path: Path) -> str:
     """Read a text file, trying utf-8 first then falling back to latin-1."""
-    try:
-        return path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return path.read_text(encoding="latin-1")
+    return decode_text_with_fallback(path.read_bytes())
 
 
 def safe_dir_name(name: str) -> str:

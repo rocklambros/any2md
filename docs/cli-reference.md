@@ -75,8 +75,14 @@ You'll see output files written under `./build/markdown/` instead of `./Text/`.
 
 Recurse into subdirectories when scanning a directory. Directory scans skip
 symlinked files and never descend into symlinked directories, and each skip
-prints a `SKIP (symlink)` line. A symlink you name on the command line is
-still converted.
+prints a `SKIP (symlink)` line. Each scanned file is then opened relative to
+the scanned directory with no symlink followed on any path component, so a
+file or subdirectory swapped for a symlink after the scan is also skipped
+with a `SKIP (symlink)` line, and anything swapped in that is not a regular
+file prints `SKIP (not a regular file)`. A symlink you name on the command
+line is still converted. On Windows the open follows links and a check after
+the open rejects a swapped file, which leaves a narrow race on parent
+directories.
 
 **Use this when** your corpus is organized into subdirectories (`./corpus/2024/`,
 `./corpus/2025/`) and you want one invocation to walk the whole tree.

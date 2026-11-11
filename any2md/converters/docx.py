@@ -25,6 +25,7 @@ import markdownify
 from any2md import _logging, pipeline
 from any2md._docling import has_docling
 from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
+from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
@@ -101,7 +102,7 @@ _NS_APP = {
 }
 
 
-def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
+def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
     out: dict[str, object] = {
         "title_hint": None,
         "authors": [],
@@ -111,7 +112,7 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
         "keywords": [],
     }
     try:
-        with zipfile.ZipFile(docx_path) as z:
+        with as_source(docx_path).open_binary() as fh, zipfile.ZipFile(fh) as z:
             # Both docProps parts are optional in OOXML, so a missing part
             # leaves the defaults in place. Testing membership up front,
             # rather than catching KeyError, keeps a KeyError from any
@@ -161,7 +162,9 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
     return out
 
 
-def _extract_via_docling(docx_path: Path) -> tuple[str, str, list[str]]:
+def _extract_via_docling(
+    docx_path: Path | SourceFile,
+) -> tuple[str, str, list[str]]:
     """Returns (markdown, 'docling', captured_warnings).
 
     ``captured_warnings`` is the list of WARNING+ messages emitted by
@@ -181,9 +184,8 @@ def _extract_via_docling(docx_path: Path) -> tuple[str, str, list[str]]:
     converter = get_docx_converter()
     with _DoclingMswordWarningCapture() as cap:
         try:
-            # Docling resolves a str source as a URL first, so a file named
-            # ``http:host#.docx`` would be fetched. A Path is read from disk.
-            result = converter.convert(Path(docx_path))
+            # Never a str: see SourceFile.docling_input.
+            result = converter.convert(as_source(docx_path).docling_input())
         except Exception:
             evict_on_convert_failure("docx", None)
             raise
@@ -229,8 +231,10 @@ def _mammoth_kwargs(save_images: bool) -> dict:
     return kwargs
 
 
-def _extract_via_mammoth(docx_path: Path, options: PipelineOptions) -> tuple[str, str]:
-    with open(docx_path, "rb") as f:
+def _extract_via_mammoth(
+    docx_path: Path | SourceFile, options: PipelineOptions
+) -> tuple[str, str]:
+    with as_source(docx_path).open_binary() as f:
         html_result = mammoth.convert_to_html(f, **_mammoth_kwargs(options.save_images))
     md = markdownify.markdownify(
         html_result.value,
@@ -245,7 +249,7 @@ def _extract_via_mammoth(docx_path: Path, options: PipelineOptions) -> tuple[str
 
 
 def convert_docx(
-    docx_path: Path,
+    docx_path: Path | SourceFile,
     output_dir: Path,
     options: PipelineOptions | None = None,
     force: bool = False,
@@ -253,8 +257,11 @@ def convert_docx(
 ) -> bool:
     if options is None:
         options = PipelineOptions(strip_links=strip_links_flag)
+    # A path, or a SourceFile the CLI already opened. Every read below
+    # goes through ``src`` so a scanned file is never reopened by name.
+    src = as_source(docx_path)
 
-    out_name = sanitize_filename(docx_path.name)
+    out_name = sanitize_filename(src.name)
     out_path = output_dir / out_name
     if out_path.exists() and not force:
         print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
@@ -266,34 +273,32 @@ def convert_docx(
         # invalid for DOCX — fail the file with a clear error.
         if options.backend == "pymupdf4llm":
             _logging.fail(
-                f"{docx_path.name} -- backend 'pymupdf4llm' is not "
+                f"{src.name} -- backend 'pymupdf4llm' is not "
                 f"valid for DOCX input (pymupdf4llm processes PDF only)."
             )
             return False
 
         docling_warnings: list[str] = []
         if options.backend == "mammoth":
-            md_text, extracted_via = _extract_via_mammoth(docx_path, options)
+            md_text, extracted_via = _extract_via_mammoth(src, options)
             lane = "text"
         elif options.backend == "docling":
-            md_text, extracted_via, docling_warnings = _extract_via_docling(docx_path)
+            md_text, extracted_via, docling_warnings = _extract_via_docling(src)
             lane = "structured"
         elif has_docling():
             try:
-                md_text, extracted_via, docling_warnings = _extract_via_docling(
-                    docx_path
-                )
+                md_text, extracted_via, docling_warnings = _extract_via_docling(src)
                 lane = "structured"
             except Exception as e:  # noqa: BLE001 — fall back rather than fail
                 _logging.warn(
-                    f"Docling extraction failed for {docx_path.name}: {e}; "
+                    f"Docling extraction failed for {src.name}: {e}; "
                     f"falling back to mammoth."
                 )
-                md_text, extracted_via = _extract_via_mammoth(docx_path, options)
+                md_text, extracted_via = _extract_via_mammoth(src, options)
                 lane = "text"
                 docling_warnings = []
         else:
-            md_text, extracted_via = _extract_via_mammoth(docx_path, options)
+            md_text, extracted_via = _extract_via_mammoth(src, options)
             lane = "text"
 
         # v1.0.5: Docling's DOCX backend silently drops list items in a
@@ -308,13 +313,13 @@ def convert_docx(
             and extracted_via == "docling"
         ):
             _logging.warn(
-                f"{docx_path.name} -- Docling emitted "
+                f"{src.name} -- Docling emitted "
                 f"{len(docling_warnings)} msword_backend warning(s); "
                 f"re-running via mammoth (content may have been dropped "
                 f"by Docling).",
                 prefix="FALLBACK",
             )
-            md_text, _ = _extract_via_mammoth(docx_path, options)
+            md_text, _ = _extract_via_mammoth(src, options)
             extracted_via = "docling→mammoth (warning fallback)"
             lane = "text"
             add_warnings(
@@ -327,19 +332,16 @@ def convert_docx(
         md_text, warnings = pipeline.run(md_text, lane, options)
         add_warnings(warnings)
 
-        props = _read_docx_metadata(docx_path)
+        props = _read_docx_metadata(src)
         meta = SourceMeta(
             title_hint=props["title_hint"],
             authors=props["authors"],
             organization=props["organization"],
-            date=(
-                props["date"]
-                or date.fromtimestamp(docx_path.stat().st_mtime).isoformat()
-            ),
+            date=(props["date"] or date.fromtimestamp(src.mtime()).isoformat()),
             keywords=props["keywords"],
             pages=None,
             word_count=len(md_text.split()),
-            source_file=docx_path.name,
+            source_file=src.name,
             source_url=None,
             doc_type="docx",
             extracted_via=extracted_via,
@@ -360,5 +362,5 @@ def convert_docx(
         return True
 
     except (OSError, ValueError) as e:
-        _logging.fail(f"{docx_path.name} -- {e}")
+        _logging.fail(f"{src.name} -- {e}")
         return False
