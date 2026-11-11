@@ -281,12 +281,26 @@ def _scan_text(text: str) -> _BlockMap:
     )
 
 
-def fenced_lines(text: str) -> tuple[bool, ...]:
+def _as_text(text: str | Sequence[str]) -> str:
+    """Return ``text`` as one string, joining a line sequence with ``\\n``.
+
+    In v1.2.1 ``fenced_lines`` and ``protected_lines`` took a list of
+    lines. The scan cache needs a hashable key, so a list passed to it
+    raised ``TypeError: unhashable type: 'list'``. Joining first keeps
+    those callers working, at the cost of one join per call.
+    """
+    if isinstance(text, str):
+        return text
+    return "\n".join(text)
+
+
+def fenced_lines(text: str | Sequence[str]) -> tuple[bool, ...]:
     """Flag each line that belongs to a fenced code block, fences included.
 
-    Lines are the pieces of ``text.split("\\n")``.
+    Lines are the pieces of ``text.split("\\n")``. A list of lines is
+    also accepted and joined with ``"\\n"`` before the scan.
     """
-    return _scan_text(text).fenced
+    return _scan_text(_as_text(text)).fenced
 
 
 def fence_runs(fenced: Sequence[bool]) -> Iterator[tuple[bool, int, int]]:
@@ -304,23 +318,23 @@ def fence_runs(fenced: Sequence[bool]) -> Iterator[tuple[bool, int, int]]:
             start = k
 
 
-def protected_lines(text: str) -> list[bool]:
+def protected_lines(text: str | Sequence[str]) -> list[bool]:
     """Flag each line where a ``#`` is never a document heading.
 
     That is every line of a fenced code block, a raw HTML block, or a
     block quote. A heading inside a quote belongs to the quoted text,
     not to the document outline. find_headings skips these lines, so
     both heading passes (S4 and the HTML converter) follow this one
-    rule.
+    rule. A list of lines is also accepted and joined with ``"\\n"``.
     """
-    return [kind != _TEXT for kind in _scan_text(text).kinds]
+    return [kind != _TEXT for kind in _scan_text(_as_text(text)).kinds]
 
 
 # Leading form feeds and vertical tabs are zero width, as in _scan_blocks.
 _ATX_LINE_RE = re.compile(r"[\f\v]*(#{1,6})[ \t]+\S")
 
 
-def find_headings(text: str) -> list[Heading]:
+def find_headings(text: str | Sequence[str]) -> list[Heading]:
     """Return the headings S4 and the HTML lane rank, in document order.
 
     An ATX heading counts when it starts at column 0 outside fenced
@@ -328,8 +342,10 @@ def find_headings(text: str) -> list[Heading]:
     before it take no column. A setext heading counts when its
     paragraph sits at the top level. Headings nested in a list item or
     a block quote are left alone, the same rule the ATX pattern applies
-    by requiring column 0.
+    by requiring column 0. A list of lines is also accepted and joined
+    with ``"\\n"``, and line indices refer to that list.
     """
+    text = _as_text(text)
     setext = _scan_text(text).setext
     protected = protected_lines(text)
     lines = text.split("\n")

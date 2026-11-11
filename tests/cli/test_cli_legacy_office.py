@@ -66,3 +66,42 @@ def test_convert_file_reports_legacy_format(tmp_path, capsys):
     assert "legacy binary PowerPoint format (.ppt) is not supported" in (
         capsys.readouterr().err
     )
+
+
+def test_scanned_legacy_files_count_as_skips(monkeypatch, tmp_path, capsys):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "old.xls").write_bytes(b"\xd0\xcf\x11\xe0legacy")
+    (corpus / "keep.txt").write_text("Plain notes.\n")
+
+    code = _run(monkeypatch, [str(corpus), "-o", str(tmp_path / "out")])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Processing 2 file(s)" in out
+    assert "1 converted, 1 skipped, 0 failed." in out
+
+
+def test_folder_with_only_legacy_files_reports_the_skips(monkeypatch, tmp_path, capsys):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "old.xls").write_bytes(b"\xd0\xcf\x11\xe0legacy")
+    (corpus / "deck.ppt").write_bytes(b"\xd0\xcf\x11\xe0legacy")
+
+    code = _run(monkeypatch, [str(corpus), "-o", str(tmp_path / "out")])
+
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "No supported files to process." not in captured.out
+    assert "0 converted, 2 skipped, 0 failed." in captured.out
+    assert captured.err.count("SKIP (legacy format)") == 2
+
+
+def test_legacy_file_seen_by_two_scans_counts_once(monkeypatch, tmp_path, capsys):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "old.xls").write_bytes(b"\xd0\xcf\x11\xe0legacy")
+
+    _run(monkeypatch, [str(corpus), str(corpus), "-o", str(tmp_path / "out")])
+
+    assert "0 converted, 1 skipped, 0 failed." in capsys.readouterr().out

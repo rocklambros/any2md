@@ -26,7 +26,7 @@ from any2md._safe_open import SourceFile
 # inflated XML, not on the size the user allowed on disk.
 MAX_TOTAL_UNCOMPRESSED = 1024 * 1024 * 1024
 
-# Office XML compresses about 10 to 30 times, and very repetitive sheet
+# Office XML compresses about 10 to 30 times, and highly repetitive sheet
 # XML can reach 100. Deflate tops out near 1030, which is where bombs
 # sit. 250 leaves room for odd but honest files.
 MAX_COMPRESSION_RATIO = 250
@@ -35,6 +35,22 @@ MAX_COMPRESSION_RATIO = 250
 # the ratio limit and still inflate to almost nothing, so the ratio
 # test applies only to members larger than this.
 RATIO_CHECK_MIN_SIZE = 10 * 1024 * 1024
+
+# Workbooks get tighter limits on their XML, because openpyxl, which
+# Docling's Excel backend runs in its default (not read-only) mode, keeps
+# a Cell object per cell in memory. A cell costs about 20 to 40 bytes of
+# sheet XML (``<c r="A1"><v>1</v></c>`` is 22) and about 250 to 400
+# bytes once parsed: the Cell object, its (row, column) key in the
+# sheet's cell dict, and the value. Docling then copies each cell into
+# its own table model. That puts the expansion near 10 to 20 times the
+# XML size, so the 1 GiB archive ceiling alone admits a workbook that
+# needs 10 GiB or more. 128 MiB of workbook XML bounds the parse at about
+# 2 GiB, and a single part at 96 MiB still holds 3 to 4 million cells,
+# far past what a person reads as Markdown. The byte caps also bound the
+# cell count, since a cell cannot take fewer than about 20 bytes of XML,
+# so the guard does not inflate members to count ``<c>`` elements.
+MAX_XLSX_XML_PART = 96 * 1024 * 1024
+MAX_XLSX_XML_TOTAL = 128 * 1024 * 1024
 
 # A large workbook or deck holds a few thousand parts. Tens of
 # thousands of tiny members only serve to slow the parser.
@@ -76,3 +92,37 @@ def check_ooxml_archive(src: SourceFile) -> None:
                     f"member compression ratio {ratio:.0f}:1 exceeds the "
                     f"{MAX_COMPRESSION_RATIO}:1 limit"
                 )
+
+    if _is_workbook(infos):
+        _check_workbook_xml(infos)
+
+
+def _is_workbook(infos: list[zipfile.ZipInfo]) -> bool:
+    """Return True when the archive holds a SpreadsheetML workbook part."""
+    return any(info.filename.lower() == "xl/workbook.xml" for info in infos)
+
+
+def _check_workbook_xml(infos: list[zipfile.ZipInfo]) -> None:
+    """Apply the workbook XML caps to every ``.xml`` member.
+
+    openpyxl locates sheets and shared strings through the workbook
+    relationships, not through fixed names, so a sheet stored outside
+    ``xl/worksheets/`` would slip past a name filter. Every XML part
+    counts. Styles, themes, and drawings are small in honest files and
+    use little of the budget.
+    """
+    total = 0
+    for info in infos:
+        if not info.filename.lower().endswith(".xml"):
+            continue
+        if info.file_size > MAX_XLSX_XML_PART:
+            raise ArchiveRejected(
+                f"workbook XML part inflates to {info.file_size} bytes, more "
+                f"than the {MAX_XLSX_XML_PART}-byte limit for spreadsheets"
+            )
+        total += info.file_size
+        if total > MAX_XLSX_XML_TOTAL:
+            raise ArchiveRejected(
+                f"total workbook XML exceeds the {MAX_XLSX_XML_TOTAL}-byte "
+                f"limit for spreadsheets"
+            )

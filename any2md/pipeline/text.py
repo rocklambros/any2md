@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Callable, TYPE_CHECKING
 
-from any2md.pipeline.blocks import fence_runs, fenced_lines
+from any2md.pipeline.blocks import fence_runs, fenced_lines, find_headings
 
 if TYPE_CHECKING:
     from any2md.pipeline import PipelineOptions
@@ -682,6 +682,31 @@ def strip_cover_artifacts(text: str, options: "PipelineOptions") -> str:
     return "\n".join(out)
 
 
+def split_setext_artifacts(text: str, _options: "PipelineOptions") -> str:
+    """T11: Separate setext underlines from the paragraph above them.
+
+    Text-lane backends write every real heading in ATX form: markdownify
+    runs with ``heading_style="ATX"``, pymupdf4llm emits ``#`` lines, and
+    the TXT structurizer rewrites underlined headings itself. A ``---`` or
+    ``===`` line glued to a paragraph is a rule or a run of ``=`` from the
+    source, and a renderer would turn the paragraph into a heading. A
+    blank line before the underline makes ``---`` a thematic break and
+    ``===`` literal text, which is what the source showed. C7 then counts
+    only headings the backend wrote.
+
+    The text lane has no S4 pass, so rewriting these lines as ATX would
+    leave the level unranked and add an H1 or a skipped level. Only
+    top-level setext headings change, the same set C7 counts.
+    """
+    underlines = [last for first, last, _ in find_headings(text) if last != first]
+    if not underlines:
+        return text
+    lines = text.split("\n")
+    for index in reversed(underlines):
+        lines.insert(index, "")
+    return "\n".join(lines)
+
+
 STAGES: list[Stage] = [
     # T2 must see the raw "word-\nword" breaks, so it runs before T1 joins
     # wrapped lines. The reverse order disabled T2 entirely before v1.2.1.
@@ -695,4 +720,6 @@ STAGES: list[Stage] = [
     strip_web_fragments,
     restore_lists_and_code,
     strip_cover_artifacts,
+    # Last, so no earlier stage can glue a paragraph back onto a rule.
+    split_setext_artifacts,
 ]

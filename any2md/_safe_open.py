@@ -52,6 +52,13 @@ _LINK_ERRNOS = {errno.ELOOP, errno.EMLINK, errno.ENOTDIR}
 
 _CHUNK = 1024 * 1024
 
+# The most one pread asks for. macOS rejects a read or pread count above
+# INT_MAX with EINVAL, so a 2.5 GB file allowed by a raised
+# --max-file-size failed in one whole-file read. 64 MiB keeps the call
+# count low for large files and stays far below that limit on every
+# platform.
+_MAX_READ = 64 * 1024 * 1024
+
 
 def _supports_nofollow_walk() -> bool:
     return bool(_O_NOFOLLOW and _O_DIRECTORY and os.open in os.supports_dir_fd)
@@ -78,7 +85,11 @@ def _pread(fd: int, size: int, offset: int) -> bytes:
     then mammoth), and each keeps its own position. ``os.pread`` leaves
     the shared offset alone. Windows has no ``pread``, so there every
     read seeks first, which gives the same result in one thread.
+
+    ``size`` is clamped to ``_MAX_READ``. Every caller loops on short
+    reads, so a clamped read only costs another call.
     """
+    size = min(size, _MAX_READ)
     if hasattr(os, "pread"):
         return os.pread(fd, size, offset)
     os.lseek(fd, offset, os.SEEK_SET)
@@ -94,10 +105,11 @@ def _read_capped(fd: int, max_size: int, size_hint: int) -> bytes:
     """Read the whole file from ``fd``, refusing more than ``max_size``.
 
     The first read asks for one byte past the size ``fstat`` reported,
-    so a file read in one call needs no join and no second copy. Any
-    later read asks for at most one byte past the cap, so a file that
-    grew after the check fails instead of being truncated or read
-    without bound.
+    so a file up to ``_MAX_READ`` bytes is read in one call and needs no
+    join and no second copy. A larger file arrives in ``_MAX_READ``
+    pieces, because ``_pread`` clamps each count. Any later read asks
+    for at most one byte past the cap, so a file that grew after the
+    check fails instead of being truncated or read without bound.
     """
     chunks: list[bytes] = []
     total = 0
