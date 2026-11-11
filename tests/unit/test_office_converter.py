@@ -11,6 +11,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import NamedTuple
 
 import pytest
 
@@ -23,34 +24,82 @@ from any2md.pipeline import PipelineOptions
 from tests._office_fixtures import build_pptx, build_xlsx
 
 
+class _Label(NamedTuple):
+    """Hashable like docling-core's label enum, with the same ``value``."""
+
+    value: str
+
+
+def _label(value):
+    return _Label(value)
+
+
+# What ``office._split_labels`` returns from docling-core, by value.
+_TITLE_LABELS = {_label("title")}
+_BODY_LABELS = {_label(v) for v in ("paragraph", "list_item", "table", "picture")}
+
+
+@pytest.fixture(autouse=True)
+def _fake_export_labels(monkeypatch):
+    monkeypatch.setattr(office, "_split_labels", lambda: (_TITLE_LABELS, _BODY_LABELS))
+
+
 class _FakeDoc:
     """The slice of DoclingDocument that ``office`` reads.
 
-    ``pages`` maps page number to Markdown. Every item carries a
-    provenance entry for its page unless listed in ``orphans``.
+    ``pages`` maps page number to Markdown, or to a list of
+    ``(label, text)`` items. A "title" item renders as ``# text`` and a
+    "picture" item as the image placeholder, the way Docling writes
+    them. Every item carries a provenance entry for its page unless
+    listed in ``orphans``.
     """
 
     def __init__(self, pages, sheet_names=(), orphans=0, page_filter=True):
-        self._md = dict(pages)
-        self.pages = {n: object() for n in self._md}
+        self._pages = {
+            n: [("paragraph", spec)] if isinstance(spec, str) else list(spec)
+            for n, spec in dict(pages).items()
+        }
+        self.pages = {n: object() for n in self._pages}
         self.groups = [
-            SimpleNamespace(name=n, label=SimpleNamespace(value="sheet"))
-            for n in sheet_names
+            SimpleNamespace(name=n, label=_label("sheet")) for n in sheet_names
         ]
         self._items = [
-            (SimpleNamespace(prov=[SimpleNamespace(page_no=n)]), 1) for n in self._md
-        ] + [(SimpleNamespace(prov=[]), 1)] * orphans
+            SimpleNamespace(
+                label=_label(label),
+                text=text,
+                captions=[],
+                prov=[SimpleNamespace(page_no=n)],
+            )
+            for n, items in self._pages.items()
+            for label, text in items
+        ] + [SimpleNamespace(label=_label("paragraph"), text="", prov=[])] * orphans
         self._page_filter = page_filter
 
-    def iterate_items(self):
-        return iter(self._items)
+    def iterate_items(self, page_no=None, **_kwargs):
+        for item in self._items:
+            if page_no is None or (item.prov and item.prov[0].page_no == page_no):
+                yield item, 1
+
+    def _render(self, item, kwargs):
+        label = item.label.value
+        if label == "title":
+            return f"# {item.text}"
+        if label == "picture":
+            return kwargs.get("image_placeholder", "<!-- image -->")
+        return item.text
 
     def export_to_markdown(self, **kwargs):
-        if "page_no" in kwargs:
-            if not self._page_filter:
-                raise TypeError("unexpected keyword argument 'page_no'")
-            return self._md[kwargs["page_no"]]
-        return "\n\n".join(self._md.values())
+        page_no = kwargs.get("page_no")
+        if page_no is not None and not self._page_filter:
+            raise TypeError("unexpected keyword argument 'page_no'")
+        allowed = kwargs.get("labels")
+        wanted = None if allowed is None else {lab.value for lab in allowed}
+        parts = [
+            self._render(item, kwargs)
+            for item, _ in self.iterate_items(page_no=page_no)
+            if wanted is None or item.label.value in wanted
+        ]
+        return "\n\n".join(p for p in parts if p)
 
 
 def _fake_docling(monkeypatch, doc):
@@ -227,9 +276,9 @@ def test_slides_share_one_level_under_a_single_h1(monkeypatch, tmp_path):
     deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")], title="Q3 Deck")
     doc = _FakeDoc(
         {
-            1: "# Kickoff\n\nWelcome.",
+            1: [("title", "Kickoff"), ("paragraph", "Welcome.")],
             2: "Body with no title placeholder.",
-            3: "# Results\n\n## Detail\n\nUp 12 percent.",
+            3: [("title", "Results"), ("paragraph", "## Detail\n\nUp 12 percent.")],
         }
     )
     _fake_docling(monkeypatch, doc)
@@ -303,9 +352,38 @@ def test_demote_headings_skips_code_fences():
 
 
 def test_untitled_slide_nests_its_content_under_slide_n():
-    doc = _FakeDoc({1: "#hashtag is body text\n\n# Late title"})
+    doc = _FakeDoc({1: "#hashtag is body text\n\n# Not a placeholder"})
     md = office._render_markdown(doc, "pptx", "Deck")
-    assert md == ("# Deck\n\n## Slide 1\n\n#hashtag is body text\n\n### Late title\n")
+    assert md == (
+        "# Deck\n\n## Slide 1\n\n#hashtag is body text\n\n### Not a placeholder\n"
+    )
+
+
+def test_title_below_other_content_still_names_the_slide():
+    """Docling orders shapes by position, so the title need not come first."""
+    doc = _FakeDoc(
+        {
+            1: [("picture", ""), ("title", "Cover"), ("paragraph", "Subtitle")],
+            2: [("paragraph", "Intro."), ("title", "Agenda")],
+        }
+    )
+    md = office._render_markdown(doc, "pptx", "Deck")
+    assert (
+        md
+        == "# Deck\n\n## Cover\n\n<!-- image -->\n\nSubtitle\n\n## Agenda\n\nIntro.\n"
+    )
+
+
+def test_title_paragraphs_join_into_one_heading():
+    doc = _FakeDoc({1: [("title", "Two line"), ("title", "title"), ("paragraph", "B")]})
+    md = office._render_markdown(doc, "pptx", "Deck")
+    assert md == "# Deck\n\n## Two line title\n\nB\n"
+
+
+def test_title_only_slide_keeps_its_section():
+    doc = _FakeDoc({1: [("title", "Thank you")], 2: "", 3: "Body"})
+    md = office._render_markdown(doc, "pptx", "Deck")
+    assert md == "# Deck\n\n## Thank you\n\n## Slide 3\n\nBody\n"
 
 
 @pytest.mark.parametrize(

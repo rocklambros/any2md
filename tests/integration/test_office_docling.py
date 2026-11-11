@@ -9,7 +9,12 @@ pytest.importorskip("docling")
 from any2md._safe_open import SourceFile  # noqa: E402
 from any2md.converters import convert_file  # noqa: E402
 from any2md.pipeline import PipelineOptions  # noqa: E402
-from tests._office_fixtures import build_pptx, build_xlsx  # noqa: E402
+from tests._office_fixtures import (  # noqa: E402
+    Picture,
+    Slide,
+    build_pptx,
+    build_xlsx,
+)
 
 
 def _split(md_text: str) -> tuple[str, str]:
@@ -47,6 +52,34 @@ def test_pptx_slides_become_sections(tmp_path):
     ]
     assert "Revenue grew 12 percent." in body
     assert "A slide with no title." in body
+
+
+def test_every_title_placeholder_names_its_slide(tmp_path):
+    """Titles below a picture or a text box, centered titles, and titles of
+    two paragraphs all become the slide's H2."""
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(title=["Cover"], pictures=[Picture(box=(457200, 0, 914400, 457200))]),
+            Slide(title=["Agenda"], title_y=3657600, body="Intro.", body_y=0),
+            Slide(title=["Two line", "title"], title_type="ctrTitle", body="B."),
+            Slide(body="No title placeholder."),
+        ],
+    )
+    out = tmp_path / "out"
+
+    assert convert_file(deck, out, options=PipelineOptions(), force=True)
+
+    _, body = _split((out / "deck.md").read_text(encoding="utf-8"))
+    assert _headings(body) == [
+        "# deck",
+        "## Cover",
+        "## Agenda",
+        "## Two line title",
+        "## Slide 4",
+    ]
+    assert "Intro." in body
+    assert "No title placeholder." in body
 
 
 def test_xlsx_sheets_render_as_tables_under_headings(tmp_path):

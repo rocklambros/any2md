@@ -9,7 +9,10 @@ read exactly what each file holds.
 
 from __future__ import annotations
 
+import struct
 import zipfile
+import zlib
+from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -18,6 +21,7 @@ _DOC_RELS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships
 _PML = "http://schemas.openxmlformats.org/presentationml/2006/main"
 _DML = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _SML = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_XDR = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
 
 _CORE_PROPS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
@@ -72,34 +76,140 @@ def _content_types(overrides: list[tuple[str, str]], with_core: bool) -> str:
         '<Default Extension="rels" '
         'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
         '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Default Extension="png" ContentType="image/png"/>'
         f"{body}</Types>"
     )
 
 
-def _text_shape(shape_id: int, name: str, text: str, placeholder: str | None) -> str:
+def tiny_png() -> bytes:
+    """A valid 2x2 RGB PNG, built by hand so no imaging library is needed."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)
+    rows = b"".join(b"\x00" + b"\x80\x20\x20" * 2 for _ in range(2))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
+@dataclass
+class Picture:
+    """One picture on a slide.
+
+    ``box`` is (x, y, cx, cy) in EMUs. With ``grouped`` set the picture
+    sits inside a group shape that doubles its size and moves it, so its
+    slide position differs from its own transform.
+    """
+
+    alt: str = ""
+    box: tuple[int, int, int, int] = (457200, 0, 914400, 914400)
+    grouped: bool = False
+
+
+@dataclass
+class Slide:
+    """One slide. Each part with a ``*_y`` offset gets that vertical position.
+
+    ``title`` is a list of paragraphs in the title placeholder.
+    ``title_type`` is the placeholder type ("title" or "ctrTitle").
+    A part left at None is left off the slide.
+    """
+
+    title: list[str] | None = None
+    title_type: str = "title"
+    title_y: int | None = 1828800
+    body: str | None = None
+    body_y: int | None = 3657600
+    pictures: list[Picture] = field(default_factory=list)
+
+
+def _xfrm(x: int, y: int, cx: int, cy: int) -> str:
+    return f'<a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+
+
+def _text_shape(
+    shape_id: int,
+    name: str,
+    paragraphs: list[str],
+    placeholder: str | None,
+    y: int | None = None,
+) -> str:
     ph = (
         f'<p:nvPr><p:ph type="{placeholder}"/></p:nvPr>' if placeholder else "<p:nvPr/>"
     )
+    sp_pr = (
+        f"<p:spPr>{_xfrm(457200, y, 8229600, 914400)}</p:spPr>"
+        if y is not None
+        else "<p:spPr/>"
+    )
+    paras = "".join(
+        f"<a:p><a:r><a:t>{escape(text)}</a:t></a:r></a:p>" for text in paragraphs
+    )
     return (
         f'<p:sp><p:nvSpPr><p:cNvPr id="{shape_id}" name="{name}"/>'
-        f"<p:cNvSpPr/>{ph}</p:nvSpPr><p:spPr/>"
-        f"<p:txBody><a:bodyPr/><a:p><a:r><a:t>{escape(text)}</a:t></a:r></a:p>"
-        "</p:txBody></p:sp>"
+        f"<p:cNvSpPr/>{ph}</p:nvSpPr>{sp_pr}"
+        f"<p:txBody><a:bodyPr/>{paras}</p:txBody></p:sp>"
     )
 
 
-def _slide_xml(title: str | None, body: str) -> str:
-    title_shape = _text_shape(2, "Title 1", title, "title") if title else ""
+def _picture_shape(shape_id: int, rid: str, pic: Picture) -> str:
+    descr = f' descr="{escape(pic.alt, {chr(34): "&quot;"})}"' if pic.alt else ""
+    shape = (
+        f'<p:pic><p:nvPicPr><p:cNvPr id="{shape_id}" name="Picture {shape_id}"{descr}/>'
+        "<p:cNvPicPr/><p:nvPr/></p:nvPicPr>"
+        f'<p:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch>'
+        f"</p:blipFill><p:spPr>{_xfrm(*pic.box)}"
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>'
+    )
+    if not pic.grouped:
+        return shape
+    x, y, cx, cy = pic.box
+    # The group maps its child space (chOff/chExt) onto a box twice as large,
+    # moved one inch right, the way a resized group looks in PowerPoint.
+    group_xfrm = (
+        f'<a:xfrm><a:off x="{x + 914400}" y="{y}"/><a:ext cx="{cx * 2}" cy="{cy * 2}"/>'
+        f'<a:chOff x="{x}" y="{y}"/><a:chExt cx="{cx}" cy="{cy}"/></a:xfrm>'
+    )
+    return (
+        f'<p:grpSp><p:nvGrpSpPr><p:cNvPr id="{shape_id + 100}" name="Group"/>'
+        f"<p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr>{group_xfrm}</p:grpSpPr>"
+        f"{shape}</p:grpSp>"
+    )
+
+
+def _slide_xml(slide: Slide) -> str:
+    shapes = []
+    for i, pic in enumerate(slide.pictures):
+        shapes.append(_picture_shape(10 + i, f"rIdImg{i + 1}", pic))
+    if slide.title is not None:
+        shapes.append(
+            _text_shape(2, "Title 1", slide.title, slide.title_type, slide.title_y)
+        )
+    if slide.body is not None:
+        shapes.append(_text_shape(3, "Content 2", [slide.body], None, slide.body_y))
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<p:sld xmlns:p="{_PML}" xmlns:a="{_DML}" xmlns:r="{_DOC_RELS}">'
         "<p:cSld><p:spTree>"
         '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
         "<p:grpSpPr/>"
-        f"{title_shape}"
-        f"{_text_shape(3, 'Content 2', body, None)}"
+        f"{''.join(shapes)}"
         "</p:spTree></p:cSld></p:sld>"
     )
+
+
+def _as_slide(spec: Slide | tuple[str | None, str]) -> Slide:
+    """Read the short (title, body) form as a slide with unpositioned shapes."""
+    if isinstance(spec, Slide):
+        return spec
+    title, body = spec
+    return Slide(title=[title] if title else None, title_y=None, body=body, body_y=None)
 
 
 _EMPTY_TREE = (
@@ -126,12 +236,17 @@ _MASTER = (
 
 
 def build_pptx(
-    path: Path, slides: list[tuple[str | None, str]], title: str | None = None
+    path: Path,
+    slides: list[Slide | tuple[str | None, str]],
+    title: str | None = None,
 ) -> Path:
-    """Write a presentation with one title and one body text per slide.
+    """Write a presentation, one entry per slide.
 
-    A slide title of None leaves out the title placeholder.
+    A (title, body) tuple gives a slide with one title and one body text,
+    neither positioned. A title of None leaves out the title placeholder.
+    A ``Slide`` sets positions, title paragraphs, and pictures.
     """
+    slides = [_as_slide(s) for s in slides]
     pml_ct = "application/vnd.openxmlformats-officedocument.presentationml."
     overrides = [
         ("/ppt/presentation.xml", pml_ct + "presentation.main+xml"),
@@ -171,12 +286,19 @@ def build_pptx(
             "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
             _rels(_rel("rId1", "slideMaster", "../slideMasters/slideMaster1.xml")),
         )
-        layout_rel = _rels(
-            _rel("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml")
-        )
-        for i, (slide_title, body) in enumerate(slides, start=1):
-            z.writestr(f"ppt/slides/slide{i}.xml", _slide_xml(slide_title, body))
-            z.writestr(f"ppt/slides/_rels/slide{i}.xml.rels", layout_rel)
+        image_no = 0
+        for i, slide in enumerate(slides, start=1):
+            slide_rels = [
+                _rel("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml")
+            ]
+            for k, _ in enumerate(slide.pictures, start=1):
+                image_no += 1
+                z.writestr(f"ppt/media/image{image_no}.png", tiny_png())
+                slide_rels.append(
+                    _rel(f"rIdImg{k}", "image", f"../media/image{image_no}.png")
+                )
+            z.writestr(f"ppt/slides/slide{i}.xml", _slide_xml(slide))
+            z.writestr(f"ppt/slides/_rels/slide{i}.xml.rels", _rels(*slide_rels))
         if title is not None:
             z.writestr("docProps/core.xml", _CORE_PROPS.format(title=escape(title)))
     return path
@@ -191,7 +313,7 @@ def _column_letter(index: int) -> str:
     return letters
 
 
-def _sheet_xml(rows: list[list[str]]) -> str:
+def _sheet_xml(rows: list[list[str]], with_drawing: bool) -> str:
     row_xml = []
     for r, row in enumerate(rows, start=1):
         cells = "".join(
@@ -199,16 +321,59 @@ def _sheet_xml(rows: list[list[str]]) -> str:
             for c, v in enumerate(row)
         )
         row_xml.append(f'<row r="{r}">{cells}</row>')
+    drawing = '<drawing r:id="rId1"/>' if with_drawing else ""
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        f'<worksheet xmlns="{_SML}"><sheetData>{"".join(row_xml)}</sheetData></worksheet>'
+        f'<worksheet xmlns="{_SML}" xmlns:r="{_DOC_RELS}">'
+        f"<sheetData>{''.join(row_xml)}</sheetData>{drawing}</worksheet>"
+    )
+
+
+@dataclass
+class SheetPicture:
+    """A picture anchored over a cell range: (from col, from row, to col, to row)."""
+
+    alt: str = ""
+    cells: tuple[int, int, int, int] = (1, 1, 3, 4)
+
+
+def _drawing_xml(pictures: list[SheetPicture]) -> str:
+    anchors = []
+    for i, pic in enumerate(pictures, start=1):
+        c1, r1, c2, r2 = pic.cells
+        descr = f' descr="{escape(pic.alt, {chr(34): "&quot;"})}"' if pic.alt else ""
+        anchors.append(
+            "<xdr:twoCellAnchor>"
+            f"<xdr:from><xdr:col>{c1}</xdr:col><xdr:colOff>0</xdr:colOff>"
+            f"<xdr:row>{r1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>"
+            f"<xdr:to><xdr:col>{c2}</xdr:col><xdr:colOff>0</xdr:colOff>"
+            f"<xdr:row>{r2}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>"
+            f'<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="{i + 1}" name="Picture {i}"{descr}/>'
+            "<xdr:cNvPicPr/></xdr:nvPicPr>"
+            f'<xdr:blipFill><a:blip r:embed="rId{i}"/><a:stretch><a:fillRect/>'
+            "</a:stretch></xdr:blipFill>"
+            f"<xdr:spPr>{_xfrm(0, 0, 914400, 914400)}"
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>'
+            "<xdr:clientData/></xdr:twoCellAnchor>"
+        )
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<xdr:wsDr xmlns:xdr="{_XDR}" xmlns:a="{_DML}" xmlns:r="{_DOC_RELS}">'
+        f"{''.join(anchors)}</xdr:wsDr>"
     )
 
 
 def build_xlsx(
-    path: Path, sheets: dict[str, list[list[str]]], title: str | None = None
+    path: Path,
+    sheets: dict[str, list[list[str]]],
+    title: str | None = None,
+    pictures: dict[str, list[SheetPicture]] | None = None,
 ) -> Path:
-    """Write a workbook with one inline-string table per sheet."""
+    """Write a workbook with one inline-string table per sheet.
+
+    ``pictures`` maps a sheet name to the pictures drawn on that sheet.
+    """
+    pictures = pictures or {}
     sheet_ct = (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
     )
@@ -226,6 +391,13 @@ def build_xlsx(
             f'<sheet name="{escape(name)}" sheetId="{i}" r:id="rId{i}"/>'
         )
         wb_rels.append(_rel(f"rId{i}", "worksheet", f"worksheets/sheet{i}.xml"))
+        if pictures.get(name):
+            overrides.append(
+                (
+                    f"/xl/drawings/drawing{i}.xml",
+                    "application/vnd.openxmlformats-officedocument.drawing+xml",
+                )
+            )
     workbook = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<workbook xmlns="{_SML}" xmlns:r="{_DOC_RELS}">'
@@ -236,8 +408,27 @@ def build_xlsx(
         z.writestr("_rels/.rels", _package_rels("xl/workbook.xml", title is not None))
         z.writestr("xl/workbook.xml", workbook)
         z.writestr("xl/_rels/workbook.xml.rels", _rels(*wb_rels))
-        for i, rows in enumerate(sheets.values(), start=1):
-            z.writestr(f"xl/worksheets/sheet{i}.xml", _sheet_xml(rows))
+        image_no = 0
+        for i, (name, rows) in enumerate(sheets.items(), start=1):
+            sheet_pictures = pictures.get(name) or []
+            z.writestr(
+                f"xl/worksheets/sheet{i}.xml", _sheet_xml(rows, bool(sheet_pictures))
+            )
+            if not sheet_pictures:
+                continue
+            z.writestr(
+                f"xl/worksheets/_rels/sheet{i}.xml.rels",
+                _rels(_rel("rId1", "drawing", f"../drawings/drawing{i}.xml")),
+            )
+            z.writestr(f"xl/drawings/drawing{i}.xml", _drawing_xml(sheet_pictures))
+            drawing_rels = []
+            for k, _ in enumerate(sheet_pictures, start=1):
+                image_no += 1
+                z.writestr(f"xl/media/image{image_no}.png", tiny_png())
+                drawing_rels.append(
+                    _rel(f"rId{k}", "image", f"../media/image{image_no}.png")
+                )
+            z.writestr(f"xl/drawings/_rels/drawing{i}.xml.rels", _rels(*drawing_rels))
         if title is not None:
             z.writestr("docProps/core.xml", _CORE_PROPS.format(title=escape(title)))
     return path

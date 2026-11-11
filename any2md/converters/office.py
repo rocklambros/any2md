@@ -7,10 +7,10 @@ and the batch moves on.
 
 Output shape: one H1 for the deck or workbook, then one H2 section per
 slide or sheet, with each section's own headings nested below it.
-Docling writes each slide title as an H1. The converter moves it down
-to H2 so every slide sits at one level, and S4 then enforces the
-single H1. A slide without a title placeholder gets "Slide N". A sheet
-has no title in Docling's Markdown, so its name becomes the heading.
+The text of a slide's title placeholder becomes its H2, wherever the
+placeholder sits on the slide. A slide without title text gets
+"Slide N". A sheet has no title in Docling's Markdown, so its name
+becomes the heading.
 """
 
 from __future__ import annotations
@@ -68,8 +68,37 @@ def _label_value(label: Any) -> str:
     return str(getattr(label, "value", label))
 
 
-def _page_sections(doc: Any, fmt: OfficeFormat) -> list[tuple[str | None, str]] | None:
-    """Split a converted deck or workbook into (heading, markdown) per page.
+def _split_labels() -> tuple[set[Any], set[Any]]:
+    """Split Docling's default export labels into (title, everything else).
+
+    A lazy import, so this module loads without Docling installed.
+    """
+    from docling_core.types.doc.document import DEFAULT_EXPORT_LABELS
+
+    title = {lab for lab in DEFAULT_EXPORT_LABELS if _label_value(lab) == "title"}
+    return title, set(DEFAULT_EXPORT_LABELS) - title
+
+
+def _slide_title(doc: Any, page_no: int, title_labels: set[Any]) -> str:
+    """Return the text of the slide's title placeholder, or "" without one.
+
+    Docling labels every paragraph of a title or centered-title
+    placeholder TITLE, and places it where the shape sits on the slide,
+    so a picture or text box above the title comes first. Exporting the
+    TITLE items alone finds the title wherever it sits, keeps Docling's
+    Markdown escaping, and joins a title of several paragraphs into one
+    heading line.
+    """
+    md = doc.export_to_markdown(page_no=page_no, labels=title_labels)
+    parts = (line.lstrip("#").strip() for line in md.splitlines())
+    return _one_line(" ".join(p for p in parts if p))
+
+
+def _page_sections(doc: Any, fmt: OfficeFormat) -> list[tuple[str, str, bool]] | None:
+    """Split a converted deck or workbook into sections, one per page.
+
+    Each section is (heading, markdown, keep when empty). Only a slide
+    whose title placeholder holds text is kept without a body.
 
     Docling gives each slide and each sheet its own page. Returns None
     when the split cannot be trusted, and the caller then renders the
@@ -97,22 +126,29 @@ def _page_sections(doc: Any, fmt: OfficeFormat) -> list[tuple[str | None, str]] 
         if len(names) != len(pages):
             return None
 
-    sections: list[tuple[str | None, str]] = []
+    title_labels, body_labels = _split_labels() if fmt == "pptx" else (set(), set())
+    sections: list[tuple[str, str, bool]] = []
     for i, page_no in enumerate(pages):
+        title = ""
         try:
-            md = doc.export_to_markdown(page_no=page_no)
+            if fmt == "xlsx":
+                heading = _one_line(names[i]) or f"Sheet {i + 1}"
+                md = doc.export_to_markdown(page_no=page_no)
+            else:
+                title = _slide_title(doc, page_no, title_labels)
+                heading = title or f"Slide {page_no}"
+                # The title is the section heading, so the body leaves it
+                # out. Without title text the body keeps every label, so
+                # a title item Docling could not give text loses nothing.
+                md = (
+                    doc.export_to_markdown(page_no=page_no, labels=body_labels)
+                    if title
+                    else doc.export_to_markdown(page_no=page_no)
+                )
         except TypeError:
             # docling-core releases without page filtering.
             return None
-        md = md.strip()
-        if fmt == "xlsx":
-            heading = _one_line(names[i]) or f"Sheet {i + 1}"
-        else:
-            # A slide with a title placeholder already opens with it.
-            found = find_headings(md)
-            opens_with_title = bool(found) and found[0][0] == 0
-            heading = None if opens_with_title else f"Slide {page_no}"
-        sections.append((heading, md))
+        sections.append((heading, md.strip(), bool(title)))
     return sections
 
 
@@ -135,15 +171,13 @@ def _render_markdown(doc: Any, fmt: OfficeFormat, title: str) -> str:
     if sections is None:
         parts.append(doc.export_to_markdown())
     else:
-        for heading, md in sections:
+        for heading, md, keep_empty in sections:
             # Blank slides and empty or hidden sheets add nothing to read.
-            if not md:
+            # A slide whose title is its only text still gets its section.
+            if not md and not keep_empty:
                 continue
-            if heading is None:
-                # The slide title becomes the H2 section heading.
-                parts.append(_demote_headings(md, 1))
-            else:
-                parts.append(f"## {heading}")
+            parts.append(f"## {heading}")
+            if md:
                 parts.append(_demote_headings(md, 2))
     return "\n\n".join(parts) + "\n"
 
