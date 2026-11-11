@@ -132,3 +132,18 @@ def test_h1_inside_pre_block_does_not_count():
 def test_h1_after_div_block_blank_line_counts():
     body = "<div>\n\n# Real H1\n\nBody.\n"
     assert _ensure_h1(body, "Other Title") == body
+
+
+def test_quoted_h1_is_not_the_body_h1():
+    body = "> # Quoted\n\nBody.\n"
+    assert _ensure_h1(body, "Real Title") == "# Real Title\n\n> # Quoted\n\nBody.\n"
+
+
+def test_setext_h1_counts_as_the_body_h1():
+    body = "Page Title\n==========\n\nBody.\n"
+    assert _ensure_h1(body, "Other Title") == body
+
+
+def test_setext_h2_repeating_title_is_promoted():
+    body = "The Title\n---------\n\nBody.\n"
+    assert _ensure_h1(body, "The Title") == "# The Title\n\nBody.\n"

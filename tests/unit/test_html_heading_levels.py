@@ -126,3 +126,26 @@ def test_heading_inside_div_block_before_blank_line_is_untouched():
 def test_blank_line_ends_div_block():
     body = "# T\n\n<div>\n\n### Real\n"
     assert _normalize_heading_levels(body) == "# T\n\n<div>\n\n## Real\n"
+
+
+def test_quoted_heading_untouched():
+    body = "# T\n\n> ### q\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n> ### q\n\n## Real\n"
+
+
+def test_setext_heading_ranked_and_written_as_atx():
+    body = "# T\n\nSection\n-------\n\n#### Deep\n"
+    out = _normalize_heading_levels(body)
+    assert out == "# T\n\n## Section\n\n### Deep\n"
+
+
+def test_setext_heading_always_written_as_atx():
+    # The C7 validator reads ATX headings only, so a setext heading is
+    # rewritten even when its level does not change.
+    body = "# T\n\nSection\n---\n\nText.\n"
+    assert _normalize_heading_levels(body) == "# T\n\n## Section\n\nText.\n"
+
+
+def test_lazy_quote_line_heading_after_is_ranked():
+    body = "# T\n\n> q\nlazy\n\n### Real\n"
+    assert _normalize_heading_levels(body) == "# T\n\n> q\nlazy\n\n## Real\n"

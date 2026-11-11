@@ -17,7 +17,11 @@ from any2md._http import safe_fetch
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
-from any2md.pipeline.structured import protected_lines, rank_heading_levels
+from any2md.pipeline.structured import (
+    find_headings,
+    rank_heading_levels,
+    setext_text,
+)
 from any2md.utils import (
     atomic_write_text,
     read_text_with_fallback,
@@ -91,7 +95,6 @@ def _extract(raw_html: str) -> tuple[str, str]:
 
 
 _WS_RE = re.compile(r"\s+")
-_ATX_H1_RE = re.compile(r"^#[ \t]+\S")
 _WRAPPING_EMPHASIS_RE = re.compile(r"^(\*\*|__|\*|_)(.+?)\1$")
 
 
@@ -130,18 +133,20 @@ def _ensure_h1(body: str, title: str | None) -> str:
     never reaches the body. This puts it back so the C7 validator and the
     README's single-H1 guarantee hold for HTML/URL output.
 
-    - Body already has an ATX H1 outside fenced code and raw HTML blocks:
-      returned unchanged.
+    - Body already has an H1 (ATX, or setext with a ``=`` underline)
+      outside fenced code, raw HTML blocks, and block quotes: returned
+      unchanged. A quoted ``> # x`` is not the page H1.
     - No usable title: returned unchanged (the validator still warns).
     - First non-blank line repeats the title, as plain or emphasized text
       (case-insensitive): that line is promoted to the H1 so the title
-      does not appear twice.
+      does not appear twice. A setext heading there is compared by its
+      whole text and promoted with its underline removed.
     - Otherwise ``# <title>`` and a blank line are prepended.
     """
     lines = body.split("\n")
-    for line, protected in zip(lines, protected_lines(lines)):
-        if not protected and _ATX_H1_RE.match(line):
-            return body
+    headings = find_headings(lines)
+    if any(level == 1 for _, _, level in headings):
+        return body
 
     heading = _one_line(title or "")
     if not heading:
@@ -151,16 +156,20 @@ def _ensure_h1(body: str, title: str | None) -> str:
     if first is None:
         return f"# {heading}\n"
 
-    candidate = _unwrap_emphasis(_one_line(lines[first]))
+    last = first
+    text = lines[first]
+    for found in headings:
+        if found[0] == first and found[1] > first:
+            last = found[1]
+            text = setext_text(lines, found)
+            break
+    candidate = _unwrap_emphasis(_one_line(text))
     if candidate.casefold() == heading.casefold():
         # Keep the page's own wording and casing for the promoted line.
-        lines[first] = f"# {candidate}"
+        lines[first : last + 1] = [f"# {candidate}"]
         return "\n".join(lines)
 
     return f"# {heading}\n\n" + "\n".join(lines[first:])
-
-
-_ATX_HEADING_RE = re.compile(r"^(#{1,6})(?=[ \t]+\S)")
 
 
 def _normalize_heading_levels(body: str) -> str:
@@ -175,23 +184,32 @@ def _normalize_heading_levels(body: str) -> str:
     The ranking is ``rank_heading_levels``, shared with structured-lane
     S4. This lane runs it without S4's H1 promotion and demotion: H1
     lines are never moved and nothing is ever promoted to H1. Only the
-    ``#`` prefix of a heading line changes. ``#`` lines inside fenced
-    code or raw HTML blocks are not headings and are left alone. A body
-    with no skips is returned unchanged.
+    ``#`` prefix of an ATX heading line changes. A setext heading is
+    always rewritten as one ATX line, as S4 does, because the C7
+    validator reads ATX headings only and would miss it otherwise.
+    ``#`` lines inside fenced code, raw HTML blocks, or block quotes are
+    not headings and are left alone. An ATX-only body with no skips is
+    returned unchanged.
     """
     lines = body.split("\n")
-    found: list[tuple[int, int]] = []  # (line index, original level)
-    for i, (line, protected) in enumerate(zip(lines, protected_lines(lines))):
-        m = None if protected else _ATX_HEADING_RE.match(line)
-        if m:
-            found.append((i, len(m.group(1))))
-    ranked = rank_heading_levels([level for _, level in found])
-    changed = False
-    for (i, level), new_level in zip(found, ranked):
-        if new_level != level:
-            lines[i] = "#" * new_level + lines[i][level:]
-            changed = True
-    return "\n".join(lines) if changed else body
+    headings = find_headings(lines)
+    ranked = rank_heading_levels([level for _, _, level in headings])
+    out: list[str] = []
+    last = 0
+    for (first, end, level), new_level in zip(headings, ranked):
+        if first == end:
+            if new_level == level:
+                continue
+            line = "#" * new_level + lines[first][level:]
+        else:
+            line = "#" * new_level + " " + setext_text(lines, (first, end, level))
+        out.extend(lines[last:first])
+        out.append(line)
+        last = end + 1
+    if not out:
+        return body
+    out.extend(lines[last:])
+    return "\n".join(out)
 
 
 def _extract_metadata(

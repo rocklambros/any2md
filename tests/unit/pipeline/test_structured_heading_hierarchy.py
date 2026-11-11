@@ -193,3 +193,86 @@ def test_blank_line_ends_div_block():
     text = "<div>\n\n### Real\n"
     out = enforce_heading_hierarchy(text, PipelineOptions())
     assert out == "<div>\n\n# Real\n"
+
+
+# Block quotes, lazy continuation, and setext headings.
+
+
+def test_quoted_h1_is_not_the_document_h1():
+    text = "> # x\n\n## Real\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "> # x\n\n# Real\n"
+
+
+def test_quoted_headings_are_not_reranked():
+    text = "# T\n\n> #### q\n\n### A\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n> #### q\n\n## A\n"
+
+
+def test_fence_inside_quote_ends_with_quote():
+    text = "# T\n\n> ```\n> x\n\n### A\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n> ```\n> x\n\n## A\n"
+
+
+def test_setext_h1_counts_as_the_h1():
+    # S4 always writes setext headings as ATX so every heading it emits
+    # has one form, which downstream checks read.
+    text = "Title\n=====\n\n### A\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# Title\n\n## A\n"
+
+
+def test_second_setext_h1_is_demoted():
+    text = "# T\n\nOther\n===\n\nbody\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n## Other\n\nbody\n"
+
+
+def test_setext_h2_is_ranked_with_atx_headings():
+    text = "# T\n\nA\n---\n\n#### A1\n\nB\n-\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n## A\n\n### A1\n\n## B\n"
+
+
+def test_setext_multiline_content_joins_with_spaces():
+    text = "# T\n\nfirst  \n  second\n---\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n## first second\n"
+
+
+def test_setext_trailing_hashes_are_escaped():
+    # "## C #" in ATX would drop the "#" as a closing sequence.
+    text = "# T\n\nC #\n---\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n## C \\#\n"
+
+
+def test_dashes_after_blank_line_stay_a_thematic_break():
+    text = "# T\n\npara\n\n---\n\n### A\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\npara\n\n---\n\n## A\n"
+
+
+def test_setext_inside_quote_is_untouched():
+    text = "# T\n\n> q\n> ---\n\n### A\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n> q\n> ---\n\n## A\n"
+
+
+def test_lazy_quote_line_is_not_a_setext_paragraph():
+    # "===" after a quoted paragraph is lazy text, not an underline.
+    text = "> q\n===\n\n## A\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "> q\n===\n\n# A\n"
+
+
+def test_long_setext_underline_is_linear():
+    import time
+
+    text = "a\n" + "=" * 300_000 + "\n" + "-" * 300_000 + " x\n"
+    start = time.perf_counter()
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out.startswith("# a\n")
+    assert time.perf_counter() - start < 2.0
