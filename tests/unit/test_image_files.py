@@ -25,8 +25,52 @@ class _Png:
         fp.write(self.data)
 
 
-def _writer(tmp_path, overwrite=False, stem="deck"):
-    return ImageWriter(tmp_path / "out", stem, overwrite=overwrite)
+def _writer(tmp_path, overwrite=False, name="deck.pptx"):
+    return ImageWriter(tmp_path / "out", name, overwrite=overwrite)
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("Report v2.pptx", "Report.v2.pptx"),
+        ("报告.pptx", "会议.pptx"),
+        ("a (1).docx", "a 1.docx"),
+    ],
+)
+def test_distinct_markdown_names_get_distinct_folders(tmp_path, first, second):
+    """The folder follows the output .md name, which #60 keeps unique per
+    run, so two inputs never share (or, under --force, clean) a folder."""
+    one = ImageWriter(tmp_path / "out", first, overwrite=True)
+    two = ImageWriter(tmp_path / "out", second, overwrite=True)
+    one.write_png(1, _Png(b"one"))
+    one.commit()
+    two.write_png(1, _Png(b"two"))
+    two.commit()
+
+    folders = sorted((tmp_path / "out" / "images").iterdir())
+    assert len(folders) == 2
+    assert sorted((f / "img1.png").read_bytes() for f in folders) == [b"one", b"two"]
+
+
+def test_links_are_url_encoded(tmp_path):
+    w = ImageWriter(tmp_path / "out", "报告 (v2).pptx", overwrite=False)
+
+    link = w.write_png(1, _Png())
+    w.commit()
+
+    assert link == "images/%E6%8A%A5%E5%91%8A_%28v2%29/img1.png"
+    assert (tmp_path / "out" / "images" / "报告_(v2)" / "img1.png").exists()
+
+
+def test_a_dot_dot_name_stays_inside_the_output_dir(tmp_path):
+    # sanitize_filename("...pdf") is "...md", whose stem is "..".
+    w = ImageWriter(tmp_path / "out", "...pdf", overwrite=True)
+
+    link = w.write_png(1, _Png())
+    w.commit()
+
+    assert link == "images/_../img1.png"
+    assert (tmp_path / "out" / "images" / "_.." / "img1.png").exists()
 
 
 def _folder(tmp_path):
@@ -185,7 +229,7 @@ def test_a_folder_that_leaves_the_output_dir_is_refused(tmp_path, capsys, linked
     link.parent.mkdir(parents=True, exist_ok=True)
     os.symlink(outside, link)
 
-    w = ImageWriter(out, "deck", overwrite=True)
+    w = ImageWriter(out, "deck.pptx", overwrite=True)
 
     assert w.write_png(1, _Png()) is None
     w.commit()

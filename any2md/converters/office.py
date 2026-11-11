@@ -276,7 +276,7 @@ def convert_office(
     # when the document has no pictures left. They are published only
     # after the Markdown is written, and dropped if anything fails first.
     writer = (
-        ImageWriter(output_dir, src.stem, overwrite=force)
+        ImageWriter(output_dir, src.name, overwrite=force)
         if options.save_images
         else None
     )

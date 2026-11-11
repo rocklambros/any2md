@@ -29,9 +29,10 @@ import re
 import tempfile
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 from any2md import _logging
-from any2md.utils import safe_dir_name
+from any2md.utils import sanitize_filename
 
 # The names this writer owns. Anything else in the folder is left alone.
 _IMAGE_NAME_RE = re.compile(r"^img\d+\.[A-Za-z0-9]+$")
@@ -53,6 +54,23 @@ def _reserve(target: Path) -> bool:
     return True
 
 
+def image_folder_name(source_name: str) -> str:
+    """The image folder for a source: its output ``.md`` name without ``.md``.
+
+    ``sanitize_filename`` gives the output name, and #60 fails a run in
+    which two inputs share one, so two documents never share a folder.
+    A stricter rename (``safe_dir_name``) would merge names such as
+    "Report v2" and "Report.v2", or any two all-CJK names. The name holds
+    no path separator. "." and ".." become "_." and "_..", which no
+    output name can produce, since ``sanitize_filename`` strips leading
+    underscores.
+    """
+    stem = sanitize_filename(source_name).removesuffix(".md")
+    if stem in ("", ".", ".."):
+        return "_" + stem
+    return stem
+
+
 def _remove(path: str) -> None:
     try:
         os.unlink(path)
@@ -63,9 +81,9 @@ def _remove(path: str) -> None:
 class ImageWriter:
     """Save one document's images under ``<output_dir>/images/<stem>/``."""
 
-    def __init__(self, output_dir: Path, stem: str, overwrite: bool) -> None:
+    def __init__(self, output_dir: Path, source_name: str, overwrite: bool) -> None:
         self._output_dir = output_dir
-        self._name = safe_dir_name(stem)
+        self._name = image_folder_name(source_name)
         self._folder = output_dir / "images" / self._name
         self._overwrite = overwrite
         # Names linked from the body this run, and the temporary file
@@ -75,8 +93,12 @@ class ImageWriter:
         self._ready: bool | None = None
 
     def link(self, file_name: str) -> str:
-        """The body's relative link to ``file_name``."""
-        return f"images/{self._name}/{file_name}"
+        """The body's relative link to ``file_name``, percent-encoded.
+
+        The folder name may hold spaces, parentheses, or any script, which
+        a Markdown link destination cannot carry as they are.
+        """
+        return f"images/{quote(self._name)}/{file_name}"
 
     def write_png(self, number: int, pil_image: Any) -> str | None:
         """Save a PIL image as ``imgN.png``. Returns its link, or None."""

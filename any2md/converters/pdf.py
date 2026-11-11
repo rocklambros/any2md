@@ -190,7 +190,7 @@ def _extract_via_docling(
 
     doc = result.document
     writer = (
-        ImageWriter(output_dir, src.stem, overwrite=force)
+        ImageWriter(output_dir, src.name, overwrite=force)
         if options.save_images
         else None
     )

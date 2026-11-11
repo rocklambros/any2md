@@ -195,7 +195,7 @@ def _extract_via_docling(
     discarded = bool(messages) and options is not None and options.docx_fallback_on_warn
     if options is not None and options.save_images and output_dir is not None:
         if not discarded:
-            writer = ImageWriter(output_dir, src.stem, overwrite=force)
+            writer = ImageWriter(output_dir, src.name, overwrite=force)
     try:
         figures: dict[int, str] = {}
         if getattr(doc, "pictures", None):
@@ -372,7 +372,7 @@ def _extract_via_mammoth(
     src = as_source(docx_path)
     safe = _mammoth_blocks_external_files()
     writer = (
-        ImageWriter(output_dir, src.stem, overwrite=force)
+        ImageWriter(output_dir, src.name, overwrite=force)
         if options.save_images and output_dir is not None
         else None
     )
