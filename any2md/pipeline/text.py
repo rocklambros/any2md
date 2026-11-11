@@ -297,7 +297,12 @@ def _body_heading_titles(text: str) -> set[str]:
     on a heading holding a long whitespace run (CWE-1333).
     """
     titles: set[str] = set()
-    for line in text.split("\n"):
+    lines = text.split("\n")
+    # A "##" line inside fenced code is a comment, not a body heading, so
+    # it must not count as a match for a TOC entry.
+    for line, code in zip(lines, _fenced(lines)):
+        if code:
+            continue
         level = len(line) - len(line.lstrip("#"))
         if level in (2, 3) and line[level : level + 1] in (" ", "\t"):
             title = line[level:].strip()

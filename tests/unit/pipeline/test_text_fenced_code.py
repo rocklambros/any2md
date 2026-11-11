@@ -99,3 +99,20 @@ def test_t3_still_dedupes_prose_around_a_fence():
     text = "Same.\n\nSame.\n\n```\nSame.\n\nSame.\n```\n"
     out = t.dedupe_paragraphs(text, PipelineOptions())
     assert out == "Same.\n\n```\nSame.\n\nSame.\n```\n"
+
+
+def test_t4_ignores_headings_inside_fence():
+    toc = "".join(f"Item {k} {k}\n" for k in range(6))
+    body = "\n```\n" + "".join(f"## Item {k}\n" for k in range(6)) + "```\n"
+    text = toc + body
+    assert t.dedupe_toc_block(text, PipelineOptions()) == text
+
+
+def test_t7_ignores_headings_inside_fence():
+    table = (
+        "| A | B |\n|---|---|\n| Intro | 1 |\n| Scope | 2 |\n"
+        "| Terms | 3 |\n| Usage | 4 |\n"
+    )
+    body = "\n```\n## Intro\n## Scope\n## Terms\n## Usage\n```\n" + "Text.\n" * 30
+    text = table + body
+    assert t.dedupe_toc_table(text, PipelineOptions()) == text
