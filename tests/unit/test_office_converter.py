@@ -20,7 +20,7 @@ import any2md.converters.office as office
 from any2md._docling import INSTALL_CMD
 from any2md._safe_open import SourceFile
 from any2md.converters import SUPPORTED_EXTENSIONS, convert_file
-from any2md.converters._office_pictures import picture_token
+import any2md.converters._office_pictures as office_pictures
 from any2md.pipeline import PipelineOptions
 from tests._office_fixtures import (
     Picture,
@@ -101,8 +101,12 @@ class _FakeDoc:
         label = "sheet" if sheet_names else "chapter"
         self._groups = []
         count = 0
-        for i, (n, spec) in enumerate(dict(pages).items()):
-            specs = [("paragraph", spec)] if isinstance(spec, str) else list(spec)
+        for i, (n, page_spec) in enumerate(dict(pages).items()):
+            specs = (
+                [("paragraph", page_spec)]
+                if isinstance(page_spec, str)
+                else list(page_spec)
+            )
             items = []
             for spec in specs:
                 if isinstance(spec, tuple):
@@ -164,7 +168,9 @@ class _FakeDoc:
             # What the token-writing picture serializer writes, unless the
             # picture is one Docling leaves out of the Markdown.
             return (
-                "" if getattr(item, "no_token", False) else picture_token(item.self_ref)
+                ""
+                if getattr(item, "no_token", False)
+                else office_pictures.picture_token(item.self_ref)
             )
         return item.text
 
@@ -759,7 +765,6 @@ def test_without_save_images_nothing_is_written(monkeypatch, tmp_path):
 
 
 def test_read_alt_texts_maps_group_transforms_and_clamps(tmp_path):
-    from any2md.converters._office_pictures import read_alt_texts
 
     deck = build_pptx(
         tmp_path / "deck.pptx",
@@ -777,7 +782,7 @@ def test_read_alt_texts_maps_group_transforms_and_clamps(tmp_path):
         ],
     )
 
-    alt = read_alt_texts(SourceFile.from_path(deck), "pptx")
+    alt = office_pictures.read_alt_texts(SourceFile.from_path(deck), "pptx")
 
     # The group doubles the picture and moves it one inch right.
     assert alt.take(2, (1371600, 0, 3200400, 1828800)) == "Grouped"
@@ -790,7 +795,6 @@ def test_read_alt_texts_maps_group_transforms_and_clamps(tmp_path):
 
 
 def test_read_alt_texts_keys_sheet_pictures_by_name_and_cells(tmp_path):
-    from any2md.converters._office_pictures import read_alt_texts
 
     book = build_xlsx(
         tmp_path / "book.xlsx",
@@ -798,19 +802,18 @@ def test_read_alt_texts_keys_sheet_pictures_by_name_and_cells(tmp_path):
         pictures={"Charts": [SheetPicture(alt="Trend", cells=(1, 2, 4, 9))]},
     )
 
-    alt = read_alt_texts(SourceFile.from_path(book), "xlsx")
+    alt = office_pictures.read_alt_texts(SourceFile.from_path(book), "xlsx")
 
     assert alt.take("Data", (1, 2, 5, 10)) == ""
     assert alt.take("Charts", (1, 2, 5, 10)) == "Trend"
 
 
 def test_read_alt_texts_on_a_broken_package_finds_none(tmp_path):
-    from any2md.converters._office_pictures import read_alt_texts
 
     bad = tmp_path / "bad.pptx"
     bad.write_bytes(b"PK\x03\x04 not a zip archive")
 
-    alt = read_alt_texts(SourceFile.from_path(bad), "pptx")
+    alt = office_pictures.read_alt_texts(SourceFile.from_path(bad), "pptx")
     assert alt.by_page == {}
     assert alt.warning and "alt text" in alt.warning
 
@@ -828,13 +831,12 @@ def test_read_alt_texts_on_a_broken_package_finds_none(tmp_path):
 def test_alt_text_failure_costs_only_the_alt_text(monkeypatch, tmp_path, error):
     """A package the alt-text reader cannot read still converts, and the
     lost alt text counts as a warning."""
-    import any2md.converters._office_pictures as pictures
     from any2md.converters import collected_warnings, reset_warnings
 
     def broken(_z):
         raise error
 
-    monkeypatch.setattr(pictures, "_pptx_alt_texts", broken)
+    monkeypatch.setattr(office_pictures, "_pptx_alt_texts", broken)
     deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
     _fake_docling(monkeypatch, _FakeDoc({1: [_picture(caption="Chart")]}))
     reset_warnings()

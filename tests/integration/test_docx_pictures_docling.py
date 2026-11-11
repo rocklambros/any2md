@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("docling")
 
-from any2md.converters.docx import convert_docx  # noqa: E402
+import any2md.converters.docx as docx_mod  # noqa: E402
 from any2md.pipeline import PipelineOptions  # noqa: E402
 from tests._office_fixtures import DocPicture, build_docx  # noqa: E402
 
@@ -32,7 +32,7 @@ def _doc(tmp_path):
 
 def _convert(tmp_path, **opts):
     out = tmp_path / "out"
-    assert convert_docx(
+    assert docx_mod.convert_docx(
         _doc(tmp_path),
         out,
         options=PipelineOptions(backend="docling", **opts),
@@ -57,7 +57,6 @@ def test_docling_lane_writes_figure_lines(tmp_path):
 def test_failed_docling_lane_leaves_only_the_mammoth_images(tmp_path, monkeypatch):
     """Docling stages its pictures, then fails. The mammoth fallback's
     files are the only ones published, and each one is linked."""
-    import any2md.converters.docx as docx_mod
     from any2md.pipeline.structured import _IMG_LINK_RE
     from tests._office_fixtures import tiny_png
 
@@ -67,7 +66,7 @@ def test_failed_docling_lane_leaves_only_the_mammoth_images(tmp_path, monkeypatc
     monkeypatch.setattr(docx_mod, "fill_pictures", broken_fill)
     out = tmp_path / "out"
 
-    assert convert_docx(
+    assert docx_mod.convert_docx(
         _doc(tmp_path), out, options=PipelineOptions(save_images=True), force=False
     )
 
@@ -98,7 +97,7 @@ def test_docling_lane_keeps_text_and_table_captions_in_place(tmp_path):
     )
     out = tmp_path / "out"
 
-    assert convert_docx(
+    assert docx_mod.convert_docx(
         doc, out, options=PipelineOptions(backend="docling"), force=True
     )
 

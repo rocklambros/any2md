@@ -24,6 +24,7 @@ one ``ImageWriter``, which owns ``<output>/images/<stem>/``. The rules:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import tempfile
@@ -72,10 +73,9 @@ def image_folder_name(source_name: str) -> str:
 
 
 def _remove(path: str) -> None:
-    try:
+    # A file that is already gone is the state the caller wants.
+    with contextlib.suppress(FileNotFoundError):
         os.unlink(path)
-    except FileNotFoundError:
-        pass
 
 
 class ImageWriter:
