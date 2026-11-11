@@ -2,7 +2,7 @@
 
 import pytest
 
-from any2md.pipeline.structured import find_headings, fenced_lines, protected_lines
+from any2md.pipeline.blocks import find_headings, fenced_lines, protected_lines
 
 
 def _flags(text: str) -> list[bool]:

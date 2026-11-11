@@ -7,19 +7,38 @@ import re
 import unicodedata
 from typing import Callable, TYPE_CHECKING
 
+from any2md.pipeline.blocks import fenced_lines
+
 if TYPE_CHECKING:
     from any2md.pipeline import PipelineOptions
 
 Stage = Callable[[str, "PipelineOptions"], str]
 
 
+def _map_outside_fences(text: str, fn: Callable[[str], str]) -> str:
+    """Apply a per-line rewrite to every line outside fenced code."""
+    lines = text.split("\n")
+    return "\n".join(
+        line if code else fn(line) for line, code in zip(lines, fenced_lines(lines))
+    )
+
+
 def nfc_normalize(text: str, _options: "PipelineOptions") -> str:
-    """C1: NFC unicode normalization. Required by SAGE §5.1 for content_hash."""
+    """C1: NFC unicode normalization. Required by SAGE §5.1 for content_hash.
+
+    Applies inside fenced code too. ``content_hash`` is defined over the
+    NFC form of the whole body, and NFC only swaps canonically equivalent
+    sequences, so code reads the same afterward.
+    """
     return unicodedata.normalize("NFC", text)
 
 
 def strip_soft_hyphens(text: str, _options: "PipelineOptions") -> str:
-    """C2: Remove U+00AD soft hyphen. Frequent PDF artifact."""
+    """C2: Remove U+00AD soft hyphen. Frequent PDF artifact.
+
+    Applies inside fenced code too. The character is invisible, no
+    language gives it meaning, and in code it breaks the token it sits in.
+    """
     return text.replace("\u00ad", "")  # escaped: invisible as a literal
 
 
@@ -44,6 +63,11 @@ def normalize_ligatures(text: str, _options: "PipelineOptions") -> str:
     """C3: Expand whitelisted ligatures and NBSP only.
 
     Deliberately not a blanket NFKC pass — see spec §4.3 C3.
+
+    Applies inside fenced code too. A presentation-form ligature in an
+    identifier ("de\ufb01ne") and an NBSP in indentation are extraction or
+    word-processor artifacts that make the code invalid. Code that needs
+    those characters writes them as escapes.
     """
     return text.translate(_LIGATURE_TABLE)
 
@@ -59,10 +83,15 @@ _QUOTE_TABLE = str.maketrans(
 
 
 def normalize_quotes_dashes(text: str, _options: "PipelineOptions") -> str:
-    """C4: Smart quotes → straight; ellipsis → "..."; en/em dashes preserved."""
-    text = text.translate(_QUOTE_TABLE)
-    text = text.replace("…", "...")
-    return text
+    """C4: Smart quotes → straight; ellipsis → "..."; en/em dashes preserved.
+
+    Fenced code is left alone. Curly quotes and an ellipsis there are
+    often string content, and straightening them changes what the
+    program prints.
+    """
+    return _map_outside_fences(
+        text, lambda line: line.translate(_QUOTE_TABLE).replace("…", "...")
+    )
 
 
 _INTERWORD_RUNS_RE = re.compile(r"(?<=\S)[ \t]{2,}(?=\S)")
@@ -70,7 +99,43 @@ _BLANK_RUN_RE = re.compile(r"\n{3,}")
 
 
 def collapse_whitespace(text: str, _options: "PipelineOptions") -> str:
-    """C5: Collapse inter-word whitespace; trim trailing per line; cap blanks at 2."""
+    """C5: Collapse inter-word whitespace; trim trailing per line; cap blanks at 2.
+
+    Fenced code is left alone: alignment, trailing spaces, and blank
+    runs can be significant there.
+    """
+    lines = text.split("\n")
+    fenced = fenced_lines(lines)
+    if not any(fenced):
+        return _collapse_prose(text)
+    out: list[str] = []
+    start = 0
+    n = len(lines)
+    for k in range(1, n + 1):
+        if k < n and fenced[k] == fenced[start]:
+            continue
+        segment = "\n".join(lines[start:k])
+        if fenced[start]:
+            out.append(segment)
+        else:
+            # A fence line next to this prose run is a non-empty line, and
+            # the blank-run cap counts newlines between non-empty lines.
+            # A one-character sentinel line stands in for the fence line,
+            # so the cap gives the same result it gives on the whole text.
+            before = start > 0
+            after = k < n
+            wrapped = ("x\n" if before else "") + segment + ("\nx" if after else "")
+            done = _collapse_prose(wrapped)
+            if before:
+                done = done[2:]
+            if after:
+                done = done[:-2]
+            out.append(done)
+        start = k
+    return "\n".join(out)
+
+
+def _collapse_prose(text: str) -> str:
     text = _INTERWORD_RUNS_RE.sub(" ", text)
     # Per-line rstrip, not ``[ \\t]+$``: the regex rescans a long run of
     # spaces from every start position when the run does not end the line,
@@ -78,9 +143,6 @@ def collapse_whitespace(text: str, _options: "PipelineOptions") -> str:
     text = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
     text = _BLANK_RUN_RE.sub("\n\n", text)
     return text
-
-
-_FENCE_RE = re.compile(r"^```")
 
 
 def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
@@ -92,25 +154,16 @@ def decode_html_entities(text: str, _options: "PipelineOptions") -> str:
     emit double-encoded entities; a single unescape pass leaves a
     surviving ``&amp;`` in body text.
     """
-    lines = text.split("\n")
-    out: list[str] = []
-    in_fence = False
-    for line in lines:
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            out.append(line)
-            continue
-        if in_fence:
-            out.append(line)
-        else:
-            current = line
-            for _ in range(5):
-                decoded = html.unescape(current)
-                if decoded == current:
-                    break
-                current = decoded
-            out.append(current)
-    return "\n".join(out)
+
+    def _decode(line: str) -> str:
+        for _ in range(5):
+            decoded = html.unescape(line)
+            if decoded == line:
+                break
+            line = decoded
+        return line
+
+    return _map_outside_fences(text, _decode)
 
 
 # Inline link: [text](url) or [text](url "title"). The URL may contain one
@@ -142,22 +195,17 @@ def strip_links(text: str, options: "PipelineOptions") -> str:
     """
     if not options.strip_links:
         return text
-    out: list[str] = []
-    in_fence = False
-    for line in text.split("\n"):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            out.append(line)
-            continue
-        if in_fence or "](" not in line:
-            out.append(line)
-            continue
+
+    def _strip(line: str) -> str:
+        if "](" not in line:
+            return line
         # Odd-indexed parts are inline code spans; leave them as written.
         parts = _INLINE_CODE_SPLIT_RE.split(line)
         for i in range(0, len(parts), 2):
             parts[i] = _INLINE_LINK_RE.sub(r"\1\2", parts[i])
-        out.append("".join(parts))
-    return "\n".join(out)
+        return "".join(parts)
+
+    return _map_outside_fences(text, _strip)
 
 
 _INLINE_FN_RE = re.compile(
@@ -178,13 +226,24 @@ def strip_footnote_markers(text: str, options: "PipelineOptions") -> str:
     """
     if options.profile not in ("aggressive", "maximum"):
         return text
-    m = _FOOTNOTES_HEADING_RE.search(text)
-    if not m:
+    lines = text.split("\n")
+    fenced = fenced_lines(lines)
+    # A "## Notes" line inside a code sample is not the footnotes section.
+    heading = next(
+        (
+            k
+            for k, line in enumerate(lines)
+            if not fenced[k] and _FOOTNOTES_HEADING_RE.match(line)
+        ),
+        None,
+    )
+    if heading is None:
         return text
-    body = text[: m.start()]
-    tail = text[m.start() :]
-    body = _INLINE_FN_RE.sub("", body)
-    return body + tail
+    body = [
+        line if fenced[k] else _INLINE_FN_RE.sub("", line)
+        for k, line in enumerate(lines[:heading])
+    ]
+    return "\n".join(body + lines[heading:])
 
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+\S", re.MULTILINE)
@@ -194,7 +253,13 @@ def validate(text: str, _options: "PipelineOptions") -> str:
     """C7: Read-only sanity checks. Emits warnings via the pipeline contextvar."""
     from any2md.pipeline import emit_warning
 
-    levels = [len(m.group(1)) for m in _HEADING_RE.finditer(text)]
+    # A "#" line inside fenced code is a comment, not a heading.
+    lines = text.split("\n")
+    levels = [
+        len(m.group(1))
+        for line, code in zip(lines, fenced_lines(lines))
+        if not code and (m := _HEADING_RE.match(line))
+    ]
     h1_count = sum(1 for level in levels if level == 1)
     if h1_count != 1:
         emit_warning(f"validator: H1 count is {h1_count} (expected 1)")

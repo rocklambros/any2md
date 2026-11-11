@@ -59,6 +59,9 @@ def structurize(text: str) -> str:
     i = 0
     title_emitted = False
     n = len(lines)
+    # Index of the first non-blank line, found once so the title check
+    # below stays linear in the file length.
+    first_text = next((k for k, ln in enumerate(lines) if ln.strip()), n)
 
     while i < n:
         line = lines[i]
@@ -139,9 +142,16 @@ def structurize(text: str) -> str:
             and not next_stripped
             and _is_title_case(stripped)
             and not stripped.endswith((".", "!", "?", ",", ";", ":"))
-            and i > 0
         ):
-            output.append("### " + stripped)
+            # A standalone title-case line that opens the file is the
+            # document title, the same role the ALL-CAPS branch gives an
+            # opening heading. Emitting it as H1 makes it the frontmatter
+            # title instead of leaving the filename stem in that field.
+            if i == first_text:
+                output.append("# " + stripped)
+                title_emitted = True
+            else:
+                output.append("### " + stripped)
             i += 1
             continue
 
