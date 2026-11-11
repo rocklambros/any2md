@@ -97,8 +97,9 @@ def convert_file(
     """Dispatch to the appropriate converter based on file extension.
 
     ``file_path`` is a path the converter opens itself, or a
-    ``SourceFile`` from ``_safe_open.open_scanned`` whose bytes are
-    already read.
+    ``SourceFile`` from ``_safe_open.open_scanned`` that reads through
+    its checked descriptor. The caller owns that source and closes it
+    after this call returns or raises.
     """
     if options is None:
         options = PipelineOptions(strip_links=strip_links_flag)
