@@ -29,7 +29,9 @@ URLs. They can be mixed in one invocation.
 ### `files` (positional)
 
 One or more files, directories, or URLs. Default: scan the current directory
-for supported files (`.pdf`, `.docx`, `.html`, `.htm`, `.txt`).
+for supported files (`.pdf`, `.docx`, `.pptx`, `.xlsx`, `.html`, `.htm`,
+`.txt`). `.pptx` and `.xlsx` need the `[high-fidelity]` install. Without it,
+each such file fails with an install hint and the rest of the batch converts.
 
 **Use this when** you have specific inputs to convert, or you want to mix
 local files with URLs in a single batch.
@@ -141,8 +143,9 @@ counted in the final `skipped` total.
 
 ### `--high-fidelity`, `-H`
 
-Force the Docling backend for PDF and DOCX. Exits with code 1 and an install
-hint if Docling is not installed.
+Force the Docling backend for PDF and DOCX. PPTX and XLSX always use Docling,
+with or without this flag. Exits with code 1 and an install hint if Docling is
+not installed.
 
 **Use this when** you need consistent, layout-aware extraction across a corpus
 — multi-column PDFs, complex tables, or files where the auto-detection might
@@ -175,6 +178,9 @@ than the whole run:
   PDF inputs in the same run still convert.
 - `--backend mammoth` on a PDF → that file fails with a clear message; DOCX
   inputs in the same run still convert.
+- `--backend pymupdf4llm` or `--backend mammoth` on a PPTX or XLSX → that file
+  fails with a clear message. Docling is the only backend for these formats,
+  so `--backend docling` or no `--backend` at all are the valid choices.
 
 **Use this when** Docling extracts incorrectly on a specific input (e.g.
 [#13](https://github.com/rocklambros/any2md/issues/13) — Docling drops list

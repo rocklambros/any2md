@@ -43,3 +43,10 @@ def test_backend_invalid_choice():
     r = _run("--backend", "bogus", "-o", "/tmp/x", "fake.pdf")
     assert r.returncode != 0
     assert "invalid choice" in (r.stdout + r.stderr).lower()
+
+
+def test_help_lists_office_formats():
+    r = _run("--help")
+    assert r.returncode == 0
+    assert "PPTX" in r.stdout and "XLSX" in r.stdout
+    assert "PPTX and XLSX accept only 'docling'" in " ".join(r.stdout.split())

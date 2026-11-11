@@ -101,6 +101,12 @@ the CLI surface that drives this code, see
               <output>.md   ← frontmatter + cleaned body
 ```
 
+`converters/office.py` (not drawn) handles PPTX and XLSX. Docling is its only
+backend, so it always feeds the structured lane, and it fails the file with an
+install hint when Docling is absent. It asks `_docling_cache` for a converter
+that accepts only the one format, so a file whose content does not match its
+extension is rejected instead of reaching another Docling backend.
+
 The diagram captures three invariants that the rest of this document unpacks:
 a converter produces raw markdown plus a `SourceMeta` and declares its lane;
 the lane runs first, shared cleanup runs last, and `frontmatter.py` is the
@@ -293,10 +299,10 @@ class SourceMeta:
     date: str | None              # ISO-8601 YYYY-MM-DD
     keywords: list[str]
     pages: int | None             # PDFs only
-    word_count: int | None        # DOCX/HTML/TXT (post-cleanup)
+    word_count: int | None        # DOCX/PPTX/XLSX/HTML/TXT (post-cleanup)
     source_file: str | None
     source_url: str | None
-    doc_type: Literal["pdf", "docx", "html", "txt"]
+    doc_type: Literal["pdf", "docx", "pptx", "xlsx", "html", "txt"]
     extracted_via: Literal[
         "docling", "pymupdf4llm", "mammoth+markdownify",
         "trafilatura", "trafilatura+bs4_fallback", "heuristic",
@@ -318,7 +324,7 @@ class SourceMeta:
 | `date` | PDF `creationDate`, DOCX `dcterms:modified`, URL `Last-Modified` HEAD response, file mtime, today | Yes — derived to today if all sources fail |
 | `keywords` | PDF `/Keywords`, DOCX `cp:keywords`, HTML `<meta name="keywords">`, trafilatura `categories`, otherwise `[]` | No — emitted only when non-empty |
 | `pages` | PDF only (page count via `pymupdf.open`); other formats `None` | No — extension field |
-| `word_count` | DOCX, HTML, TXT (whitespace-split count); PDF `None` | No — extension field |
+| `word_count` | DOCX, PPTX, XLSX, HTML, TXT (whitespace-split count); PDF `None` | No — extension field |
 | `source_file` | All file inputs; URL inputs `None` | No — extension field |
 | `source_url` | URL inputs only; file inputs `None` | No — extension field |
 | `doc_type` | All converters | Yes — emitted as `type` in the YAML |
@@ -338,6 +344,7 @@ distinction.
 | PDF (pymupdf4llm fallback) | Same as above | Same as above | Same as above | Same as above | Same as above |
 | DOCX (Docling) | `docProps/core.xml dc:title` | `dc:creator` (split on common separators) | `docProps/app.xml Company` | `dcterms:modified` (truncated to YYYY-MM-DD) | `cp:keywords` split on commas |
 | DOCX (mammoth fallback) | Same as above | Same as above | Same as above | Same as above | Same as above |
+| PPTX / XLSX (Docling) | Same as DOCX (the `docProps` parts are shared by every OOXML format) | Same as DOCX | Same as DOCX | Same as DOCX | Same as DOCX |
 | HTML / URL | trafilatura `title` | trafilatura `author` (split on commas) | trafilatura `sitename` | trafilatura `date` for HTML; HTTP `Last-Modified` HEAD for URL | trafilatura `categories` |
 | TXT | None (always falls back to filename or H1) | `[]` | None | file mtime | `[]` |
 
@@ -477,7 +484,7 @@ Edit `any2md/converters/__init__.py`:
 2. Add a branch to `convert_file` that imports and calls `convert_<format>`.
 
 ```python
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".html", ".htm", ".txt", ".<new>"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".txt", ".<new>"}
 
 def convert_file(file_path, output_dir, options=None, force=False, ...):
     ext = file_path.suffix.lower()

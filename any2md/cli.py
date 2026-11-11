@@ -147,12 +147,13 @@ def main():
     default_output_dir = script_dir / "Text"
 
     parser = argparse.ArgumentParser(
-        description="Convert PDF, DOCX, HTML, and TXT files to LLM-optimized Markdown."
+        description="Convert PDF, DOCX, PPTX, XLSX, HTML, and TXT files to LLM-optimized Markdown."
     )
     parser.add_argument(
         "files",
         nargs="*",
-        help="Files, directories, or URLs to convert. Supports PDF, DOCX, HTML files and http(s) URLs. "
+        help="Files, directories, or URLs to convert. Supports PDF, DOCX, PPTX, XLSX, HTML, TXT files "
+        "and http(s) URLs. PPTX and XLSX need the high-fidelity (Docling) install. "
         "Directories are scanned for supported files (use -r to include subdirectories). "
         "If omitted, converts all supported files in the current directory.",
     )
@@ -160,7 +161,7 @@ def main():
         "--input-dir",
         "-i",
         type=Path,
-        help="Directory to scan for supported files (PDF, DOCX, HTML).",
+        help="Directory to scan for supported files (PDF, DOCX, PPTX, XLSX, HTML, TXT).",
     )
     parser.add_argument(
         "--force",
@@ -196,7 +197,8 @@ def main():
         "--high-fidelity",
         "-H",
         action="store_true",
-        help="Force the Docling backend (PDF/DOCX). Exit 1 if not installed.",
+        help="Force the Docling backend for PDF and DOCX (PPTX and XLSX always use it). "
+        "Exit 1 if not installed.",
     )
     parser.add_argument(
         "--no-arxiv-lookup",
@@ -213,8 +215,9 @@ def main():
         help="Force a specific extraction backend. By default any2md auto-selects "
         "(prefers Docling when installed). Use 'docling' (equivalent to --high-fidelity), "
         "'pymupdf4llm' to force the lightweight PDF fallback even when Docling is installed, "
-        "or 'mammoth' to force the lightweight DOCX fallback. Mismatched format/backend "
-        "combinations (e.g., --backend pymupdf4llm on a DOCX) error out per file.",
+        "or 'mammoth' to force the lightweight DOCX fallback. PPTX and XLSX accept only "
+        "'docling'. Mismatched format/backend combinations (e.g., --backend pymupdf4llm "
+        "on a DOCX, --backend mammoth on an XLSX) error out per file.",
     )
     parser.add_argument(
         "--ocr-figures",

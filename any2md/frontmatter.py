@@ -111,10 +111,12 @@ class SourceMeta:
     date: str | None  # ISO-8601 YYYY-MM-DD
     keywords: list[str]
     pages: int | None  # PDFs only
-    word_count: int | None  # DOCX/HTML/TXT (post-cleanup)
+    word_count: int | None  # DOCX/PPTX/XLSX/HTML/TXT (post-cleanup)
     source_file: str | None
     source_url: str | None
-    doc_type: Literal["pdf", "docx", "html", "txt"]  # v0.7-compat extension
+    doc_type: Literal[
+        "pdf", "docx", "pptx", "xlsx", "html", "txt"
+    ]  # v0.7-compat extension
     extracted_via: Literal[
         "docling",
         "pymupdf4llm",

@@ -14,10 +14,14 @@ import sys
 import threading
 from importlib.util import find_spec
 
+# One spelling of the install command, shared by every message that
+# tells the user how to get Docling.
+INSTALL_CMD = 'pip install "any2md[high-fidelity]"'
+
 INSTALL_HINT_MSG = (
     "Multi-column / table-heavy PDF detected; pymupdf4llm may produce artifacts.\n"
     "        For higher fidelity, install Docling:\n"
-    '            pip install "any2md[high-fidelity]"\n'
+    f"            {INSTALL_CMD}\n"
     "        Or pass --high-fidelity to require it."
 )
 

@@ -4,7 +4,7 @@
 
 # any2md
 
-Convert PDFs, DOCX, HTML, URLs, and plain text into structured, machine-consumable Markdown for downstream RAG pipelines.
+Convert PDFs, DOCX, PowerPoint (PPTX), Excel (XLSX), HTML, URLs, and plain text into structured, machine-consumable Markdown for downstream RAG pipelines.
 
 ## What's new in 1.0.3
 
@@ -202,7 +202,7 @@ You'd run this when you mostly handle clean single-column PDFs, well-formed DOCX
 pip install any2md
 ```
 
-The default backends are `pymupdf4llm` (PDF), `mammoth` + `markdownify` (DOCX), `trafilatura` (HTML/URL), and a heuristic structurizer (TXT). When you hand the tool a multi-column or table-heavy PDF without Docling installed, you'll see a one-time warning recommending the high-fidelity install.
+The default backends are `pymupdf4llm` (PDF), `mammoth` + `markdownify` (DOCX), `trafilatura` (HTML/URL), and a heuristic structurizer (TXT). PPTX and XLSX have no lightweight backend: they need the high-fidelity install, and without it each such file fails with an install hint while the rest of the batch converts. When you hand the tool a multi-column or table-heavy PDF without Docling installed, you'll see a one-time warning recommending the high-fidelity install.
 
 ### High-fidelity (Docling)
 
@@ -212,7 +212,7 @@ You'd run this when your corpus has multi-column PDFs, complex tables, or scanne
 pip install "any2md[high-fidelity]"
 ```
 
-After install, the CLI auto-detects Docling and uses it for PDF and DOCX. To force it explicitly (and fail fast when it isn't installed), pass `-H` / `--high-fidelity`. To require it (treat fallback as an error), combine with `--strict`. Use `--backend pymupdf4llm` to force the lightweight backend even when Docling is installed (useful when Docling produces extraction artifacts on a specific input).
+After install, the CLI auto-detects Docling and uses it for PDF and DOCX, and it enables PPTX and XLSX input. To force it explicitly (and fail fast when it isn't installed), pass `-H` / `--high-fidelity`. To require it (treat fallback as an error), combine with `--strict`. Use `--backend pymupdf4llm` to force the lightweight backend even when Docling is installed (useful when Docling produces extraction artifacts on a specific input).
 
 ### When do I need high-fidelity?
 
@@ -270,6 +270,17 @@ any2md proposal.docx
 ```
 
 You'll see the OK line with `extracted_via: docling` (if Docling installed) or `extracted_via: mammoth+markdownify` (fallback). Frontmatter pulls authors, organization, and modified date from `docProps/core.xml` and `docProps/app.xml` directly, with no `python-docx` dependency.
+
+### PowerPoint and Excel
+
+You'd convert slide decks and workbooks when they hold content you want in the same index as your documents. Both need the high-fidelity install, since Docling is their only backend. Docling's PowerPoint and Excel backends read the file directly and load no ML models:
+
+```bash
+pip install "any2md[high-fidelity]"
+any2md roadmap.pptx budget.xlsx
+```
+
+The output opens with one H1 for the deck or workbook (the `docProps/core.xml` title, else the file name). Each slide becomes an H2 section titled by its title placeholder, or `Slide N` when it has none. Each sheet becomes an H2 section named after the sheet, with its cells as a Markdown table. Frontmatter carries `type: "pptx"` or `type: "xlsx"` and `extracted_via: "docling"`. Without Docling, each PPTX or XLSX file fails with `FAIL: <name> -- PPTX input needs Docling, which is not installed. Install it with: pip install "any2md[high-fidelity]"` and the batch continues. `--backend pymupdf4llm` and `--backend mammoth` fail these files, because neither backend reads them.
 
 ### HTML files and URLs
 

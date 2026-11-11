@@ -6,7 +6,15 @@ from any2md import _logging
 from any2md._safe_open import SourceFile, as_source
 from any2md.pipeline import PipelineOptions
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".html", ".htm", ".txt"}
+SUPPORTED_EXTENSIONS = {
+    ".pdf",
+    ".docx",
+    ".pptx",
+    ".xlsx",
+    ".html",
+    ".htm",
+    ".txt",
+}
 
 
 # Module-level accumulator of pipeline warnings across a single CLI run.
@@ -83,6 +91,12 @@ def convert_file(
         from any2md.converters.docx import convert_docx
 
         return convert_docx(file_path, output_dir, options=options, force=force)
+    if ext in (".pptx", ".xlsx"):
+        from any2md.converters.office import convert_office
+
+        return convert_office(
+            file_path, output_dir, ext[1:], options=options, force=force
+        )
     if ext in (".html", ".htm"):
         from any2md.converters.html import convert_html
 
