@@ -20,7 +20,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from any2md import _logging, pipeline
-from any2md._docling import INSTALL_CMD, DoclingLogCapture, has_docling
+from any2md._docling import (
+    INSTALL_CMD,
+    DoclingLogCapture,
+    DoclingWarningCapture,
+    has_docling,
+)
 from any2md._logging import _sanitize_log_text
 from any2md._ooxml_guard import ArchiveRejected, check_ooxml_archive
 from any2md._safe_open import SourceFile, as_source
@@ -282,13 +287,16 @@ def convert_office(
         # "Input document ... is not valid." above the FAIL line. Its records
         # are dropped: the FAIL line already carries Docling's error. Records
         # still propagate, so a caller's own logging setup sees them.
+        # docling-core also raises Python warnings, during conversion and
+        # during Markdown export, so both run inside the warning capture.
         with (
             DoclingLogCapture("docling"),
             DoclingLogCapture(_BACKEND_LOGGERS[fmt]) as cap,
+            DoclingWarningCapture() as py_warnings,
         ):
             doc = _convert_via_docling(src, fmt)
-        figures = _prepare_figures(doc, src, fmt, output_dir, options)
-        md_text = _render_markdown(doc, fmt, title, figures)
+            figures = _prepare_figures(doc, src, fmt, output_dir, options)
+            md_text = _render_markdown(doc, fmt, title, figures)
     except Exception as e:  # noqa: BLE001 -- untrusted input, fail this file only
         # Docling and its parsers raise many exception types on a corrupt
         # or hostile package. Any of them must end this file, not the batch.
@@ -297,9 +305,11 @@ def convert_office(
 
     try:
         md_text, warnings = pipeline.run(md_text, "structured", options)
-        warnings = [
-            f"{r.name}: {_sanitize_log_text(r.getMessage())}" for r in cap.records
-        ] + warnings
+        warnings = (
+            [f"{r.name}: {_sanitize_log_text(r.getMessage())}" for r in cap.records]
+            + py_warnings.messages
+            + warnings
+        )
         add_warnings(warnings)
 
         meta = SourceMeta(

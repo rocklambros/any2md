@@ -143,6 +143,27 @@ def test_save_images_writes_office_pictures(tmp_path):
     assert "## Slide 3\n\n![](images/deck/img3.png)" in body
 
 
+def test_off_slide_picture_warning_is_counted_not_printed(tmp_path, capsys):
+    """docling-core warns with ``warnings.warn`` when it clamps a box that
+    lies outside the slide. The warning is counted, not printed."""
+    from any2md.converters import collected_warnings, reset_warnings
+
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [Slide(title=["Wide"], pictures=[Picture(box=(0, 12000000, 914400, 914400))])],
+    )
+    reset_warnings()
+
+    assert convert_file(deck, tmp_path / "out", force=True)
+
+    got = collected_warnings()
+    reset_warnings()
+    assert any("outside page bounds" in w for w in got)
+    captured = capsys.readouterr()
+    assert "UserWarning" not in captured.err
+    assert "warning(s)" in captured.out
+
+
 def test_xlsx_sheets_render_as_tables_under_headings(tmp_path):
     book = build_xlsx(
         tmp_path / "budget.xlsx",

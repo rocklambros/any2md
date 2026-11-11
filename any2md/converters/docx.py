@@ -22,7 +22,7 @@ import mammoth
 import markdownify
 
 from any2md import _logging, pipeline
-from any2md._docling import DoclingLogCapture, has_docling
+from any2md._docling import DoclingLogCapture, DoclingWarningCapture, has_docling
 from any2md._ooxml_guard import check_ooxml_archive
 from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
 from any2md._safe_open import SourceFile, as_source
@@ -261,15 +261,22 @@ def convert_docx(
             return False
 
         docling_warnings: list[str] = []
+        # Python warnings from a Docling run that returned. A run that
+        # raised falls back to mammoth, and its warnings go with it.
+        py_warnings: list[str] = []
         if options.backend == "mammoth":
             md_text, extracted_via = _extract_via_mammoth(src, options)
             lane = "text"
         elif options.backend == "docling":
-            md_text, extracted_via, docling_warnings = _extract_via_docling(src)
+            with DoclingWarningCapture() as cap:
+                md_text, extracted_via, docling_warnings = _extract_via_docling(src)
+            py_warnings = cap.messages
             lane = "structured"
         elif has_docling():
             try:
-                md_text, extracted_via, docling_warnings = _extract_via_docling(src)
+                with DoclingWarningCapture() as cap:
+                    md_text, extracted_via, docling_warnings = _extract_via_docling(src)
+                py_warnings = cap.messages
                 lane = "structured"
             except Exception as e:  # noqa: BLE001 — fall back rather than fail
                 _logging.warn(
@@ -312,6 +319,7 @@ def convert_docx(
             )
 
         md_text, warnings = pipeline.run(md_text, lane, options)
+        warnings = py_warnings + warnings
         add_warnings(warnings)
 
         props = _read_docx_metadata(src)

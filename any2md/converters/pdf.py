@@ -18,7 +18,7 @@ import pymupdf
 import pymupdf4llm
 
 from any2md import _logging, pipeline
-from any2md._docling import has_docling, install_hint
+from any2md._docling import DoclingWarningCapture, has_docling, install_hint
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
@@ -283,11 +283,16 @@ def convert_pdf(
             page_count = len(doc)
             props = _parse_pdf_metadata(doc)
 
+            # Python warnings from a Docling run that returned. A run that
+            # raised falls back to pymupdf4llm, and its warnings go with it.
+            py_warnings: list[str] = []
             if use_docling:
                 try:
-                    md_text, extracted_via = _extract_via_docling(
-                        src, options, output_dir, data=data
-                    )
+                    with DoclingWarningCapture() as cap:
+                        md_text, extracted_via = _extract_via_docling(
+                            src, options, output_dir, data=data
+                        )
+                    py_warnings = cap.messages
                     lane = "structured"
                 except Exception as e:  # noqa: BLE001 — fall back rather than fail
                     _logging.warn(
@@ -305,6 +310,7 @@ def convert_pdf(
         del data, doc
 
         md_text, warnings = pipeline.run(md_text, lane, options)
+        warnings = py_warnings + warnings
         add_warnings(warnings)
 
         meta = SourceMeta(

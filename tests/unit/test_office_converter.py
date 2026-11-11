@@ -737,6 +737,60 @@ def test_backend_warnings_reach_the_run_bucket(
     assert "1 warning(s)" in capsys.readouterr().out
 
 
+def _docling_that_warns(monkeypatch, doc, during_render=False):
+    """Raise a docling-core style Python warning in convert or in export."""
+    import warnings
+
+    message = "Provenance bbox coordinate t on page 1 is outside page bounds"
+
+    def fake_convert(src, fmt):
+        if not during_render:
+            warnings.warn(message, UserWarning, stacklevel=1)
+        return doc
+
+    if during_render:
+        plain_export = doc.export_to_markdown
+
+        def warning_export(**kwargs):
+            warnings.warn(message, UserWarning, stacklevel=1)
+            return plain_export(**kwargs)
+
+        doc.export_to_markdown = warning_export
+
+    monkeypatch.setattr(office, "has_docling", lambda: True)
+    monkeypatch.setattr(office, "_convert_via_docling", fake_convert)
+    return message
+
+
+@pytest.mark.parametrize("during_render", [False, True])
+def test_python_warnings_are_counted_not_printed(
+    monkeypatch, tmp_path, capsys, during_render
+):
+    from any2md.converters import collected_warnings, reset_warnings
+
+    deck = build_pptx(tmp_path / "deck.pptx", [("T", "B")])
+    message = _docling_that_warns(monkeypatch, _FakeDoc({1: "B"}), during_render)
+    reset_warnings()
+
+    assert office.convert_office(deck, tmp_path / "out", "pptx", force=True)
+
+    got = collected_warnings()
+    reset_warnings()
+    assert f"UserWarning: {message}" in got
+    captured = capsys.readouterr()
+    assert "outside page bounds" not in captured.err
+    assert "warning(s)" in captured.out
+
+
+def test_strict_exits_3_on_python_warning(monkeypatch, tmp_path):
+    deck = build_pptx(tmp_path / "deck.pptx", [("T", "B")])
+    _docling_that_warns(monkeypatch, _FakeDoc({1: "B"}))
+
+    code = _run_cli(monkeypatch, ["--strict", str(deck), "-o", str(tmp_path / "o")])
+
+    assert code == 3
+
+
 def test_strict_exits_3_on_docling_warning(monkeypatch, tmp_path):
     deck = build_pptx(tmp_path / "deck.pptx", [("T", "B")])
     _docling_that_logs(

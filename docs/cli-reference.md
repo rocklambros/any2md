@@ -478,7 +478,11 @@ any2md --strip-links paper.pdf
 
 Promote pipeline validation warnings to errors. The CLI exits with code 3
 when at least one warning was emitted (and no hard failure occurred).
-Warnings from Docling's DOCX, PowerPoint, and Excel backends count too.
+Warnings from Docling's DOCX, PowerPoint, and Excel backends count too, and
+so do Python warnings that Docling raises while it converts a PDF, DOCX,
+PPTX, or XLSX file (for example "Provenance bbox coordinate ... is outside
+page bounds"). any2md records those instead of letting Python print them to
+stderr, and the `OK:` line shows them in its warning count.
 
 **Use this when** you want a CI gate that fails on conversion problems —
 heading-hierarchy auto-fixes, missing H1, `content_hash` round-trip mismatches,
