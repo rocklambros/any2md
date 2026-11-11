@@ -156,8 +156,7 @@ def test_docling_error_fails_only_this_file(monkeypatch, tmp_path, capsys):
         raise RuntimeError("Pipeline SimplePipeline failed\nsecond line")
 
     monkeypatch.setattr(office, "_convert_via_docling", boom)
-    src = tmp_path / "broken.xlsx"
-    src.write_bytes(b"not a zip")
+    src = build_xlsx(tmp_path / "broken.xlsx", {"S": [["a"]]})
 
     assert office.convert_office(src, tmp_path / "out", "xlsx", force=True) is False
 

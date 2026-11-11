@@ -102,4 +102,5 @@ def test_corrupt_file_fails_cleanly(tmp_path, capsys):
         if line.startswith("  FAIL: ")
     ]
     assert len(fails) == 1
-    assert fails[0].startswith("  FAIL: bad.xlsx -- Docling could not convert")
+    # The zip guard refuses it before Docling opens it.
+    assert fails[0] == "  FAIL: bad.xlsx -- not a valid OOXML (zip) archive"

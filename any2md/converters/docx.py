@@ -24,6 +24,7 @@ import markdownify
 
 from any2md import _logging, pipeline
 from any2md._docling import has_docling
+from any2md._ooxml_guard import check_ooxml_archive
 from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
@@ -268,6 +269,10 @@ def convert_docx(
         return True
 
     try:
+        # Before mammoth, Docling, or the docProps reader inflate anything.
+        # A rejection is a ValueError, reported below as a per-file FAIL.
+        check_ooxml_archive(src)
+
         # Backend override (PipelineOptions.backend). When set, honor the
         # caller's choice instead of the auto-select. ``pymupdf4llm`` is
         # invalid for DOCX — fail the file with a clear error.

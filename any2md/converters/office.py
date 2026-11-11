@@ -21,6 +21,7 @@ from typing import Any, Literal
 
 from any2md import _logging, pipeline
 from any2md._docling import INSTALL_CMD, has_docling
+from any2md._ooxml_guard import ArchiveRejected, check_ooxml_archive
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.converters.docx import _read_docx_metadata
@@ -182,6 +183,13 @@ def convert_office(
             f"{src.name} -- {label} input needs Docling, which is not "
             f"installed. Install it with: {INSTALL_CMD}"
         )
+        return False
+
+    try:
+        # Before Docling or the docProps reader inflate anything.
+        check_ooxml_archive(src)
+    except ArchiveRejected as e:
+        _logging.fail(f"{src.name} -- {e}")
         return False
 
     try:

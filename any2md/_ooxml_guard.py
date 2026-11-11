@@ -1,0 +1,78 @@
+"""Reject zip bombs before any library reads an OOXML archive.
+
+DOCX, PPTX, and XLSX files are zip archives. mammoth, python-pptx,
+openpyxl, and Docling all inflate their parts, and openpyxl builds a
+Python object per cell, so a few megabytes of crafted input can demand
+gigabytes of memory. ``check_ooxml_archive`` reads the central directory
+from the same bytes or handle the converter will use and refuses the
+file before any parser runs.
+
+The check trusts the sizes the central directory declares. Python's
+``zipfile``, which every one of these libraries reads through, stops
+inflating a member at its declared size, so a member that lies about
+its size cannot grow past what this check approved.
+"""
+
+from __future__ import annotations
+
+import zipfile
+
+from any2md._safe_open import SourceFile
+
+# 1 GiB of inflated parts. Real decks, workbooks, and documents rarely
+# pass a few hundred MiB, since images are stored at close to their
+# compressed size. A fixed ceiling rather than a multiple of
+# --max-file-size, because the memory a parser needs depends on the
+# inflated XML, not on the size the user allowed on disk.
+MAX_TOTAL_UNCOMPRESSED = 1024 * 1024 * 1024
+
+# Office XML compresses about 10 to 30 times, and very repetitive sheet
+# XML can reach 100. Deflate tops out near 1030, which is where bombs
+# sit. 250 leaves room for odd but honest files.
+MAX_COMPRESSION_RATIO = 250
+
+# Small parts such as styles or shared strings can compress far past
+# the ratio limit and still inflate to almost nothing, so the ratio
+# test applies only to members larger than this.
+RATIO_CHECK_MIN_SIZE = 10 * 1024 * 1024
+
+# A large workbook or deck holds a few thousand parts. Tens of
+# thousands of tiny members only serve to slow the parser.
+MAX_MEMBERS = 10_000
+
+
+class ArchiveRejected(ValueError):
+    """An OOXML archive failed the size checks.
+
+    Subclasses ``ValueError`` because every converter already reports
+    ``ValueError`` as a per-file failure.
+    """
+
+
+def check_ooxml_archive(src: SourceFile) -> None:
+    """Raise ``ArchiveRejected`` if ``src`` is not a safe-sized zip."""
+    try:
+        with src.open_binary() as fh, zipfile.ZipFile(fh) as z:
+            infos = z.infolist()
+    except zipfile.BadZipFile:
+        raise ArchiveRejected("not a valid OOXML (zip) archive") from None
+
+    if len(infos) > MAX_MEMBERS:
+        raise ArchiveRejected(
+            f"archive has {len(infos)} members, more than the {MAX_MEMBERS} allowed"
+        )
+    total = 0
+    for info in infos:
+        total += info.file_size
+        if total > MAX_TOTAL_UNCOMPRESSED:
+            raise ArchiveRejected(
+                f"total uncompressed size exceeds the "
+                f"{MAX_TOTAL_UNCOMPRESSED}-byte limit"
+            )
+        if info.file_size > RATIO_CHECK_MIN_SIZE:
+            ratio = info.file_size / max(info.compress_size, 1)
+            if ratio > MAX_COMPRESSION_RATIO:
+                raise ArchiveRejected(
+                    f"member compression ratio {ratio:.0f}:1 exceeds the "
+                    f"{MAX_COMPRESSION_RATIO}:1 limit"
+                )
