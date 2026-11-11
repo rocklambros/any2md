@@ -8,6 +8,7 @@ check the secret is never read.
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import sys
@@ -474,3 +475,63 @@ def test_pdf_docling_fallback_reuses_the_document(fixture_dir, tmp_path, monkeyp
     # Docling got the same bytes the document was parsed from.
     assert seen == [(fixture_dir / "multi_column.pdf").read_bytes()]
     assert 'extracted_via: "pymupdf4llm"' in (tmp_path / "multi_column.md").read_text()
+
+
+def _limit_pread(monkeypatch, limit: int) -> list[int]:
+    """Make pread reject counts above ``limit`` with EINVAL, as macOS does
+    above INT_MAX, and record every count asked for."""
+    real = os.pread
+    sizes: list[int] = []
+
+    def limited(fd, size, offset):
+        sizes.append(size)
+        if size > limit:
+            raise OSError(errno.EINVAL, "Invalid argument")
+        return real(fd, size, offset)
+
+    monkeypatch.setattr(so.os, "pread", limited)
+    monkeypatch.setattr(so, "_MAX_READ", limit)
+    return sizes
+
+
+@pytest.mark.skipif(not hasattr(os, "pread"), reason="needs os.pread")
+def test_full_read_of_large_file_uses_bounded_preads(tree, monkeypatch):
+    root, _ = tree
+    payload = bytes(range(256)) * 64  # 16 KiB
+    (root / "big.bin").write_bytes(payload)
+    sizes = _limit_pread(monkeypatch, 4096)
+
+    with so.open_scanned(root, Path("big.bin"), CAP) as src:
+        assert src.read_bytes() == payload
+    assert sizes and max(sizes) <= 4096
+
+
+@pytest.mark.skipif(not hasattr(os, "pread"), reason="needs os.pread")
+def test_stream_read_of_large_file_uses_bounded_preads(tree, monkeypatch):
+    root, _ = tree
+    payload = b"z" * 16384
+    (root / "big.bin").write_bytes(payload)
+    sizes = _limit_pread(monkeypatch, 4096)
+
+    with so.open_scanned(root, Path("big.bin"), CAP) as src:
+        with src.open_binary() as fh:
+            assert fh.read(1 << 20) == payload
+            fh.seek(0)
+            assert fh.read() == payload
+    assert sizes and max(sizes) <= 4096
+
+
+@pytest.mark.skipif(not hasattr(os, "pread"), reason="needs os.pread")
+def test_bounded_preads_still_enforce_the_cap(tree, monkeypatch):
+    root, _ = tree
+    (root / "grow.txt").write_bytes(b"x" * 20000)
+    _report_small_size(monkeypatch)
+    _limit_pread(monkeypatch, 4096)
+
+    with so.open_scanned(root, Path("grow.txt"), 10000) as src:
+        with pytest.raises(ValueError, match="grew past 10000 bytes"):
+            src.read_bytes()
+
+
+def test_max_read_stays_below_int_max():
+    assert so._MAX_READ < 2**31 - 1
