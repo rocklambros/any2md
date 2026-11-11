@@ -10,6 +10,7 @@ absent.
 
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 from importlib.util import find_spec
@@ -28,6 +29,47 @@ INSTALL_HINT_MSG = (
 # A mutable flag rather than a rebound bool, so install_hint changes it in
 # place without a ``global`` statement and tests reset it with clear().
 _hint_emitted = threading.Event()
+
+
+class DoclingLogCapture:
+    """Buffer WARNING+ records from a Docling logger and its children.
+
+    A context manager around one Docling conversion. The buffering
+    handler sits on ``logger_name`` so the converter can inspect what
+    Docling reported and forward it into the run's warning bucket.
+    Records still propagate to the root logger, so a library caller
+    with its own logging setup keeps seeing them.
+    """
+
+    def __init__(self, logger_name: str) -> None:
+        self._logger_name = logger_name
+        self._records: list[logging.LogRecord] = []
+        self._handler: logging.Handler | None = None
+
+    def __enter__(self) -> DoclingLogCapture:
+        records = self._records
+
+        class _BufferHandler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        handler = _BufferHandler(level=logging.WARNING)
+        logging.getLogger(self._logger_name).addHandler(handler)
+        self._handler = handler
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self._handler is not None:
+            logging.getLogger(self._logger_name).removeHandler(self._handler)
+            self._handler = None
+
+    @property
+    def records(self) -> list[logging.LogRecord]:
+        return list(self._records)
+
+    @property
+    def messages(self) -> list[str]:
+        return [r.getMessage() for r in self._records]
 
 
 def has_docling() -> bool:

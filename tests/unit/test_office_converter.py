@@ -374,3 +374,64 @@ def test_scanned_file_over_size_cap_is_skipped(monkeypatch, tmp_path, capsys):
     assert code == 0
     assert seen == []
     assert "SKIP (too large)" in capsys.readouterr().err
+
+
+# ---- Docling warnings count toward --strict ----------------------------
+
+
+def _docling_that_logs(monkeypatch, logger_name, message, doc):
+    import logging
+
+    def fake_convert(src, fmt):
+        logging.getLogger(logger_name).warning(message)
+        logging.getLogger(logger_name).info("below WARNING, not counted")
+        return doc
+
+    monkeypatch.setattr(office, "has_docling", lambda: True)
+    monkeypatch.setattr(office, "_convert_via_docling", fake_convert)
+
+
+@pytest.mark.parametrize(
+    ("fmt", "logger_name"),
+    [
+        ("pptx", "docling.backend.mspowerpoint_backend"),
+        ("xlsx", "docling.backend.msexcel_backend"),
+    ],
+)
+def test_backend_warnings_reach_the_run_bucket(
+    monkeypatch, tmp_path, capsys, fmt, logger_name
+):
+    from any2md.converters import collected_warnings, reset_warnings
+
+    if fmt == "pptx":
+        src = build_pptx(tmp_path / "in.pptx", [("T", "B")])
+    else:
+        src = build_xlsx(tmp_path / "in.xlsx", {"S": [["a"]]})
+    _docling_that_logs(
+        monkeypatch,
+        logger_name,
+        "Could not extract chart data: \x1b[31mboom",
+        _FakeDoc({1: "# T\n\nB"}, ["S"]),
+    )
+    reset_warnings()
+
+    assert office.convert_office(src, tmp_path / "out", fmt, force=True)
+
+    got = collected_warnings()
+    reset_warnings()
+    assert got == [f"{logger_name}: Could not extract chart data: [31mboom"]
+    assert "1 warning(s)" in capsys.readouterr().out
+
+
+def test_strict_exits_3_on_docling_warning(monkeypatch, tmp_path):
+    deck = build_pptx(tmp_path / "deck.pptx", [("T", "B")])
+    _docling_that_logs(
+        monkeypatch,
+        "docling.backend.mspowerpoint_backend",
+        "Could not read the plots of a chart",
+        _FakeDoc({1: "# T\n\nB"}),
+    )
+
+    code = _run_cli(monkeypatch, ["--strict", str(deck), "-o", str(tmp_path / "o")])
+
+    assert code == 3

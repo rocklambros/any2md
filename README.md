@@ -280,7 +280,7 @@ pip install "any2md[high-fidelity]"
 any2md roadmap.pptx budget.xlsx
 ```
 
-The output opens with one H1 for the deck or workbook (the `docProps/core.xml` title, else the file name). Each slide becomes an H2 section titled by its title placeholder, or `Slide N` when it has none. Each sheet becomes an H2 section named after the sheet, with its cells as a Markdown table. Frontmatter carries `type: "pptx"` or `type: "xlsx"` and `extracted_via: "docling"`. Without Docling, each PPTX or XLSX file fails with `FAIL: <name> -- PPTX input needs Docling, which is not installed. Install it with: pip install "any2md[high-fidelity]"` and the batch continues. `--backend pymupdf4llm` and `--backend mammoth` fail these files, because neither backend reads them.
+The output opens with one H1 for the deck or workbook (the `docProps/core.xml` title, else the file name). Each slide becomes an H2 section titled by its title placeholder, or `Slide N` when it has none. Each sheet becomes an H2 section named after the sheet, with its cells as a Markdown table. Frontmatter carries `type: "pptx"` or `type: "xlsx"` and `extracted_via: "docling"`. Without Docling, each PPTX or XLSX file fails with `FAIL: <name> -- PPTX input needs Docling, which is not installed. Install it with: pip install "any2md[high-fidelity]"` and the batch continues. `--backend pymupdf4llm` and `--backend mammoth` fail these files, because neither backend reads them. A warning from Docling's PowerPoint or Excel backend (for example a chart it could not read) counts as a conversion warning, so `--strict` exits 3 on it.
 
 ### HTML files and URLs
 

@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from any2md import _logging, pipeline
-from any2md._docling import INSTALL_CMD, has_docling
+from any2md._docling import INSTALL_CMD, DoclingLogCapture, has_docling
+from any2md._logging import _sanitize_log_text
 from any2md._ooxml_guard import ArchiveRejected, check_ooxml_archive
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
@@ -31,6 +32,15 @@ from any2md.pipeline.structured import _render_heading, find_headings
 from any2md.utils import atomic_write_text, sanitize_filename
 
 OfficeFormat = Literal["pptx", "xlsx"]
+
+# Docling's backend logger for each format. A WARNING there means the
+# backend skipped something (a chart it could not read, a malformed
+# hyperlink, an image it could not decode), so it counts toward
+# --strict like any other converter warning.
+_BACKEND_LOGGERS = {
+    "pptx": "docling.backend.mspowerpoint_backend",
+    "xlsx": "docling.backend.msexcel_backend",
+}
 
 # PowerPoint writes this title into docProps/core.xml when the author
 # never set one. It names the application, not the document, so the
@@ -195,7 +205,8 @@ def convert_office(
     try:
         props = _read_docx_metadata(src)
         title = _document_title(props["title_hint"], src.name)
-        doc = _convert_via_docling(src, fmt)
+        with DoclingLogCapture(_BACKEND_LOGGERS[fmt]) as cap:
+            doc = _convert_via_docling(src, fmt)
         md_text = _render_markdown(doc, fmt, title)
     except Exception as e:  # noqa: BLE001 -- untrusted input, fail this file only
         # Docling and its parsers raise many exception types on a corrupt
@@ -205,6 +216,9 @@ def convert_office(
 
     try:
         md_text, warnings = pipeline.run(md_text, "structured", options)
+        warnings = [
+            f"{r.name}: {_sanitize_log_text(r.getMessage())}" for r in cap.records
+        ] + warnings
         add_warnings(warnings)
 
         meta = SourceMeta(

@@ -10,7 +10,6 @@ produces the markdown body.
 from __future__ import annotations
 
 import importlib.metadata
-import logging
 import re
 import zipfile
 
@@ -23,7 +22,7 @@ import mammoth
 import markdownify
 
 from any2md import _logging, pipeline
-from any2md._docling import has_docling
+from any2md._docling import DoclingLogCapture, has_docling
 from any2md._ooxml_guard import check_ooxml_archive
 from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
 from any2md._safe_open import SourceFile, as_source
@@ -57,7 +56,7 @@ def _safe_zip_open(
     return z.open(name)
 
 
-class _DoclingMswordWarningCapture:
+class _DoclingMswordWarningCapture(DoclingLogCapture):
     """Buffer WARNING+ records from Docling's DOCX backend logger.
 
     Used as a context manager around a Docling DOCX conversion to detect
@@ -68,29 +67,7 @@ class _DoclingMswordWarningCapture:
     """
 
     def __init__(self) -> None:
-        self._records: list[logging.LogRecord] = []
-        self._handler: logging.Handler | None = None
-
-    def __enter__(self) -> _DoclingMswordWarningCapture:
-        records = self._records
-
-        class _BufferHandler(logging.Handler):
-            def emit(self, record: logging.LogRecord) -> None:
-                records.append(record)
-
-        handler = _BufferHandler(level=logging.WARNING)
-        logging.getLogger(_DOCLING_MSWORD_LOGGER).addHandler(handler)
-        self._handler = handler
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        if self._handler is not None:
-            logging.getLogger(_DOCLING_MSWORD_LOGGER).removeHandler(self._handler)
-            self._handler = None
-
-    @property
-    def messages(self) -> list[str]:
-        return [r.getMessage() for r in self._records]
+        super().__init__(_DOCLING_MSWORD_LOGGER)
 
 
 _NS_CORE = {

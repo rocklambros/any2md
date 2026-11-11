@@ -446,6 +446,7 @@ any2md --strip-links paper.pdf
 
 Promote pipeline validation warnings to errors. The CLI exits with code 3
 when at least one warning was emitted (and no hard failure occurred).
+Warnings from Docling's DOCX, PowerPoint, and Excel backends count too.
 
 **Use this when** you want a CI gate that fails on conversion problems —
 heading-hierarchy auto-fixes, missing H1, `content_hash` round-trip mismatches,
