@@ -50,8 +50,6 @@ _O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 # FreeBSD reports EMLINK.
 _LINK_ERRNOS = {errno.ELOOP, errno.EMLINK, errno.ENOTDIR}
 
-_CHUNK = 1024 * 1024
-
 # The most one pread asks for. macOS rejects a read or pread count above
 # INT_MAX with EINVAL, so a 2.5 GB file allowed by a raised
 # --max-file-size failed in one whole-file read. 64 MiB keeps the call
@@ -101,31 +99,45 @@ def _grew_error(max_size: int) -> ValueError:
     return ValueError(f"file grew past {max_size} bytes after it was opened")
 
 
-def _read_capped(fd: int, max_size: int, size_hint: int) -> bytes:
+def _read_capped(fd: int, max_size: int, size_hint: int) -> bytes | bytearray:
     """Read the whole file from ``fd``, refusing more than ``max_size``.
 
     The first read asks for one byte past the size ``fstat`` reported,
-    so a file up to ``_MAX_READ`` bytes is read in one call and needs no
-    join and no second copy. A larger file arrives in ``_MAX_READ``
-    pieces, because ``_pread`` clamps each count. Any later read asks
-    for at most one byte past the cap, so a file that grew after the
-    check fails instead of being truncated or read without bound.
+    so a file up to ``_MAX_READ`` bytes arrives in one call and comes
+    back as that call's ``bytes``, with no copy. A larger file arrives in
+    pieces of up to ``_MAX_READ`` bytes, since ``_pread`` clamps every
+    count, and each piece is copied into one ``bytearray`` sized from
+    ``fstat``. That bytearray is returned as it is, so the peak is the
+    file plus one piece rather than twice the file, which a list of
+    pieces and a join would cost. No read asks for more than one byte
+    past the cap, so a file that grew after the check fails instead of
+    being truncated or read without bound.
     """
-    chunks: list[bytes] = []
-    total = 0
-    want = min(size_hint, max_size) + 1
-    while True:
-        chunk = _pread(fd, want, total)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total += len(chunk)
-        if total > max_size:
+    expected = min(size_hint, max_size)
+    first = _pread(fd, expected + 1, 0)
+    total = len(first)
+    if total > max_size:
+        raise _grew_error(max_size)
+    if not first:
+        return first
+    piece = _pread(fd, min(_MAX_READ, max_size + 1 - total), total)
+    if not piece:
+        return first
+    buf = bytearray(max(expected, total))
+    buf[:total] = first
+    del first
+    while piece:
+        end = total + len(piece)
+        if end > max_size:
             raise _grew_error(max_size)
-        want = min(_CHUNK, max_size + 1 - total)
-    if len(chunks) == 1:
-        return chunks[0]
-    return b"".join(chunks)
+        # A slice past the end appends, so a file that grew within the
+        # cap after fstat still reads in full.
+        buf[total:end] = piece
+        total = end
+        piece = _pread(fd, min(_MAX_READ, max_size + 1 - total), total)
+    # The file shrank after fstat: drop the unfilled tail in place.
+    del buf[total:]
+    return buf
 
 
 class _DescriptorReader(io.RawIOBase):
@@ -293,8 +305,13 @@ class SourceFile:
             return io.BytesIO(self.data)
         return io.BufferedReader(_DescriptorReader(self._fd(), self._max_size))
 
-    def read_bytes(self) -> bytes:
-        """Return the whole file. A descriptor read stops at the size cap."""
+    def read_bytes(self) -> bytes | bytearray:
+        """Return the whole file. A descriptor read stops at the size cap.
+
+        A descriptor-backed file larger than one read comes back as a
+        ``bytearray`` (see ``_read_capped``). Every consumer here reads
+        it as a buffer.
+        """
         if self.path is not None:
             return self.path.read_bytes()
         if self.data is not None:
@@ -306,7 +323,7 @@ class SourceFile:
             return read_text_with_fallback(self.path)
         return decode_text_with_fallback(self.read_bytes())
 
-    def docling_input(self, data: bytes | None = None):
+    def docling_input(self, data: bytes | bytearray | None = None):
         """Return what ``DocumentConverter.convert`` should receive.
 
         Docling resolves a str source as a URL first, so a file named

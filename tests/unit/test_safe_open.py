@@ -535,3 +535,47 @@ def test_bounded_preads_still_enforce_the_cap(tree, monkeypatch):
 
 def test_max_read_stays_below_int_max():
     assert so._MAX_READ < 2**31 - 1
+
+
+@pytest.mark.skipif(not hasattr(os, "pread"), reason="needs os.pread")
+def test_large_file_reads_in_max_read_pieces_into_one_buffer(tree, monkeypatch):
+    """Every piece after the first is up to _MAX_READ too, not 1 MiB, so
+    a large file takes a handful of reads. The pieces land in one buffer
+    sized from fstat rather than in a list that a join copies again."""
+    root, _ = tree
+    limit = 4 * 1024 * 1024
+    payload = bytes(range(256)) * (8 * 1024 * 1024 // 256 + 40)
+    (root / "big.bin").write_bytes(payload)
+    sizes = _limit_pread(monkeypatch, limit)
+
+    with so.open_scanned(root, Path("big.bin"), 64 * 1024 * 1024) as src:
+        data = src.read_bytes()
+
+    assert data == payload
+    assert max(sizes) <= limit
+    # Two full pieces, the 10 KiB tail, and the read that finds the end.
+    assert len(sizes) == 4
+    assert isinstance(data, bytearray)
+
+
+@pytest.mark.skipif(not hasattr(os, "pread"), reason="needs os.pread")
+def test_file_that_shrinks_after_fstat_reads_what_is_there(tree, monkeypatch):
+    root, _ = tree
+    (root / "s.bin").write_bytes(b"q" * 10000)
+    _limit_pread(monkeypatch, 4096)
+
+    with so.open_scanned(root, Path("s.bin"), CAP) as src:
+        os.truncate(root / "s.bin", 5000)
+        assert bytes(src.read_bytes()) == b"q" * 5000
+
+
+@pytest.mark.skipif(not hasattr(os, "pread"), reason="needs os.pread")
+def test_file_that_grows_within_the_cap_reads_in_full(tree, monkeypatch):
+    root, _ = tree
+    (root / "g.bin").write_bytes(b"a" * 9000)
+    _limit_pread(monkeypatch, 4096)
+
+    with so.open_scanned(root, Path("g.bin"), 20000) as src:
+        with open(root / "g.bin", "ab") as f:
+            f.write(b"b" * 3000)
+        assert bytes(src.read_bytes()) == b"a" * 9000 + b"b" * 3000

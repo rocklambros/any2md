@@ -65,7 +65,9 @@ def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
     }
 
 
-def _open_pdf(src: SourceFile, data: bytes | None = None) -> "pymupdf.Document":
+def _open_pdf(
+    src: SourceFile, data: bytes | bytearray | None = None
+) -> "pymupdf.Document":
     """Open the PDF from its path, or from the bytes of an opened source.
 
     pymupdf opens only a file name or bytes, not a file object. A
@@ -77,7 +79,9 @@ def _open_pdf(src: SourceFile, data: bytes | None = None) -> "pymupdf.Document":
         return pymupdf.open(str(src.path))
     if data is None:
         data = src.read_bytes()
-    return pymupdf.open(stream=data, filetype="pdf")
+    # pymupdf copies a bytearray into new bytes but keeps a memoryview as
+    # it is, so a large file read in pieces is not held twice.
+    return pymupdf.open(stream=memoryview(data), filetype="pdf")
 
 
 def pdf_looks_complex(pdf_path: Path | SourceFile) -> bool:
@@ -154,7 +158,7 @@ def _extract_via_docling(
     pdf_path: Path | SourceFile,
     options: PipelineOptions,
     writer: ImageWriter | None = None,
-    data: bytes | None = None,
+    data: bytes | bytearray | None = None,
     capture: DoclingWarningCapture | None = None,
 ) -> tuple[str, str]:
     """Returns (markdown, 'docling'). Raises on Docling errors.
