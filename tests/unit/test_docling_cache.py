@@ -316,6 +316,39 @@ def test_maxsize_enforcement_evicts_lru():
     assert cache.stats().model_loads == 4
 
 
+def test_office_converters_never_evict_the_model_pipelines():
+    """A folder mixing PDF, DOCX, PPTX, and XLSX keeps the PDF and DOCX
+    converters (which load ML models) resident. The office converters
+    load none and rotate through their own slots."""
+    cache = cm.ConverterCache(maxsize=2)
+    pdf, docx = object(), object()
+    cache.get_or_build("pdf", None, lambda: pdf)
+    cache.get_or_build("docx", None, lambda: docx)
+
+    for _ in range(3):
+        cache.get_or_build("pptx", None, object)
+        cache.get_or_build("xlsx", None, object)
+
+    assert cache.get_or_build("pdf", None, object) is pdf
+    assert cache.get_or_build("docx", None, object) is docx
+    # pdf + docx + pptx + xlsx were each built once.
+    assert cache.stats().model_loads == 4
+    assert cache.stats().cache_evictions == 0
+
+
+def test_office_slots_evict_lru_among_themselves():
+    cache = cm.ConverterCache(maxsize=1)
+    pdf, first, second = object(), object(), object()
+    cache.get_or_build("pdf", None, lambda: pdf)
+    cache.get_or_build("pptx", None, lambda: first)
+    cache.get_or_build("xlsx", None, lambda: second)
+
+    # The xlsx build pushed out pptx, its office neighbor, never pdf.
+    assert cache.get_or_build("pdf", None, object) is pdf
+    assert cache.get_or_build("xlsx", None, object) is second
+    assert cache.get_or_build("pptx", None, object) is not first
+
+
 def test_two_thread_same_key_race_returns_same_object():
     cache = cm.ConverterCache(maxsize=2)
     barrier = threading.Barrier(8)

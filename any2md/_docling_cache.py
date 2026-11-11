@@ -22,8 +22,18 @@ from typing import Any, Callable, Iterator
 
 _MAX_RESIDENT = 2  # Empirically: pdf + docx are the model-loading
 # construction sites; 2 slots covers 99% of mixed batches with
-# bounded RSS (~1GB extra steady-state worst case). The pptx and xlsx
-# converters load no ML models, so evicting one costs a cheap rebuild.
+# bounded RSS (~1GB extra steady-state worst case).
+
+# The pptx and xlsx converters load no ML models. They get their own
+# slots (the same count, in a separate LRU), so a folder that mixes
+# them with PDFs and DOCX files never evicts the costly model pipelines.
+_OFFICE_FORMATS = frozenset({"pptx", "xlsx"})
+
+
+def _pool(fmt: str) -> str:
+    """The LRU pool a format's converter lives in."""
+    return "office" if fmt in _OFFICE_FORMATS else "models"
+
 
 _CACHE_DISABLED_ENV = "ANY2MD_DOCLING_CACHE"
 
@@ -203,8 +213,10 @@ class ConverterCache:
             if key not in self._store:
                 self._store[key] = conv
                 self._store.move_to_end(key)
-                while len(self._store) > self._maxsize:
-                    self._store.popitem(last=False)
+                # Evict within the new key's pool only, oldest first.
+                pool = [k for k in self._store if _pool(k.fmt) == _pool(fmt)]
+                for old in pool[: max(0, len(pool) - self._maxsize)]:
+                    del self._store[old]
                     self._stats.cache_evictions += 1
             # Defensive `.get(key, conv)` rather than `[key]`: the
             # current control flow guarantees presence (insert +
