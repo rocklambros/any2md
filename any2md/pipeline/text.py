@@ -545,14 +545,15 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
     fenced = fenced_lines(text)
     out: list[str] = []
     n = len(lines)
-    # The nearest kept, non-fenced, non-blank line before the current one.
+    # The nearest kept, non-blank prose line before the current one, or ""
+    # when there is none or a fenced line came after it.
     # The v1.0.2 spec (section 5.5) drops a short line only when the text
     # before it ended a sentence, since that is the shape of a fragment
     # trafilatura cut from the start of a new paragraph. Without that
     # check the stage dropped a plain-text title on line one and any
     # short line after a heading, with no warning. A dropped line never
-    # becomes the text before, so a run of fragments goes as one, and a
-    # closing fence is code, not the end of a sentence.
+    # becomes the text before, so a run of fragments goes as one. A fenced
+    # line clears it, since code is not the end of a sentence.
     prev_text = ""
     skip_blank = False
     for i, line in enumerate(lines):
@@ -565,6 +566,10 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
             if not stripped:
                 continue
         if fenced[i]:
+            # Code is not the end of a sentence, and the stage does not
+            # reach back past it, so a short line right after a block is
+            # kept. Nothing proves it is a fragment.
+            prev_text = ""
             out.append(line)
             continue
         follows_sentence = bool(

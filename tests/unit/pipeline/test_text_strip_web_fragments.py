@@ -75,11 +75,18 @@ def test_drop_leaves_one_blank_line():
     assert out == "Real paragraph here.\n\nAnother real paragraph follows.\n"
 
 
-def test_fenced_lines_are_not_the_text_before():
-    # The closing fence is code, so the sentence before the block decides.
-    text = "A sentence.\n\n```\ncode\n```\n\nfrag text\n\nMore prose here."
+def test_short_line_after_code_block_is_kept():
+    # A closing fence is not the end of a sentence, and the stage does not
+    # reach back past the block, so nothing marks the line as a fragment.
+    text = "A sentence.\n\n```\ncode\n```\n\nshort line\n\nMore prose here."
     out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
-    assert out == "A sentence.\n\n```\ncode\n```\n\nMore prose here."
+    assert out == text
+
+
+def test_fragment_after_sentence_after_code_block_is_dropped():
+    text = "```\ncode.\n```\n\nA sentence.\n\nfrag text\n\nMore prose here."
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == "```\ncode.\n```\n\nA sentence.\n\nMore prose here."
 
 
 def test_kept_short_line_is_the_text_before():
