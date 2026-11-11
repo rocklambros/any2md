@@ -16,9 +16,11 @@ from any2md.config import (
     load_toml,
 )
 from any2md.converters import (
+    LEGACY_EXTENSIONS,
     SUPPORTED_EXTENSIONS,
     collected_warnings,
     convert_file,
+    legacy_format_message,
     reset_warnings,
     set_output_mode,
 )
@@ -103,6 +105,7 @@ def _scan_directory(root: Path, recursive: bool) -> list[Path]:
     POSIX.
     """
     suffixes = tuple(os.path.normcase(ext) for ext in SUPPORTED_EXTENSIONS)
+    legacy_suffixes = tuple(os.path.normcase(ext) for ext in LEGACY_EXTENSIONS)
     found: list[Path] = []
     # An explicit stack instead of recursion keeps deep trees clear of
     # the interpreter recursion limit.
@@ -130,6 +133,16 @@ def _scan_directory(root: Path, recursive: bool) -> list[Path]:
                         pending.append(path)
                     continue
                 if not os.path.normcase(entry.name).endswith(suffixes):
+                    # Other unsupported files stay quiet in a scan. A legacy
+                    # .ppt or .xls gets one SKIP line, because the user can
+                    # fix it by re-saving, and silence would hide that.
+                    legacy = legacy_format_message(Path(entry.name).suffix)
+                    if legacy is not None and os.path.normcase(entry.name).endswith(
+                        legacy_suffixes
+                    ):
+                        _logging.warn(
+                            f"{path} -- {legacy}", prefix="SKIP (legacy format)"
+                        )
                     continue
                 # FIFOs and device nodes can hang the read or never end.
                 if not entry.is_file(follow_symlinks=False):
@@ -406,7 +419,9 @@ def main():
                 )
                 continue
             if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
-                _logging.fail(f"{f}", prefix="UNSUPPORTED FORMAT")
+                legacy = legacy_format_message(p.suffix)
+                detail = f"{f} -- {legacy}" if legacy is not None else f"{f}"
+                _logging.fail(detail, prefix="UNSUPPORTED FORMAT")
                 continue
             file_paths.append((p, None))
     elif args.input_dir:

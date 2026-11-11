@@ -16,6 +16,27 @@ SUPPORTED_EXTENSIONS = {
     ".txt",
 }
 
+# Pre-2007 binary Office formats. No any2md backend reads them, and a
+# user who points any2md at one should learn why it was not converted
+# and what to do, instead of seeing it ignored. Maps each extension to
+# the application name and the format to re-save as.
+LEGACY_EXTENSIONS = {
+    ".ppt": ("PowerPoint", ".pptx"),
+    ".xls": ("Excel", ".xlsx"),
+}
+
+
+def legacy_format_message(ext: str) -> str | None:
+    """Return the re-save hint for a legacy binary extension, else None."""
+    entry = LEGACY_EXTENSIONS.get(ext.lower())
+    if entry is None:
+        return None
+    app, modern = entry
+    return (
+        f"legacy binary {app} format ({ext}) is not supported. "
+        f"Save it as {modern} and convert that file."
+    )
+
 
 # Module-level accumulator of pipeline warnings across a single CLI run.
 # `cli.main()` calls `reset_warnings()` at run start and inspects
@@ -105,5 +126,9 @@ def convert_file(
         from any2md.converters.txt import convert_txt
 
         return convert_txt(file_path, output_dir, options=options, force=force)
+    legacy = legacy_format_message(file_path.suffix)
+    if legacy is not None:
+        _logging.fail(f"{file_path.name} -- {legacy}", prefix="UNSUPPORTED")
+        return False
     _logging.fail(f"{file_path.name} (no converter for {ext})", prefix="UNSUPPORTED")
     return False

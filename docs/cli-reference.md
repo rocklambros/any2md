@@ -32,6 +32,10 @@ One or more files, directories, or URLs. Default: scan the current directory
 for supported files (`.pdf`, `.docx`, `.pptx`, `.xlsx`, `.html`, `.htm`,
 `.txt`). `.pptx` and `.xlsx` need the `[high-fidelity]` install. Without it,
 each such file fails with an install hint and the rest of the batch converts.
+Legacy binary `.ppt` and `.xls` files are not supported. A named one prints
+`UNSUPPORTED FORMAT` with a hint to re-save it as `.pptx` or `.xlsx`. A
+directory scan prints one `SKIP (legacy format)` line for each and keeps
+going. Other unsupported files in a scan are ignored without a message.
 
 **Use this when** you have specific inputs to convert, or you want to mix
 local files with URLs in a single batch.
