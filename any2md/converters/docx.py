@@ -39,7 +39,12 @@ from any2md.converters._office_pictures import (
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
-from any2md.pipeline.structured import NO_IMAGE_LINK, lift_figure_captions
+from any2md.pipeline.blocks import fenced_lines
+from any2md.pipeline.structured import (
+    _IMG_LINK_RE,
+    NO_IMAGE_LINK,
+    lift_figure_captions,
+)
 from any2md.utils import atomic_write_text, sanitize_filename
 
 
@@ -378,6 +383,66 @@ def _lift_captions(element):
     return element.copy(children=out)
 
 
+# The parents of a picture in mammoth's HTML for a table cell
+# (<td><p><img>) and for a heading (<h1><img>). markdownify only keeps
+# an image there when its parent is listed.
+_INLINE_IMAGE_PARENTS = ["p", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"]
+
+_TABLE_ROW_RE = re.compile(r"^\s*\|")
+_HEADING_RE = re.compile(r"^#{1,6}\s")
+_ESCAPE_RE = re.compile(r"\\(.)")
+
+
+def _move_images_out_of_cells_and_headings(md: str) -> str:
+    """Move each picture in a table row or a heading out to its own line.
+
+    S1 turns a picture into a figure line plus, under --save-images, a
+    link on the next line, which would break a table row or a heading.
+    So the picture's text stays where it was, unescaped (with "|"
+    escaped in a cell), and the picture itself follows the heading or
+    the end of the table as its own paragraph, where S1 handles it like
+    any other. Each saved image is then linked once, from that
+    paragraph. Lines inside code fences are left alone.
+    """
+    lines = md.split("\n")
+    fenced = fenced_lines(md)
+    out: list[str] = []
+    pending: list[str] = []  # pictures waiting for their table to end
+
+    def flush() -> None:
+        for picture in pending:
+            out.extend(["", picture])
+        if pending:
+            out.append("")
+        pending.clear()
+
+    for i, line in enumerate(lines):
+        in_table = not fenced[i] and _TABLE_ROW_RE.match(line) is not None
+        if pending and not in_table:
+            flush()
+        heading = not fenced[i] and _HEADING_RE.match(line) is not None
+        if not (in_table or heading) or not _IMG_LINK_RE.search(line):
+            out.append(line)
+            continue
+        pictures = [m.group(0) for m in _IMG_LINK_RE.finditer(line)]
+
+        def as_text(match: re.Match[str]) -> str:
+            text = _ESCAPE_RE.sub(r"\1", match.group(1))
+            return text.replace("|", "\\|") if in_table else text
+
+        line = _IMG_LINK_RE.sub(as_text, line)
+        if in_table:
+            out.append(line)
+            pending.extend(pictures)
+            continue
+        if line.lstrip("#").strip():
+            out.append(line)
+        out.extend(part for picture in pictures for part in ("", picture))
+        out.append("")
+    flush()
+    return "\n".join(out)
+
+
 def _extract_via_mammoth(
     docx_path: Path | SourceFile,
     options: PipelineOptions,
@@ -412,7 +477,12 @@ def _extract_via_mammoth(
             # mammoth never emits <thead>; without inference markdownify 1.x
             # writes an empty header row and demotes the real header.
             table_infer_header=True,
+            # Inside a table cell or a heading markdownify writes a picture
+            # as its bare alt text. Keeping the image lets the step below
+            # move it out to its own figure.
+            keep_inline_images_in=_INLINE_IMAGE_PARENTS,
         )
+        md = _move_images_out_of_cells_and_headings(md)
         # The text lane has no S1, so the figure lines come from S1's own
         # function here, giving the same lines as every other lane.
         md = lift_figure_captions(md, options)

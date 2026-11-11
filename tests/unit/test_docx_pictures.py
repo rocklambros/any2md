@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import zipfile
 
+import pytest
+
 import any2md.converters.docx as docx_mod
 from any2md._safe_open import SourceFile
 from any2md.converters._office_pictures import WordPicture, read_alt_texts
@@ -137,6 +139,45 @@ def test_mammoth_identical_pictures_each_get_a_saved_and_linked_file(tmp_path):
     saved = {f"images/report/{p.name}" for p in (out / "images" / "report").iterdir()}
     assert len(links) == len(set(links)) == 2
     assert set(links) == saved
+
+
+_PLACED = [
+    "Intro.",
+    DocPicture(alt="Cell chart [v2]", where="cell"),
+    "Between.",
+    DocPicture(alt="Heading logo", where="heading"),
+    "End.",
+]
+
+
+@pytest.mark.parametrize("save_images", [False, True])
+def test_mammoth_pictures_in_cells_and_headings_get_figures(tmp_path, save_images):
+    """markdownify writes a picture in a table cell or a heading as bare
+    alt text. Its figure (and link) now follows the table or the heading,
+    and the cell or heading keeps the alt text without escapes."""
+    from any2md.pipeline.structured import _IMG_LINK_RE
+
+    out, body = _mammoth(tmp_path, _PLACED, save_images=save_images)
+
+    assert "*Figure: Cell chart \\[v2\\]*" in body
+    assert "*Figure: Heading logo*" in body
+    lines = body.splitlines()
+    assert "# Heading logo" in lines
+    assert any(line.startswith("|") and "Cell chart [v2]" in line for line in lines)
+    # The table stays one block, and the figure comes after it.
+    table_end = max(i for i, line in enumerate(lines) if line.startswith("|"))
+    figure = lines.index("*Figure: Cell chart \\[v2\\]*")
+    assert figure > table_end
+    assert not any("](" in line for line in lines if line.startswith(("|", "#")))
+    links = [m.group(2) for m in _IMG_LINK_RE.finditer(body)]
+    if save_images:
+        saved = {
+            f"images/report/{p.name}" for p in (out / "images" / "report").iterdir()
+        }
+        assert len(links) == len(set(links)) == 2
+        assert set(links) == saved
+    else:
+        assert links == []
 
 
 def test_mammoth_force_rerun_drops_stale_images(tmp_path):
