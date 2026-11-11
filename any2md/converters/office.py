@@ -205,7 +205,16 @@ def convert_office(
     try:
         props = _read_docx_metadata(src)
         title = _document_title(props["title_hint"], src.name)
-        with DoclingLogCapture(_BACKEND_LOGGERS[fmt]) as cap:
+        # The outer capture on the whole "docling" tree gives every Docling
+        # record a handler. Without one, Python prints an unhandled WARNING
+        # through logging.lastResort, and a failed file would show Docling's
+        # "Input document ... is not valid." above the FAIL line. Its records
+        # are dropped: the FAIL line already carries Docling's error. Records
+        # still propagate, so a caller's own logging setup sees them.
+        with (
+            DoclingLogCapture("docling"),
+            DoclingLogCapture(_BACKEND_LOGGERS[fmt]) as cap,
+        ):
             doc = _convert_via_docling(src, fmt)
         md_text = _render_markdown(doc, fmt, title)
     except Exception as e:  # noqa: BLE001 -- untrusted input, fail this file only

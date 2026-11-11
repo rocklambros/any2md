@@ -435,3 +435,61 @@ def test_strict_exits_3_on_docling_warning(monkeypatch, tmp_path):
     code = _run_cli(monkeypatch, ["--strict", str(deck), "-o", str(tmp_path / "o")])
 
     assert code == 3
+
+
+# ---- one clear stderr line per failed file -----------------------------
+
+
+def test_docling_log_line_does_not_reach_stderr(monkeypatch, tmp_path, capsys):
+    """Docling's own 'Input document ... is not valid.' stays off stderr.
+
+    With no logging configured, Python prints unhandled WARNING records
+    through ``logging.lastResort``. pytest installs root handlers, which
+    would hide that path, so the test removes them first.
+    """
+    import logging
+
+    monkeypatch.setattr(logging.root, "handlers", [])
+
+    def failing_convert(src, fmt):
+        logging.getLogger("docling.document_converter").warning(
+            "Input document %s is not valid.", src.name
+        )
+        raise RuntimeError("Conversion failed for: book.xlsx with status: failure")
+
+    monkeypatch.setattr(office, "has_docling", lambda: True)
+    monkeypatch.setattr(office, "_convert_via_docling", failing_convert)
+    book = build_xlsx(tmp_path / "book.xlsx", {"S": [["a"]]})
+
+    assert office.convert_office(book, tmp_path / "out", "xlsx", force=True) is False
+
+    err = capsys.readouterr().err
+    assert "is not valid" not in err
+    assert err.splitlines() == [
+        "  FAIL: book.xlsx -- Docling could not convert this XLSX file: "
+        "Conversion failed for: book.xlsx with status: failure"
+    ]
+
+
+def test_docling_logs_still_reach_configured_handlers(monkeypatch, tmp_path):
+    """A library caller with its own logging setup still sees the record."""
+    import logging
+
+    seen = []
+
+    class Keep(logging.Handler):
+        def emit(self, record):
+            seen.append(record.getMessage())
+
+    monkeypatch.setattr(logging.root, "handlers", [Keep()])
+
+    def failing_convert(src, fmt):
+        logging.getLogger("docling.document_converter").warning("not valid")
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(office, "has_docling", lambda: True)
+    monkeypatch.setattr(office, "_convert_via_docling", failing_convert)
+    book = build_xlsx(tmp_path / "book.xlsx", {"S": [["a"]]})
+
+    assert office.convert_office(book, tmp_path / "out", "xlsx", force=True) is False
+    assert seen == ["not valid"]
