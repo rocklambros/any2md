@@ -210,6 +210,30 @@ def test_mammoth_keeps_text_and_table_captions_in_place(tmp_path):
     assert "*Figure: Table 1" not in body
 
 
+def test_reader_time_grows_linearly_with_pictures(tmp_path):
+    """Eight times the pictures may take about eight times as long, not
+    sixty-four. The old reader copied a paragraph's sibling list and
+    walked its subtree once per picture. The bound leaves room for timing
+    noise while still failing a quadratic reader."""
+    import time
+
+    def best_time(n):
+        blocks = []
+        for i in range(n):
+            blocks += [f"Paragraph {i}.", DocPicture(alt=f"Picture {i}")]
+        src = SourceFile.from_path(build_docx(tmp_path / f"d{n}.docx", blocks))
+        times = []
+        for _ in range(3):
+            start = time.perf_counter()
+            alt = read_alt_texts(src, "docx")
+            times.append(time.perf_counter() - start)
+        assert len(alt.in_order) == n
+        return min(times)
+
+    small, large = best_time(1000), best_time(8000)
+    assert large / small < 16
+
+
 def test_reader_on_a_broken_package_finds_none(tmp_path):
     bad = tmp_path / "bad.docx"
     bad.write_bytes(b"PK\x03\x04 not a zip archive")

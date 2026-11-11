@@ -398,13 +398,9 @@ def _is_table(element: Any) -> bool:
     return element is not None and element.tag == _q(_W, "tbl")
 
 
-def word_picture_elements(paragraph: Any) -> list[Any]:
-    """The picture elements in a paragraph: DrawingML drawings and VML images."""
-    return [
-        el
-        for el in paragraph.iter()
-        if el.tag == _q(_W, "drawing") or el.tag == _q(_V, "imagedata")
-    ]
+def _is_picture_element(element: Any) -> bool:
+    """A DrawingML drawing or a VML image: what Docling reads as a picture."""
+    return element.tag == _q(_W, "drawing") or element.tag == _q(_V, "imagedata")
 
 
 def _word_alt(element: Any) -> str:
@@ -424,52 +420,58 @@ def _docx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
     if body is None:
         return AltTexts(in_order=[])
     caption_ids = _caption_style_ids(z)
-    # Every paragraph, wherever it sits (table cells, content controls,
-    # text boxes), with its parent so the next sibling can be checked.
-    parent_of = {id(child): parent for parent in body.iter() for child in parent}
-    order = {id(el): i for i, el in enumerate(body.iter())}
-    entries: list[tuple[int, WordPicture]] = []
-    for paragraph in body.iter(_q(_W, "p")):
-        pictures = [
-            el
-            for el in word_picture_elements(paragraph)
-            if _owning_paragraph(el, paragraph)
-        ]
-        if not pictures:
-            continue
-        caption = ""
-        siblings = list(parent_of.get(id(paragraph), []))
-        index = next(i for i, s in enumerate(siblings) if s is paragraph)
-        following = siblings[index + 1] if index + 1 < len(siblings) else None
-        after = siblings[index + 2] if index + 2 < len(siblings) else None
-        if (
-            len(pictures) == 1
-            and _picture_stands_alone(paragraph)
-            and following is not None
-            and following.tag == _q(_W, "p")
-            and _paragraph_style(following) in caption_ids
-            and not _is_table(after)
-        ):
-            caption = _paragraph_text(following)
-        for el in pictures:
-            entry = WordPicture(alt=_word_alt(el), caption=caption)
-            entries.append((order.get(id(el), 0), entry))
-    entries.sort(key=lambda e: e[0])
-    return AltTexts(in_order=[entry for _pos, entry in entries])
+
+    # One walk in document order. It notes each picture with the nearest
+    # paragraph that holds it, and where every element sits among its
+    # parent's children, so each check below is a lookup, never a scan.
+    # A paragraph inside a text box is the nearest paragraph of the
+    # pictures it holds, so they are not counted for the outer one.
+    pictures: list[tuple[Any, Any]] = []
+    held: dict[int, int] = {}
+    position: dict[int, tuple[list[Any], int]] = {}
+    stack: list[tuple[Any, Any]] = [(body, None)]
+    while stack:
+        element, paragraph = stack.pop()
+        if element.tag == _q(_W, "p"):
+            paragraph = element
+        elif paragraph is not None and _is_picture_element(element):
+            pictures.append((element, paragraph))
+            held[id(paragraph)] = held.get(id(paragraph), 0) + 1
+        children = list(element)
+        for i, child in enumerate(children):
+            position[id(child)] = (children, i)
+        stack.extend((child, paragraph) for child in reversed(children))
+
+    captions: dict[int, str] = {}
+    entries = []
+    for element, paragraph in pictures:
+        key = id(paragraph)
+        if key not in captions:
+            captions[key] = (
+                _caption_after(paragraph, position, caption_ids)
+                if held[key] == 1
+                else ""
+            )
+        entries.append(WordPicture(alt=_word_alt(element), caption=captions[key]))
+    return AltTexts(in_order=entries)
 
 
-def _owning_paragraph(element: Any, paragraph: Any) -> bool:
-    """True when ``element`` is not inside a nested paragraph of ``paragraph``.
-
-    A text box inside a drawing holds paragraphs of its own, and those
-    are visited as their own container.
-    """
-    for nested in paragraph.iter(_q(_W, "p")):
-        if nested is paragraph:
-            continue
-        if any(el is element for el in nested.iter()):
-            return False
-    return True
+def _caption_after(
+    paragraph: Any, position: dict[int, tuple[list[Any], int]], caption_ids: set[str]
+) -> str:
+    """The Caption paragraph right after ``paragraph``, when it names its picture."""
+    siblings, index = position[id(paragraph)]
+    following = siblings[index + 1] if index + 1 < len(siblings) else None
+    after = siblings[index + 2] if index + 2 < len(siblings) else None
+    if (
+        _picture_stands_alone(paragraph)
+        and following is not None
+        and following.tag == _q(_W, "p")
+        and _paragraph_style(following) in caption_ids
+        and not _is_table(after)
+    ):
+        return _paragraph_text(following)
+    return ""
 
 
 _UNREADABLE = (
