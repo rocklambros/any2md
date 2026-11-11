@@ -7,7 +7,7 @@ import re
 import unicodedata
 from typing import Callable, TYPE_CHECKING
 
-from any2md.pipeline.blocks import fence_runs, fenced_lines
+from any2md.pipeline.blocks import fence_runs, fenced_lines, find_headings
 
 if TYPE_CHECKING:
     from any2md.pipeline import PipelineOptions
@@ -249,20 +249,17 @@ def strip_footnote_markers(text: str, options: "PipelineOptions") -> str:
     return "\n".join(body + lines[heading:])
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})\s+\S", re.MULTILINE)
-
-
 def validate(text: str, _options: "PipelineOptions") -> str:
-    """C7: Read-only sanity checks. Emits warnings via the pipeline contextvar."""
+    """C7: Read-only sanity checks. Emits warnings via the pipeline contextvar.
+
+    Headings come from the shared block scanner, the same list S4 and the
+    HTML lane rank. A ``#`` line in fenced code, raw HTML, or a block
+    quote is not a heading, a setext heading is, and a leading page break
+    does not hide one.
+    """
     from any2md.pipeline import emit_warning
 
-    # A "#" line inside fenced code is a comment, not a heading.
-    lines = text.split("\n")
-    levels = [
-        len(m.group(1))
-        for line, code in zip(lines, fenced_lines(text))
-        if not code and (m := _HEADING_RE.match(line))
-    ]
+    levels = [level for _, _, level in find_headings(text)]
     h1_count = sum(1 for level in levels if level == 1)
     if h1_count != 1:
         emit_warning(f"validator: H1 count is {h1_count} (expected 1)")
