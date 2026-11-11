@@ -253,6 +253,12 @@ registrations.
 | 10 | T8 | `strip_cover_artifacts` | text | First ~30 lines (before the first H2): lines containing "QR code", "scan the", "customer feedback form" (case-insensitive); or lines matching `^(?:Third|Fourth|...) edition \d{4}-\d{2}$`; or lines matching `^Corrected version \d{4}-\d{2}$` | Such lines dropped | Profile is `conservative`; pattern not present; line is past the first H2 | Aggressive/maximum only. Bounded to the cover region so legitimate body content is never touched. |
 | 11 | T11 | `split_setext_artifacts` | text | A top-level paragraph followed directly by a `---` or `===` line | A blank line inserted before the underline, so `---` renders as a thematic break and `===` as literal text | No top-level setext heading. Inside fenced code, a block quote, or a list item. | Text-lane backends write real headings in ATX form, so a setext underline there is a source rule, not a heading. The text lane has no S4 ranking, so the line is not rewritten as ATX. Runs last so C7 counts only headings the backend wrote. |
 
+T3, T5, T8, and T10 never drop a picture line: a `*Figure: text*` line, a
+Markdown image such as `![](images/<name>/img1.png)`, or an image link. A
+picture without alt text is a short line after a sentence, and two pictures
+with the same alt text give the same figure line twice. Dropping either would
+leave a saved image that nothing links, or a figure line without its image.
+
 ### Shared cleanup stages (C1–C9)
 
 Located in `any2md/pipeline/cleanup.py`. Run last, identically for both lanes.
@@ -330,14 +336,14 @@ class SourceMeta:
 | `title_hint` | All converters when source metadata has a title (PDF `/Title`, DOCX `dc:title`, HTML `<title>`, otherwise `None`) | No: `frontmatter.derive_title` falls back to first H1, then filename |
 | `authors` | PDF (`/Author` parsed), DOCX (`dc:creator`), HTML (`<meta name="author">`), TXT (always `[]`). v1.0.2 adds body-text extraction and an arxiv API enrichment via `heuristics.extract_authors`. | No: empty `[]` is valid |
 | `organization` | PDF/DOCX `Company`, HTML `og:site_name`, otherwise `None`. v1.0.2 routes the PDF `Creator` field and DOCX `<Application>` element through `heuristics.filter_organization` so software values populate `produced_by` instead. | No: empty `""` is valid |
-| `produced_by` | PDF `Creator` field (when it matches a known software pattern); DOCX `<Application>` element of `docProps/app.xml`; otherwise `None`. New in v1.0.2. | No: extension field |
+| `produced_by` | PDF `Creator` field when it matches a known software pattern, DOCX `<Application>` element of `docProps/app.xml`, otherwise `None`. New in v1.0.2. | No: extension field |
 | `seo_title` | HTML/URL only: trafilatura's metadata title (`og:title` / `<title>`). `compose()` emits it only when it differs from the final `title`, which follows the body H1. Before the pipeline runs, the HTML converter restores that H1 from the page's single `<h1>` (else the metadata title) when trafilatura drops it. New in v1.2.0. | No: extension field |
 | `date` | PDF `creationDate`, DOCX `dcterms:modified`, URL `Last-Modified` HEAD response, file mtime, today | Yes: derived to today if all sources fail |
 | `keywords` | PDF `/Keywords`, DOCX `cp:keywords`, HTML `<meta name="keywords">`, trafilatura `categories`, otherwise `[]` | No: emitted only when non-empty |
-| `pages` | PDF only (page count via `pymupdf.open`); other formats `None` | No: extension field |
+| `pages` | PDF only (page count via `pymupdf.open`). Other formats `None` | No: extension field |
 | `word_count` | DOCX, PPTX, XLSX, HTML, TXT (whitespace-split count), PDF `None` | No: extension field |
-| `source_file` | All file inputs; URL inputs `None` | No: extension field |
-| `source_url` | URL inputs only; file inputs `None` | No: extension field |
+| `source_file` | All file inputs. URL inputs `None` | No: extension field |
+| `source_url` | URL inputs only. File inputs `None` | No: extension field |
 | `doc_type` | All converters | Yes: emitted as `type` in the YAML |
 | `extracted_via` | All converters | Yes: non-SAGE extension but required for traceability |
 | `lane` | All converters | Yes: drives pipeline routing |
