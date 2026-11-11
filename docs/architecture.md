@@ -211,7 +211,7 @@ output gets the same body-cleanup pass that text-lane output already had:
 
 T10 `strip_web_fragments` itself stays text-lane-only.
 
-### Text-lane stages (registered `text.py` stages: T1–T10)
+### Text-lane stages (registered `text.py` stages: T1–T11)
 
 Located in `any2md/pipeline/text.py`. The registered text-lane stages run
 in the order listed in the `STAGES` list at the bottom of the module —
@@ -241,6 +241,7 @@ registrations.
 | 8 | T10 | `strip_web_fragments` | text | Lines containing only `\|` or `>` (delegated to `strip_orphan_punctuation` since v1.0.3); short incomplete-sentence lines (≤ 25 chars, no terminal punctuation) surrounded by blank lines and following a paragraph that ended in terminal punctuation | Fragments dropped | Profile is `conservative`; no qualifying fragments; line is a known short heading (`Contents`, `Note:`, etc.) | Aggressive/maximum only. Targets trafilatura extraction artifacts. Conservative on purpose — short legitimate lines are preserved. |
 | 9 | T6 | `restore_lists_and_code` | text | ≥ 4-line indented blocks (4 leading spaces) between blank lines | Indented blocks wrapped in fenced code | Already inside a fence; block has < 4 non-empty lines | Tracks fence state; preserves leading 4-space indent strip when wrapping |
 | 10 | T8 | `strip_cover_artifacts` | text | First ~30 lines (before the first H2): lines containing "QR code", "scan the", "customer feedback form" (case-insensitive); or lines matching `^(?:Third|Fourth|...) edition \d{4}-\d{2}$`; or lines matching `^Corrected version \d{4}-\d{2}$` | Such lines dropped | Profile is `conservative`; pattern not present; line is past the first H2 | Aggressive/maximum only. Bounded to the cover region so legitimate body content is never touched. |
+| 11 | T11 | `split_setext_artifacts` | text | A top-level paragraph followed directly by a `---` or `===` line | A blank line inserted before the underline, so `---` renders as a thematic break and `===` as literal text | No top-level setext heading. Inside fenced code, a block quote, or a list item. | Text-lane backends write real headings in ATX form, so a setext underline there is a source rule, not a heading. The text lane has no S4 ranking, so the line is not rewritten as ATX. Runs last so C7 counts only headings the backend wrote. |
 
 ### Shared cleanup stages (C1–C9)
 
