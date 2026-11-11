@@ -276,3 +276,18 @@ def test_long_setext_underline_is_linear():
     out = enforce_heading_hierarchy(text, PipelineOptions())
     assert out.startswith("# a\n")
     assert time.perf_counter() - start < 2.0
+
+
+def test_setext_hard_breaks_join_with_one_space():
+    # A trailing backslash or two-plus spaces is a hard break, which ATX
+    # cannot hold, so the marker drops and the lines join with a space.
+    text = "# T\n\none\\\ntwo   \nthree\n---\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n## one two three\n"
+
+
+def test_setext_escaped_backslash_is_kept():
+    # A line ending in an escaped backslash has no hard break.
+    text = "# T\n\none\\\\\ntwo\n---\n"
+    out = enforce_heading_hierarchy(text, PipelineOptions())
+    assert out == "# T\n\n## one\\\\ two\n"

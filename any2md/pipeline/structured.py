@@ -468,14 +468,31 @@ def find_headings(lines: list[str]) -> list[Heading]:
 def setext_text(lines: list[str], heading: Heading) -> str:
     """Return a setext heading's content as the text of one ATX line."""
     first, last, _ = heading
-    # A soft line break inside a heading renders as a space.
-    text = " ".join(line.strip(" \t\r") for line in lines[first:last])
+    # A soft line break inside a heading renders as a space. ATX holds
+    # one line, so a hard break joins the same way and loses its marker:
+    # strip() drops the trailing-spaces form, and _drop_hard_break drops
+    # a final unescaped backslash. The last line has no break after it.
+    parts = [line.strip(" \t\r") for line in lines[first:last]]
+    parts = [_drop_hard_break(part) for part in parts[:-1]] + parts[-1:]
+    text = " ".join(part for part in parts if part)
     head = text.rstrip("#")
     if head != text and head[-1:] in ("", " ", "\t"):
         # In ATX form a final "#" run after a space is a closing
         # sequence and would drop out of the heading text.
         text = head + "\\" + text[len(head) :]
     return text
+
+
+def _drop_hard_break(part: str) -> str:
+    """Remove a backslash hard break from the end of ``part``.
+
+    Only an odd run of trailing backslashes ends in a break. An even run
+    is escaped backslashes, which are text.
+    """
+    run = len(part) - len(part.rstrip("\\"))
+    if run % 2:
+        return part[:-1].rstrip(" \t")
+    return part
 
 
 def _skip_spaces(s: str, i: int) -> int:
