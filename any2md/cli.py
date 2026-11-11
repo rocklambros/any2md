@@ -51,10 +51,19 @@ def parse_meta_args(meta_args: list[str]) -> dict[str, Any]:
         parts = key.split(".")
         current = out
         for part in parts[:-1]:
-            if part not in current or not isinstance(current[part], dict):
+            if part not in current:
                 current[part] = {}
+            elif not isinstance(current[part], dict):
+                raise ValueError(
+                    f"--meta key conflict: {key!r} collides with an earlier value"
+                )
             current = current[part]
-        current[parts[-1]] = parsed
+        leaf = parts[-1]
+        if leaf in current and isinstance(current[leaf], dict):
+            raise ValueError(
+                f"--meta key conflict: {key!r} collides with an earlier value"
+            )
+        current[leaf] = parsed
     return out
 
 
