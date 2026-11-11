@@ -42,6 +42,23 @@ def test_writes_png_and_bytes_and_returns_links(tmp_path):
     assert sorted(p.name for p in folder.iterdir()) == ["img1.png", "img2.jpg"]
 
 
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_saving_needs_no_hard_link_support(tmp_path, monkeypatch, overwrite):
+    """exFAT, FAT32, and some SMB or FUSE mounts refuse hard links."""
+
+    def no_links(*_args, **_kwargs):
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "link", no_links)
+
+    link = _writer(tmp_path, overwrite=overwrite).write_png(1, _Png(b"data"))
+
+    assert link == "images/deck/img1.png"
+    folder = tmp_path / "out" / "images" / "deck"
+    assert (folder / "img1.png").read_bytes() == b"data"
+    assert sorted(p.name for p in folder.iterdir()) == ["img1.png"]
+
+
 def test_without_overwrite_an_existing_file_is_kept(tmp_path):
     folder = tmp_path / "out" / "images" / "deck"
     folder.mkdir(parents=True)

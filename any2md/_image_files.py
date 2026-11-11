@@ -33,6 +33,22 @@ from any2md.utils import safe_dir_name
 _IMAGE_NAME_RE = re.compile(r"^img\d+\.[A-Za-z0-9]+$")
 
 
+def _reserve(target: Path) -> bool:
+    """Claim ``target`` as a new, empty file. False when the name exists.
+
+    ``O_CREAT|O_EXCL|O_NOFOLLOW`` claims the name without following a
+    link and without hard links, which exFAT, FAT32, and some SMB or
+    FUSE mounts refuse. The caller then renames the finished temporary
+    file over the claimed name, so readers never see a partial image.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        os.close(os.open(target, flags, 0o600))
+    except FileExistsError:
+        return False
+    return True
+
+
 class ImageWriter:
     """Save one document's images under ``<output_dir>/images/<stem>/``."""
 
@@ -88,16 +104,11 @@ class ImageWriter:
         try:
             with os.fdopen(fd, "wb") as fp:
                 emit(fp)
-            if self._overwrite:
-                os.replace(tmp, target)
-            else:
-                try:
-                    # link() refuses an existing name, so a file that
-                    # appeared since the check above is kept.
-                    os.link(tmp, target)
-                except FileExistsError:
-                    pass
+            if not self._overwrite and not _reserve(target):
+                # A file appeared since the check above. It is kept.
                 os.unlink(tmp)
+                return None if os.path.islink(target) else self.link(file_name)
+            os.replace(tmp, target)
         except Exception as e:  # noqa: BLE001 -- one bad picture must not fail the file
             _logging.warn(f"failed to save image {file_name}: {e}")
             if os.path.lexists(tmp):
