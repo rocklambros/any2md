@@ -205,31 +205,17 @@ def _render_markdown(
 
 
 def _prepare_figures(
-    doc: Any,
-    src: SourceFile,
-    fmt: OfficeFormat,
-    output_dir: Path,
-    options: PipelineOptions,
-    force: bool,
+    doc: Any, src: SourceFile, fmt: OfficeFormat, writer: ImageWriter | None
 ) -> dict[int, str]:
-    """Build each picture's Markdown, saving images under --save-images.
+    """Build each picture's Markdown, staging images under --save-images.
 
     Images go to ``<output>/images/<stem>/imgN.png``, the layout every
-    converter uses, and the body links them by that relative path. With
-    ``force`` they are regenerated and stale ones removed, even when the
-    document has no pictures left.
+    converter uses, and the body links them by that relative path. The
+    caller commits them once the Markdown is written.
     """
-    writer = (
-        ImageWriter(output_dir, src.stem, overwrite=force)
-        if options.save_images
-        else None
-    )
-    figures: dict[int, str] = {}
-    if getattr(doc, "pictures", None):
-        figures = prepare_pictures(doc, fmt, read_alt_texts(src, fmt), writer)
-    if writer is not None:
-        writer.finish()
-    return figures
+    if not getattr(doc, "pictures", None):
+        return {}
+    return prepare_pictures(doc, fmt, read_alt_texts(src, fmt), writer)
 
 
 def _convert_via_docling(src: SourceFile, fmt: OfficeFormat) -> Any:
@@ -286,6 +272,14 @@ def convert_office(
         _logging.fail(f"{src.name} -- {e}")
         return False
 
+    # With --force, images are regenerated and stale ones removed, even
+    # when the document has no pictures left. They are published only
+    # after the Markdown is written, and dropped if anything fails first.
+    writer = (
+        ImageWriter(output_dir, src.stem, overwrite=force)
+        if options.save_images
+        else None
+    )
     try:
         props = _read_docx_metadata(src)
         title = _document_title(props["title_hint"], src.name)
@@ -303,11 +297,13 @@ def convert_office(
             DoclingWarningCapture() as py_warnings,
         ):
             doc = _convert_via_docling(src, fmt)
-            figures = _prepare_figures(doc, src, fmt, output_dir, options, force)
+            figures = _prepare_figures(doc, src, fmt, writer)
             md_text = _render_markdown(doc, fmt, title, figures)
     except Exception as e:  # noqa: BLE001 -- untrusted input, fail this file only
         # Docling and its parsers raise many exception types on a corrupt
         # or hostile package. Any of them must end this file, not the batch.
+        if writer is not None:
+            writer.discard()
         _logging.fail(f"{src.name} -- Docling could not convert this {label} file: {e}")
         return False
 
@@ -340,8 +336,12 @@ def convert_office(
         output_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_text(out_path, full)
     except (OSError, ValueError) as e:
+        if writer is not None:
+            writer.discard()
         _logging.fail(f"{src.name} -- {e}")
         return False
+    if writer is not None:
+        writer.commit()
 
     if not is_quiet():
         wc = meta.word_count or 0

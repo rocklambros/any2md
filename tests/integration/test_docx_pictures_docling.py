@@ -54,6 +54,33 @@ def test_docling_lane_writes_figure_lines(tmp_path):
     assert "<!--" not in body
 
 
+def test_failed_docling_lane_leaves_only_the_mammoth_images(tmp_path, monkeypatch):
+    """Docling stages its pictures, then fails. The mammoth fallback's
+    files are the only ones published, and each one is linked."""
+    import any2md.converters.docx as docx_mod
+    from any2md.pipeline.structured import _IMG_LINK_RE
+    from tests._office_fixtures import tiny_png
+
+    def broken_fill(*_args, **_kwargs):
+        raise RuntimeError("fill broke")
+
+    monkeypatch.setattr(docx_mod, "fill_pictures", broken_fill)
+    out = tmp_path / "out"
+
+    assert convert_docx(
+        _doc(tmp_path), out, options=PipelineOptions(save_images=True), force=False
+    )
+
+    body = _body(out / "report.md")
+    assert 'extracted_via: "mammoth+markdownify"' in (out / "report.md").read_text()
+    links = {m.group(2) for m in _IMG_LINK_RE.finditer(body)}
+    folder = out / "images" / "report"
+    saved = {f"images/report/{p.name}" for p in folder.iterdir()}
+    assert links == saved
+    # mammoth keeps the package's own bytes, Docling would re-encode them.
+    assert (folder / "img1.png").read_bytes() == tiny_png()
+
+
 def test_docling_lane_save_images_writes_and_links(tmp_path):
     out, body = _convert(tmp_path, save_images=True)
 

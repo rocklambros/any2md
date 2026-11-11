@@ -582,7 +582,7 @@ def prepare_pictures(
 
     With a ``writer`` (``--save-images``) each picture is saved through
     it as ``imgN.png``, numbered in document order, and linked. The
-    caller runs ``writer.finish()`` once the document is done. Captions
+    caller runs ``writer.commit()`` once the document is done. Captions
     move into the figure text, and each
     picture's caption list is cleared so Docling does not write the
     caption a second time as a plain paragraph.

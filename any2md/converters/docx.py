@@ -196,13 +196,20 @@ def _extract_via_docling(
     if options is not None and options.save_images and output_dir is not None:
         if not discarded:
             writer = ImageWriter(output_dir, src.stem, overwrite=force)
-    figures: dict[int, str] = {}
-    if getattr(doc, "pictures", None):
-        figures = prepare_pictures(doc, "docx", read_alt_texts(src, "docx"), writer)
+    try:
+        figures: dict[int, str] = {}
+        if getattr(doc, "pictures", None):
+            figures = prepare_pictures(doc, "docx", read_alt_texts(src, "docx"), writer)
+        md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
+        md = fill_pictures(doc, md, figures)
+    except Exception:
+        # The caller falls back to mammoth, which saves its own images.
+        if writer is not None:
+            writer.discard()
+        raise
     if writer is not None:
-        writer.finish()
-    md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
-    return fill_pictures(doc, md, figures), "docling", messages
+        writer.commit()
+    return md, "docling", messages
 
 
 # mammoth 1.11.0 added ``external_file_access`` and turned it off by
@@ -380,21 +387,27 @@ def _extract_via_mammoth(
     }
     if safe:
         kwargs["external_file_access"] = False
-    with src.open_binary() as f:
-        html_result = mammoth.convert_to_html(f, **kwargs)
+    try:
+        with src.open_binary() as f:
+            html_result = mammoth.convert_to_html(f, **kwargs)
+        md = markdownify.markdownify(
+            html_result.value,
+            heading_style="ATX",
+            bullets="-",
+            # mammoth never emits <thead>; without inference markdownify 1.x
+            # writes an empty header row and demotes the real header.
+            table_infer_header=True,
+        )
+        # The text lane has no S1, so the figure lines come from S1's own
+        # function here, giving the same lines as every other lane.
+        md = lift_figure_captions(md, options)
+    except Exception:
+        if writer is not None:
+            writer.discard()
+        raise
     if writer is not None:
-        writer.finish()
-    md = markdownify.markdownify(
-        html_result.value,
-        heading_style="ATX",
-        bullets="-",
-        # mammoth never emits <thead>; without inference markdownify 1.x
-        # writes an empty header row and demotes the real header.
-        table_infer_header=True,
-    )
-    # The text lane has no S1, so the figure lines come from S1's own
-    # function here, giving the same lines as every other lane.
-    return lift_figure_captions(md, options), "mammoth+markdownify"
+        writer.commit()
+    return md, "mammoth+markdownify"
 
 
 def convert_docx(

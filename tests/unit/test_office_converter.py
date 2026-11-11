@@ -651,6 +651,21 @@ def test_every_saved_image_is_linked_once_and_nothing_else_is_saved(
     assert _linked_images(two) == ["images/deck/img3.png"]
 
 
+def test_a_failed_render_publishes_no_images(monkeypatch, tmp_path):
+    deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
+    out = tmp_path / "out"
+
+    def broken_render(*_args, **_kwargs):
+        raise RuntimeError("export broke")
+
+    monkeypatch.setattr(office, "_render_markdown", broken_render)
+    doc = _FakeDoc({1: [_picture(image=_FakeImage())]})
+
+    assert _run_saving(monkeypatch, deck, out, doc, force=True) is False
+    folder = out / "images" / "deck"
+    assert not folder.exists() or list(folder.iterdir()) == []
+
+
 def test_force_with_no_pictures_left_removes_every_old_image(monkeypatch, tmp_path):
     deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
     out = tmp_path / "out"

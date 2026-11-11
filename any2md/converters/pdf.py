@@ -194,13 +194,20 @@ def _extract_via_docling(
         if options.save_images
         else None
     )
-    figures: dict[int, str] = {}
-    if getattr(doc, "pictures", None):
-        figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
+    try:
+        figures: dict[int, str] = {}
+        if getattr(doc, "pictures", None):
+            figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
+        md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
+        md = fill_pictures(doc, md, figures)
+    except Exception:
+        # The caller falls back to pymupdf4llm, which links no images.
+        if writer is not None:
+            writer.discard()
+        raise
     if writer is not None:
-        writer.finish()
-    md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
-    return fill_pictures(doc, md, figures), "docling"
+        writer.commit()
+    return md, "docling"
 
 
 def _extract_via_pymupdf4llm(doc: "pymupdf.Document") -> tuple[str, str]:

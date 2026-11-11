@@ -7,6 +7,10 @@ one ``ImageWriter``, which owns ``<output>/images/<stem>/``. The rules:
   same folder with ``O_EXCL|O_NOFOLLOW`` (``tempfile.mkstemp``), then
   renamed onto ``imgN.<ext>``. A rename replaces a symlink at the target
   rather than writing through it, so no write ever follows a link.
+- Images are staged first and published by ``commit`` only once the
+  converter's Markdown is complete. ``discard`` drops them when the
+  conversion fails, so a failed lane (for example Docling before its
+  mammoth fallback) leaves no files behind and none get linked.
 - The folder must stay inside the output directory. ``images`` or
   ``<stem>`` being a symlink, or the folder resolving anywhere else,
   stops all writes for the file with a warning.
@@ -14,7 +18,7 @@ one ``ImageWriter``, which owns ``<output>/images/<stem>/``. The rules:
   converter only gets here when its Markdown is new, and the file name
   is linked either way.
 - With ``overwrite`` (``--force``) each ``imgN`` is replaced, and
-  ``finish`` removes every ``imgN.*`` this run did not write, so a
+  ``commit`` removes every ``imgN.*`` this run did not link, so a
   document that lost a picture neither links nor ships its old file.
 """
 
@@ -49,6 +53,13 @@ def _reserve(target: Path) -> bool:
     return True
 
 
+def _remove(path: str) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
 class ImageWriter:
     """Save one document's images under ``<output_dir>/images/<stem>/``."""
 
@@ -57,7 +68,10 @@ class ImageWriter:
         self._name = safe_dir_name(stem)
         self._folder = output_dir / "images" / self._name
         self._overwrite = overwrite
-        self._written: set[str] = set()
+        # Names linked from the body this run, and the temporary file
+        # each staged image waits in until ``commit``.
+        self._linked: set[str] = set()
+        self._staged: dict[str, str] = {}
         self._ready: bool | None = None
 
     def link(self, file_name: str) -> str:
@@ -74,16 +88,41 @@ class ImageWriter:
         """Save image bytes as they are, as ``imgN.<ext>``. Returns its link, or None."""
         return self._write(f"img{number}.{ext}", lambda fp: fp.write(data))
 
-    def finish(self) -> None:
-        """Under ``overwrite``, remove the ``imgN`` files this run did not write."""
-        if not self._overwrite or not self._folder_is_safe(create=False):
-            return
+    def commit(self) -> None:
+        """Publish the staged images, then under ``overwrite`` drop stale ones.
+
+        The converter calls this once its Markdown is complete. A staged
+        image that cannot be published is reported, and its temporary
+        file is removed.
+        """
+        staged, self._staged = self._staged, {}
+        for file_name, tmp in staged.items():
+            target = self._folder / file_name
+            try:
+                if not self._overwrite and not _reserve(target):
+                    # A file took the name since staging. It is kept.
+                    os.unlink(tmp)
+                    continue
+                os.replace(tmp, target)
+            except OSError as e:
+                _logging.warn(f"failed to save image {file_name}: {e}")
+                _remove(tmp)
+        if self._overwrite and self._folder_is_safe(create=False):
+            self._remove_stale()
+
+    def discard(self) -> None:
+        """Drop the staged images. Called when the conversion fails."""
+        staged, self._staged = self._staged, {}
+        for tmp in staged.values():
+            _remove(tmp)
+
+    def _remove_stale(self) -> None:
         try:
             entries = list(os.scandir(self._folder))
         except OSError:
             return
         for entry in entries:
-            if not _IMAGE_NAME_RE.match(entry.name) or entry.name in self._written:
+            if not _IMAGE_NAME_RE.match(entry.name) or entry.name in self._linked:
                 continue
             if entry.is_dir(follow_symlinks=False):
                 continue
@@ -94,6 +133,7 @@ class ImageWriter:
                 _logging.warn(f"failed to remove stale image {entry.name}: {e}")
 
     def _write(self, file_name: str, emit: Callable[[Any], Any]) -> str | None:
+        """Stage one image in a temporary file. Returns its link, or None."""
         if not self._folder_is_safe(create=True):
             return None
         target = self._folder / file_name
@@ -104,17 +144,12 @@ class ImageWriter:
         try:
             with os.fdopen(fd, "wb") as fp:
                 emit(fp)
-            if not self._overwrite and not _reserve(target):
-                # A file appeared since the check above. It is kept.
-                os.unlink(tmp)
-                return None if os.path.islink(target) else self.link(file_name)
-            os.replace(tmp, target)
         except Exception as e:  # noqa: BLE001 -- one bad picture must not fail the file
             _logging.warn(f"failed to save image {file_name}: {e}")
-            if os.path.lexists(tmp):
-                os.unlink(tmp)
+            _remove(tmp)
             return None
-        self._written.add(file_name)
+        self._staged[file_name] = tmp
+        self._linked.add(file_name)
         return self.link(file_name)
 
     def _folder_is_safe(self, create: bool) -> bool:

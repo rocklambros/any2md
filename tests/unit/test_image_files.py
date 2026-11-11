@@ -29,17 +29,43 @@ def _writer(tmp_path, overwrite=False, stem="deck"):
     return ImageWriter(tmp_path / "out", stem, overwrite=overwrite)
 
 
+def _folder(tmp_path):
+    return tmp_path / "out" / "images" / "deck"
+
+
 def test_writes_png_and_bytes_and_returns_links(tmp_path):
     w = _writer(tmp_path)
 
     assert w.write_png(1, _Png(b"one")) == "images/deck/img1.png"
     assert w.write_bytes(2, "jpg", b"two") == "images/deck/img2.jpg"
+    w.commit()
 
-    folder = tmp_path / "out" / "images" / "deck"
+    folder = _folder(tmp_path)
     assert (folder / "img1.png").read_bytes() == b"one"
     assert (folder / "img2.jpg").read_bytes() == b"two"
     # Atomic writes leave no temporary files behind.
     assert sorted(p.name for p in folder.iterdir()) == ["img1.png", "img2.jpg"]
+
+
+def test_nothing_is_published_before_commit(tmp_path):
+    w = _writer(tmp_path)
+    w.write_png(1, _Png())
+
+    assert not list(_folder(tmp_path).glob("img*"))
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_discard_removes_staged_files_and_keeps_old_ones(tmp_path, overwrite):
+    """A conversion that fails after its pictures were staged publishes
+    nothing, removes nothing, and leaves no temporary files."""
+    folder = _folder(tmp_path)
+    folder.mkdir(parents=True)
+    (folder / "img2.png").write_bytes(b"old")
+    w = _writer(tmp_path, overwrite=overwrite)
+    w.write_png(1, _Png())
+    w.discard()
+
+    assert sorted(p.name for p in folder.iterdir()) == ["img2.png"]
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
@@ -51,31 +77,37 @@ def test_saving_needs_no_hard_link_support(tmp_path, monkeypatch, overwrite):
 
     monkeypatch.setattr(os, "link", no_links)
 
-    link = _writer(tmp_path, overwrite=overwrite).write_png(1, _Png(b"data"))
+    w = _writer(tmp_path, overwrite=overwrite)
+    link = w.write_png(1, _Png(b"data"))
+    w.commit()
 
     assert link == "images/deck/img1.png"
-    folder = tmp_path / "out" / "images" / "deck"
+    folder = _folder(tmp_path)
     assert (folder / "img1.png").read_bytes() == b"data"
     assert sorted(p.name for p in folder.iterdir()) == ["img1.png"]
 
 
 def test_without_overwrite_an_existing_file_is_kept(tmp_path):
-    folder = tmp_path / "out" / "images" / "deck"
+    folder = _folder(tmp_path)
     folder.mkdir(parents=True)
     (folder / "img1.png").write_bytes(b"prior")
 
-    link = _writer(tmp_path).write_png(1, _Png(b"new"))
+    w = _writer(tmp_path)
+    link = w.write_png(1, _Png(b"new"))
+    w.commit()
 
     assert link == "images/deck/img1.png"
     assert (folder / "img1.png").read_bytes() == b"prior"
 
 
 def test_with_overwrite_an_existing_file_is_replaced(tmp_path):
-    folder = tmp_path / "out" / "images" / "deck"
+    folder = _folder(tmp_path)
     folder.mkdir(parents=True)
     (folder / "img1.png").write_bytes(b"prior")
 
-    _writer(tmp_path, overwrite=True).write_png(1, _Png(b"new"))
+    w = _writer(tmp_path, overwrite=True)
+    w.write_png(1, _Png(b"new"))
+    w.commit()
 
     assert (folder / "img1.png").read_bytes() == b"new"
 
@@ -84,11 +116,13 @@ def test_with_overwrite_an_existing_file_is_replaced(tmp_path):
 def test_a_symlink_at_the_target_is_never_written_through(tmp_path, overwrite):
     sentinel = tmp_path / "sentinel"
     sentinel.write_text("ORIGINAL")
-    folder = tmp_path / "out" / "images" / "deck"
+    folder = _folder(tmp_path)
     folder.mkdir(parents=True)
     os.symlink(sentinel, folder / "img1.png")
 
-    link = _writer(tmp_path, overwrite=overwrite).write_png(1, _Png(b"new"))
+    w = _writer(tmp_path, overwrite=overwrite)
+    link = w.write_png(1, _Png(b"new"))
+    w.commit()
 
     assert sentinel.read_text() == "ORIGINAL"
     if overwrite:
@@ -101,10 +135,10 @@ def test_a_symlink_at_the_target_is_never_written_through(tmp_path, overwrite):
         assert link is None
 
 
-def test_finish_with_overwrite_removes_stale_images_only(tmp_path):
+def test_commit_with_overwrite_removes_stale_images_only(tmp_path):
     sentinel = tmp_path / "sentinel"
     sentinel.write_text("ORIGINAL")
-    folder = tmp_path / "out" / "images" / "deck"
+    folder = _folder(tmp_path)
     folder.mkdir(parents=True)
     for name in ("img1.png", "img2.png", "img3.jpg", "notes.txt", "image1.png"):
         (folder / name).write_bytes(b"old")
@@ -112,7 +146,7 @@ def test_finish_with_overwrite_removes_stale_images_only(tmp_path):
 
     w = _writer(tmp_path, overwrite=True)
     w.write_png(1, _Png(b"new"))
-    w.finish()
+    w.commit()
 
     assert sorted(p.name for p in folder.iterdir()) == [
         "image1.png",
@@ -123,21 +157,21 @@ def test_finish_with_overwrite_removes_stale_images_only(tmp_path):
     assert sentinel.read_text() == "ORIGINAL"
 
 
-def test_finish_without_overwrite_removes_nothing(tmp_path):
-    folder = tmp_path / "out" / "images" / "deck"
+def test_commit_without_overwrite_removes_nothing(tmp_path):
+    folder = _folder(tmp_path)
     folder.mkdir(parents=True)
     (folder / "img5.png").write_bytes(b"old")
 
     w = _writer(tmp_path)
     w.write_png(1, _Png())
-    w.finish()
+    w.commit()
 
     assert (folder / "img5.png").exists()
 
 
-def test_finish_with_overwrite_and_no_folder_creates_nothing(tmp_path):
+def test_commit_with_overwrite_and_no_folder_creates_nothing(tmp_path):
     w = _writer(tmp_path, overwrite=True)
-    w.finish()
+    w.commit()
 
     assert not (tmp_path / "out" / "images").exists()
 
@@ -154,6 +188,6 @@ def test_a_folder_that_leaves_the_output_dir_is_refused(tmp_path, capsys, linked
     w = ImageWriter(out, "deck", overwrite=True)
 
     assert w.write_png(1, _Png()) is None
-    w.finish()
+    w.commit()
     assert not list(outside.rglob("img*"))
     assert "refusing" in capsys.readouterr().err
