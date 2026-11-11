@@ -122,23 +122,42 @@ def _q(ns: str, tag: str) -> str:
     return f"{{{ns}}}{tag}"
 
 
-def _read_xml(z: zipfile.ZipFile, name: str) -> Any | None:
+class _Package:
+    """An open OOXML package that notes each part too large to read.
+
+    A part past ``_MAX_PART_BYTES`` costs the alt text it holds. The
+    names are kept so ``read_alt_texts`` can report the loss as a warning
+    instead of dropping the alt text without a word.
+    """
+
+    def __init__(self, z: zipfile.ZipFile) -> None:
+        self.zip = z
+        self.skipped: list[str] = []
+
+
+def _read_xml(z: _Package, name: str) -> Any | None:
     """Parse one package part, or None when it is missing or unreadable."""
     try:
-        info = z.getinfo(name)
+        info = z.zip.getinfo(name)
     except KeyError:
         return None
     if info.file_size > _MAX_PART_BYTES:
+        z.skipped.append(name)
         return None
     try:
-        with z.open(info) as f:
+        with z.zip.open(info) as f:
             return fromstring(f.read())
     except (ParseError, OSError, zipfile.BadZipFile, ValueError):
         return None
 
 
-def _rels(z: zipfile.ZipFile, part: str) -> dict[str, str]:
-    """Map each relationship id of ``part`` to its resolved part name."""
+def _rels(z: _Package, part: str, rel_type: str | None = None) -> dict[str, str]:
+    """Map each relationship id of ``part`` to its resolved part name.
+
+    With ``rel_type``, only relationships whose type URI ends in
+    ``/<rel_type>`` count. The suffix covers both the transitional and
+    the strict OOXML namespace.
+    """
     base, name = posixpath.split(part)
     root = _read_xml(z, posixpath.join(base, "_rels", name + ".rels"))
     if root is None:
@@ -147,6 +166,10 @@ def _rels(z: zipfile.ZipFile, part: str) -> dict[str, str]:
     for rel in root.iter(_q(_PKG, "Relationship")):
         target = rel.get("Target") or ""
         if rel.get("TargetMode") == "External" or not target:
+            continue
+        if rel_type is not None and not (rel.get("Type") or "").endswith(
+            "/" + rel_type
+        ):
             continue
         if target.startswith("/"):
             resolved = target.lstrip("/")
@@ -262,7 +285,7 @@ def _pptx_shape_entry(shape: Any) -> tuple[str, Any] | None:
     return (alt, xfrm) if alt else None
 
 
-def _pptx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
+def _pptx_alt_texts(z: _Package) -> AltTexts:
     out = AltTexts()
     pres_part = "ppt/presentation.xml"
     pres = _read_xml(z, pres_part)
@@ -329,7 +352,7 @@ def _int_text(element: Any, tag: str) -> int | None:
         return None
 
 
-def _xlsx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
+def _xlsx_alt_texts(z: _Package) -> AltTexts:
     # Excel boxes are whole cells, so any difference is a different picture.
     out = AltTexts(tolerance=0.0)
     book_part = "xl/workbook.xml"
@@ -343,13 +366,14 @@ def _xlsx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
     for sheet in sheets.iter(_q(_S, "sheet")):
         name = sheet.get("name") or ""
         part = rels.get(sheet.get(_q(_R, "id")) or "")
-        ws = _read_xml(z, part) if part else None
-        if ws is None:
+        if not part:
             continue
-        sheet_rels = _rels(z, part)
-        for drawing_ref in ws.iter(_q(_S, "drawing")):
-            drawing_part = sheet_rels.get(drawing_ref.get(_q(_R, "id")) or "")
-            drawing = _read_xml(z, drawing_part) if drawing_part else None
+        # The sheet's drawing comes from its relationships part, which
+        # stays small. Parsing the worksheet itself to find the
+        # ``<drawing r:id>`` would cost memory in proportion to its cells,
+        # and a sheet past the part cap would lose its pictures' alt text.
+        for drawing_part in _rels(z, part, "drawing").values():
+            drawing = _read_xml(z, drawing_part)
             if drawing is None:
                 continue
             for anchor in drawing:
@@ -375,7 +399,7 @@ _O = "urn:schemas-microsoft-com:office:office"
 _MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 
 
-def _caption_style_ids(z: zipfile.ZipFile) -> set[str]:
+def _caption_style_ids(z: _Package) -> set[str]:
     """Paragraph style ids named "caption" (Word's built-in name), or "Caption"."""
     ids = {"Caption"}
     styles = _read_xml(z, "word/styles.xml")
@@ -427,7 +451,7 @@ def _word_alt(element: Any) -> str:
     return " ".join((element.get(_q(_O, "title")) or "").split())
 
 
-def _docx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
+def _docx_alt_texts(z: _Package) -> AltTexts:
     document = _read_xml(z, "word/document.xml")
     body = None if document is None else document.find(_q(_W, "body"))
     if body is None:
@@ -515,17 +539,26 @@ def read_alt_texts(src: SourceFile, fmt: str) -> AltTexts:
     """
     try:
         with src.open_binary() as fh, zipfile.ZipFile(fh) as z:
+            package = _Package(z)
             if fmt == "pptx":
-                return _pptx_alt_texts(z)
-            if fmt == "docx":
-                return _docx_alt_texts(z)
-            return _xlsx_alt_texts(z)
+                found = _pptx_alt_texts(package)
+            elif fmt == "docx":
+                found = _docx_alt_texts(package)
+            else:
+                found = _xlsx_alt_texts(package)
     except _UNREADABLE as e:
         # zipfile and zlib raise these on a corrupt member (a bad deflate
         # stream, a truncated entry, a compression method it lacks).
         return AltTexts(
             warning=f"alt text: could not read the package: {safe_oneline(str(e))}"
         )
+    if package.skipped:
+        found.warning = (
+            f"alt text: skipped {len(package.skipped)} package part(s) larger "
+            f"than {_MAX_PART_BYTES} bytes: "
+            f"{safe_oneline(', '.join(package.skipped[:3]))}"
+        )
+    return found
 
 
 def is_picture(item: Any) -> bool:
