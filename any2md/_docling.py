@@ -10,6 +10,7 @@ absent.
 
 from __future__ import annotations
 
+import functools
 import logging
 import sys
 import threading
@@ -94,12 +95,72 @@ _COUNTED_WARNINGS: tuple[type[Warning], ...] = (
 # pattern matches the warning's module name, and the display hook checks
 # the file the warning names.
 _DOCLING_MODULE_RE = r"docling(_core)?(\.|$)"
-_DOCLING_PACKAGES = frozenset({"docling", "docling_core"})
+_DOCLING_PACKAGES = ("docling", "docling_core")
+
+
+@functools.cache
+def _docling_package_dirs() -> tuple[Path, ...]:
+    """The installed docling and docling_core package directories, resolved.
+
+    Found once through the import system. Matching the real directories,
+    not any path component named ``docling``, keeps a checkout or
+    virtualenv under ``~/src/docling/`` from turning its torch or PIL
+    warnings into document warnings.
+    """
+    dirs: list[Path] = []
+    for name in _DOCLING_PACKAGES:
+        try:
+            spec = find_spec(name)
+        except (ImportError, ValueError):
+            continue
+        for location in (spec.submodule_search_locations or []) if spec else []:
+            dirs.append(Path(location).resolve())
+    return tuple(dirs)
+
+
+@functools.lru_cache(maxsize=512)
+def _in_docling_package(filename: str) -> bool:
+    """True when ``filename`` resolves to a file inside a Docling package.
+
+    Cached because docling-core can raise the same warning from the same
+    file once per page, and resolving a path costs system calls.
+    """
+    try:
+        path = Path(filename).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return any(path.is_relative_to(d) for d in _docling_package_dirs())
+
+
+def _is_docling_module(name: object) -> bool:
+    return isinstance(name, str) and any(
+        name == pkg or name.startswith(pkg + ".") for pkg in _DOCLING_PACKAGES
+    )
+
+
+def _module_of(filename: str) -> object:
+    """The ``__name__`` of the innermost running frame whose code is in ``filename``.
+
+    The display hook gets the warning's file but not its module. The
+    frame that raised the warning, or the caller its ``stacklevel``
+    points at, is still on the stack while the hook runs.
+    """
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_code.co_filename == filename:
+            return frame.f_globals.get("__name__")
+        frame = frame.f_back
+    return None
 
 
 def _from_docling(filename: str) -> bool:
-    """True when ``filename`` lies inside the docling or docling_core package."""
-    return not _DOCLING_PACKAGES.isdisjoint(Path(filename).parts)
+    """True when a warning naming ``filename`` was raised by Docling's code.
+
+    That holds when the file lies inside the installed docling or
+    docling_core package, or when the code raising it belongs to a module
+    named ``docling``, ``docling_core``, or one of their submodules.
+    """
+    return _in_docling_package(filename) or _is_docling_module(_module_of(filename))
 
 
 class DoclingWarningCapture:

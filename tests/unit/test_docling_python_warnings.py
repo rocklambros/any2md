@@ -8,13 +8,13 @@ so they run without Docling installed.
 
 from __future__ import annotations
 
-import warnings
 
 import any2md.converters.docx as docx_mod
 from any2md._docling import DoclingWarningCapture
 import any2md.converters.pdf as pdf_mod
 from any2md.converters import collected_warnings, reset_warnings
 from any2md.pipeline import PipelineOptions
+from tests._warnings import warn_from
 
 _BBOX = "Provenance bbox coordinate b on page 2 is outside page bounds: value=9"
 
@@ -29,9 +29,7 @@ def _docling_warning(args, kwargs):
         a for a in args if isinstance(a, DoclingWarningCapture)
     )
     with capture:
-        warnings.warn_explicit(
-            _BBOX, UserWarning, _DOCLING_FILE, 333, module="docling_core.types"
-        )
+        warn_from(_DOCLING_FILE, "docling_core.types", _BBOX)
 
 
 def _warn_then(result):

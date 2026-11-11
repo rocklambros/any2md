@@ -970,10 +970,10 @@ _TORCH_FILE = "/venv/lib/python3.12/site-packages/torch/nn/modules/module.py"
 
 def _warn_from(filename, message):
     """Raise a UserWarning as if from ``filename``."""
-    import warnings
+    from tests._warnings import warn_from
 
     module = "docling_core.types" if "docling" in filename else "torch.nn"
-    warnings.warn_explicit(message, UserWarning, filename, 1, module=module)
+    warn_from(filename, module, message)
 
 
 def _docling_that_warns(monkeypatch, doc, during_render=False):

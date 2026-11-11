@@ -4,6 +4,8 @@ import warnings
 
 import pytest
 
+from tests._warnings import warn_from
+
 from any2md._docling import (
     DoclingWarningCapture,
     has_docling,
@@ -44,7 +46,7 @@ _DOCLING_FILE = "/venv/lib/python3.12/site-packages/docling_core/types/doc/docum
 def _warn(message, category=UserWarning, filename=_DOCLING_FILE):
     """Raise a warning as if from ``filename``, the way Docling's code would."""
     module = "docling_core.types.doc.document" if "docling" in filename else "torch.nn"
-    warnings.warn_explicit(message, category, filename, 333, module=module)
+    warn_from(filename, module, message, category)
 
 
 def test_warning_capture_records_instead_of_printing(capsys):
@@ -140,4 +142,50 @@ def test_notes_join_the_counted_messages():
     assert cap.messages == [
         "UserWarning: first",
         "alt text: could not read the package",
+    ]
+
+
+def test_a_directory_named_docling_is_not_the_package():
+    """A checkout or virtualenv under a folder named docling holds torch
+    and PIL too. Their warnings are not Docling's."""
+    pil_file = "/home/u/src/docling/.venv/lib/python3.12/site-packages/PIL/Image.py"
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        with DoclingWarningCapture() as cap:
+            warn_from(pil_file, "PIL.Image", "image size exceeds limit")
+
+    assert cap.messages == []
+    assert [(w.category, w.filename) for w in seen] == [(UserWarning, pil_file)]
+
+
+def test_a_file_inside_the_installed_package_counts(tmp_path, monkeypatch):
+    """A file under the real package directory counts, whatever module
+    name its frame carries."""
+    import any2md._docling as docling_mod
+
+    package = tmp_path / "site-packages" / "docling_core"
+    package.mkdir(parents=True)
+    monkeypatch.setattr(
+        docling_mod, "_docling_package_dirs", lambda: (package.resolve(),)
+    )
+    with DoclingWarningCapture() as cap:
+        warn_from(str(package / "types" / "doc.py"), "loaded_by_path", "bbox")
+
+    assert cap.messages == ["UserWarning: bbox"]
+
+
+def test_docling_module_names_count_and_lookalikes_do_not():
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        with DoclingWarningCapture() as cap:
+            warn_from("/elsewhere/a.py", "docling.backend.x", "one")
+            warn_from("/elsewhere/b.py", "docling", "two")
+            warn_from("/elsewhere/c.py", "docling_core.types", "three")
+            warn_from("/elsewhere/d.py", "doclingextra.x", "not counted")
+            warn_from("/elsewhere/e.py", "my_docling.x", "not counted")
+
+    assert cap.messages == [
+        "UserWarning: one",
+        "UserWarning: two",
+        "UserWarning: three",
     ]
