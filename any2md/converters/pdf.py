@@ -101,11 +101,9 @@ def pdf_looks_complex(pdf_path: Path) -> bool:
             if page_count <= 5:
                 return False
 
-            sample_idxs = (
-                list(range(page_count))
-                if page_count <= 5
-                else [int(i * page_count / 5) for i in range(5)]
-            )
+            # The early return above guarantees page_count > 5, so five
+            # evenly spaced pages are always a strict subset of the doc.
+            sample_idxs = [int(i * page_count / 5) for i in range(5)]
 
             total_chars = 0
             multi_column_seen = False

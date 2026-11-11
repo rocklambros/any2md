@@ -21,7 +21,7 @@ def test_install_hint_emits_once_per_process(capsys):
     # Reset module-level rate-limit flag for the test
     from any2md import _docling
 
-    _docling._hint_emitted = False
+    _docling._hint_emitted.clear()
     install_hint()
     install_hint()  # second call should be silent
     captured = capsys.readouterr()

@@ -11,6 +11,7 @@ absent.
 from __future__ import annotations
 
 import sys
+import threading
 from importlib.util import find_spec
 
 INSTALL_HINT_MSG = (
@@ -20,7 +21,9 @@ INSTALL_HINT_MSG = (
     "        Or pass --high-fidelity to require it."
 )
 
-_hint_emitted = False
+# A mutable flag rather than a rebound bool, so install_hint changes it in
+# place without a ``global`` statement and tests reset it with clear().
+_hint_emitted = threading.Event()
 
 
 def has_docling() -> bool:
@@ -30,8 +33,7 @@ def has_docling() -> bool:
 
 def install_hint() -> None:
     """Print the install hint to stderr — at most once per process."""
-    global _hint_emitted
-    if _hint_emitted:
+    if _hint_emitted.is_set():
         return
     print(f"  WARN: {INSTALL_HINT_MSG}", file=sys.stderr)  # log-safe: literal
-    _hint_emitted = True
+    _hint_emitted.set()

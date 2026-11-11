@@ -8,12 +8,11 @@ from io import BytesIO
 import yaml
 
 import any2md.converters.html as html_mod
-from any2md.converters.html import convert_html
 from any2md.pipeline import PipelineOptions
 
 
 def test_html_local_file_emits_v1_frontmatter(fixture_dir, tmp_output_dir):
-    ok = convert_html(
+    ok = html_mod.convert_html(
         fixture_dir / "web_page.html",
         tmp_output_dir,
         options=PipelineOptions(),

@@ -112,7 +112,12 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
     }
     try:
         with zipfile.ZipFile(docx_path) as z:
-            try:
+            # Both docProps parts are optional in OOXML, so a missing part
+            # leaves the defaults in place. Testing membership up front,
+            # rather than catching KeyError, keeps a KeyError from any
+            # other cause inside the parse visible.
+            members = set(z.namelist())
+            if "docProps/core.xml" in members:
                 with _safe_zip_open(z, "docProps/core.xml") as f:
                     root = _xml_parse(f).getroot()
                 title = root.findtext("dc:title", namespaces=_NS_CORE)
@@ -126,9 +131,7 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
                 modified = root.findtext("dcterms:modified", namespaces=_NS_CORE)
                 if modified:
                     out["date"] = modified[:10]
-            except KeyError:
-                pass
-            try:
+            if "docProps/app.xml" in members:
                 with _safe_zip_open(z, "docProps/app.xml") as f:
                     root = _xml_parse(f).getroot()
                 company = root.findtext("ext:Company", namespaces=_NS_APP)
@@ -148,9 +151,12 @@ def _read_docx_metadata(docx_path: Path) -> dict[str, object]:
                     app_result = filter_organization(application.strip())
                     out["organization"] = app_result.organization
                     out["produced_by"] = app_result.produced_by
-            except KeyError:
-                pass
     except (zipfile.BadZipFile, _XmlParseError):
+        # Metadata is best effort. convert_docx reads it after the body
+        # extracted cleanly, so a corrupt archive has already failed there.
+        # What lands here in practice is malformed docProps XML in an
+        # otherwise readable file, and bad metadata should not fail a
+        # conversion whose body succeeded. The defaults stand in.
         pass
     return out
 
