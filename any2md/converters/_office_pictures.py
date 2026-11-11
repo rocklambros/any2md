@@ -28,12 +28,14 @@ from __future__ import annotations
 import posixpath
 import re
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 from defusedxml.ElementTree import ParseError, fromstring
 
 from any2md import _logging
+from any2md._logging import safe_oneline
 from any2md._image_files import ImageWriter
 from any2md._safe_open import SourceFile
 from any2md.pipeline.structured import NO_IMAGE_LINK
@@ -88,6 +90,8 @@ class AltTexts:
     by_page: dict[Any, list[tuple[Box, str]]] = field(default_factory=dict)
     tolerance: float = _EMU_TOLERANCE
     in_order: list[WordPicture] | None = None
+    # Set when the package could not be read, for the run's warnings.
+    warning: str | None = None
 
     def add(self, page: Any, box: Box, text: str) -> None:
         self.by_page.setdefault(page, []).append((box, text))
@@ -451,12 +455,24 @@ def _owning_paragraph(element: Any, paragraph: Any) -> bool:
     return True
 
 
+_UNREADABLE = (
+    OSError,
+    zipfile.BadZipFile,
+    ValueError,
+    RuntimeError,
+    NotImplementedError,
+    zlib.error,
+    EOFError,
+    KeyError,
+)
+
+
 def read_alt_texts(src: SourceFile, fmt: str) -> AltTexts:
     """Read the picture alt text in ``src``. An unreadable package gives none.
 
-    Alt text is a nice-to-have on top of what Docling already extracted,
+    Alt text adds to what Docling already extracted,
     so a part this reader cannot parse costs that alt text only, never
-    the file.
+    the file. ``warning`` then names what failed, for the run's warnings.
     """
     try:
         with src.open_binary() as fh, zipfile.ZipFile(fh) as z:
@@ -465,8 +481,12 @@ def read_alt_texts(src: SourceFile, fmt: str) -> AltTexts:
             if fmt == "docx":
                 return _docx_alt_texts(z)
             return _xlsx_alt_texts(z)
-    except (OSError, zipfile.BadZipFile, ValueError):
-        return AltTexts()
+    except _UNREADABLE as e:
+        # zipfile and zlib raise these on a corrupt member (a bad deflate
+        # stream, a truncated entry, a compression method it lacks).
+        return AltTexts(
+            warning=f"alt text: could not read the package: {safe_oneline(str(e))}"
+        )
 
 
 def is_picture(item: Any) -> bool:

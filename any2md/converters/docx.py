@@ -207,9 +207,10 @@ def _extract_via_docling(
         with capture if capture is not None else nullcontext():
             figures: dict[int, str] = {}
             if getattr(doc, "pictures", None):
-                figures = prepare_pictures(
-                    doc, "docx", read_alt_texts(src, "docx"), writer
-                )
+                alt_texts = read_alt_texts(src, "docx")
+                if alt_texts.warning and capture is not None:
+                    capture.note(alt_texts.warning)
+                figures = prepare_pictures(doc, "docx", alt_texts, writer)
             md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
             md = fill_pictures(doc, md, figures)
     except Exception:

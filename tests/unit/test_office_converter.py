@@ -752,9 +752,43 @@ def test_read_alt_texts_on_a_broken_package_finds_none(tmp_path):
     from any2md.converters._office_pictures import read_alt_texts
 
     bad = tmp_path / "bad.pptx"
-    bad.write_bytes(b"PK\x03\x04 not really a zip")
+    bad.write_bytes(b"PK\x03\x04 not a zip archive")
 
-    assert read_alt_texts(SourceFile.from_path(bad), "pptx").by_page == {}
+    alt = read_alt_texts(SourceFile.from_path(bad), "pptx")
+    assert alt.by_page == {}
+    assert alt.warning and "alt text" in alt.warning
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("bad"),
+        NotImplementedError("bad"),
+        EOFError("bad"),
+        KeyError("bad"),
+        __import__("zlib").error("bad"),
+    ],
+)
+def test_alt_text_failure_costs_only_the_alt_text(monkeypatch, tmp_path, error):
+    """A package the alt-text reader cannot read still converts, and the
+    lost alt text counts as a warning."""
+    import any2md.converters._office_pictures as pictures
+    from any2md.converters import collected_warnings, reset_warnings
+
+    def broken(_z):
+        raise error
+
+    monkeypatch.setattr(pictures, "_pptx_alt_texts", broken)
+    deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
+    _fake_docling(monkeypatch, _FakeDoc({1: [_picture(caption="Chart")]}))
+    reset_warnings()
+
+    assert office.convert_office(deck, tmp_path / "out", "pptx", force=True)
+
+    got = collected_warnings()
+    reset_warnings()
+    assert "*Figure: Chart*" in _body(tmp_path / "out" / "deck.md")
+    assert any("alt text" in w for w in got)
 
 
 @pytest.mark.parametrize(

@@ -206,17 +206,25 @@ def _render_markdown(
 
 
 def _prepare_figures(
-    doc: Any, src: SourceFile, fmt: OfficeFormat, writer: ImageWriter | None
+    doc: Any,
+    src: SourceFile,
+    fmt: OfficeFormat,
+    writer: ImageWriter | None,
+    capture: DoclingWarningCapture,
 ) -> dict[int, str]:
     """Build each picture's Markdown, staging images under --save-images.
 
-    Images go to ``<output>/images/<stem>/imgN.png``, the layout every
+    Images go to ``<output>/images/<name>/imgN.png``, the layout every
     converter uses, and the body links them by that relative path. The
-    caller commits them once the Markdown is written.
+    caller commits them once the Markdown is written. Alt text that
+    cannot be read counts as a warning through ``capture``.
     """
     if not getattr(doc, "pictures", None):
         return {}
-    return prepare_pictures(doc, fmt, read_alt_texts(src, fmt), writer)
+    alt_texts = read_alt_texts(src, fmt)
+    if alt_texts.warning:
+        capture.note(alt_texts.warning)
+    return prepare_pictures(doc, fmt, alt_texts, writer)
 
 
 def _convert_via_docling(
@@ -306,7 +314,7 @@ def convert_office(
         ):
             doc = _convert_via_docling(src, fmt, py_warnings)
             with py_warnings:
-                figures = _prepare_figures(doc, src, fmt, writer)
+                figures = _prepare_figures(doc, src, fmt, writer, py_warnings)
                 md_text = _render_markdown(doc, fmt, title, figures)
     except Exception as e:  # noqa: BLE001 -- untrusted input, fail this file only
         # Docling and its parsers raise many exception types on a corrupt
