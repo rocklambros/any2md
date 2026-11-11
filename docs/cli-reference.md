@@ -101,6 +101,12 @@ You'll see one `OK:` line per discovered file plus a final summary.
 
 Overwrite existing output `.md` files.
 
+Output names come from the source file name, so two inputs in one run can map
+to the same file, for example `a/report.pdf` and `b/report.pdf` under `-r`, or
+`deck.pptx` next to `deck.docx`. The first one converts and each later one fails
+with `output name collision`, with or without `--force`, so no output from the
+same run is overwritten. Names compare without regard to case.
+
 **Use this when** you've upgraded any2md or changed flags and want to
 regenerate a corpus that's already been converted.
 

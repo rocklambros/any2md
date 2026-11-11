@@ -433,11 +433,31 @@ def main():
     ok = 0
     fail = 0
     skip = 0
+    # Output names come from source stems, so two inputs in one run can map
+    # to one file (a/x.pdf and b/x.pdf under -r, or deck.pptx next to
+    # deck.docx). The second would be skipped as "exists" or, with --force,
+    # overwrite the first. Names compare case-folded because the default
+    # macOS and Windows file systems ignore case.
+    claimed: dict[str, str] = {}
+
+    def _collides(out_name: str, source: str) -> bool:
+        key = out_name.casefold()
+        if key in claimed:
+            _logging.fail(
+                f"{source} -- output name collision: {out_name} is already "
+                f"written by {claimed[key]} in this run. Rename one of them."
+            )
+            return True
+        claimed[key] = source
+        return False
 
     # Process URLs
     for url in urls:
         out_name = url_to_filename(url)
         out_path = args.output_dir / out_name
+        if _collides(out_name, url):
+            fail += 1
+            continue
         if out_path.exists() and not args.force:
             print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
             skip += 1
@@ -461,6 +481,9 @@ def main():
         # goes through safe_oneline as well.
         out_name = sanitize_filename(file_path.name)
         out_path = args.output_dir / out_name
+        if _collides(out_name, str(file_path)):
+            fail += 1
+            continue
         if out_path.exists() and not args.force:
             print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
             skip += 1
