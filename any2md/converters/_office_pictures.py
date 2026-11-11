@@ -372,6 +372,7 @@ _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 _V = "urn:schemas-microsoft-com:vml"
 _O = "urn:schemas-microsoft-com:office:office"
+_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 
 
 def _caption_style_ids(z: zipfile.ZipFile) -> set[str]:
@@ -438,12 +439,19 @@ def _docx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
     # parent's children, so each check below is a lookup, never a scan.
     # A paragraph inside a text box is the nearest paragraph of the
     # pictures it holds, so they are not counted for the outer one.
+    # Word saves a drawing as mc:AlternateContent with a DrawingML
+    # mc:Choice and a VML mc:Fallback copy of the same picture. Docling
+    # counts one picture there, so the walk skips every Fallback subtree.
+    # Counting both would make the totals differ, and a mismatch turns
+    # alt text and captions off for the whole document.
     pictures: list[tuple[Any, Any]] = []
     held: dict[int, int] = {}
     position: dict[int, tuple[list[Any], int]] = {}
     stack: list[tuple[Any, Any]] = [(body, None)]
     while stack:
         element, paragraph = stack.pop()
+        if element.tag == _q(_MC, "Fallback"):
+            continue
         if element.tag == _q(_W, "p"):
             paragraph = element
         elif paragraph is not None and _is_picture_element(element):
