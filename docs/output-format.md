@@ -431,8 +431,16 @@ chunkers and titlers work reliably. How it is enforced depends on the lane:
   trafilatura drops it (a page `<h1>` outside the article container is not
   extracted). If the first body line already repeats the title as plain or
   bold text, that line is promoted instead of adding a duplicate.
-- **Other text-lane input (pymupdf4llm, mammoth, TXT):** no rewriting. A body
-  without an H1 emits the validator warning described below.
+- **TXT:** the heuristic structurizer turns a standalone first line (one
+  followed by a blank line) into the H1 when it is ALL-CAPS, or title case
+  with no trailing punctuation, and at most 80 characters long. That line
+  then becomes `title`. A first line that matches neither pattern stays body
+  text, and the first standalone ALL-CAPS line further down becomes the H1
+  if there is one. After the H1, standalone ALL-CAPS lines become H2 and
+  standalone title-case lines become H3. The pipeline does not rewrite
+  headings after that.
+- **Other text-lane input (pymupdf4llm, mammoth):** no rewriting.
+- A body without an H1 emits the validator warning described below.
 
 ### No skipped levels
 
