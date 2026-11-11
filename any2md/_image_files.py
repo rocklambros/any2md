@@ -110,15 +110,22 @@ class ImageWriter:
         """Save image bytes as they are, as ``imgN.<ext>``. Returns its link, or None."""
         return self._write(f"img{number}.{ext}", lambda fp: fp.write(data))
 
-    def commit(self) -> None:
+    def commit(self, markdown: str | None = None) -> None:
         """Publish the staged images, then under ``overwrite`` drop stale ones.
 
-        The converter calls this once its Markdown is complete. A staged
-        image that cannot be published is reported, and its temporary
-        file is removed.
+        The converter calls this once its Markdown is complete and passes
+        it in. Only a staged image whose link appears in ``markdown`` is
+        published, so nothing is saved that the body does not link (a
+        picture Docling left out of the Markdown, for example). Without
+        ``markdown`` every staged image is published. A staged image that
+        cannot be published is reported, and its temporary file is removed.
         """
         staged, self._staged = self._staged, {}
         for file_name, tmp in staged.items():
+            if markdown is not None and f"]({self.link(file_name)})" not in markdown:
+                self._linked.discard(file_name)
+                _remove(tmp)
+                continue
             target = self._folder / file_name
             try:
                 if not self._overwrite and not _reserve(target):

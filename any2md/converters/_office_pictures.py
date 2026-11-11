@@ -40,10 +40,22 @@ from any2md._image_files import ImageWriter
 from any2md._safe_open import SourceFile
 from any2md.pipeline.structured import NO_IMAGE_LINK
 
-# Docling writes this in place of each picture. A comment, so the
-# Markdown stays valid if a picture is ever left unfilled, and a name no
-# document text produces.
-PICTURE_TOKEN = "<!-- any2md-picture -->"
+# Written in place of each picture, carrying the picture's self_ref
+# ("#/pictures/3"), so each token is filled with its own picture's
+# Markdown. A comment, so the Markdown stays valid if a token is ever
+# left unfilled, and a name no document text produces.
+_TOKEN_PREFIX = "<!-- any2md-picture "
+_TOKEN_RE = re.compile(r"<!-- any2md-picture (#/[A-Za-z0-9_/]+) -->")
+
+
+def picture_token(ref: str) -> str:
+    """The token that stands for the picture whose self_ref is ``ref``."""
+    return f"{_TOKEN_PREFIX}{ref} -->"
+
+
+def has_picture_token(md: str) -> bool:
+    return _TOKEN_RE.search(md) is not None
+
 
 _P = "http://schemas.openxmlformats.org/presentationml/2006/main"
 _A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -616,12 +628,12 @@ def prepare_pictures(
     fmt: str,
     alt_texts: AltTexts,
     writer: ImageWriter | None,
-) -> dict[int, str]:
-    """Return the Markdown that stands in for each picture, keyed by ``id``.
+) -> dict[str, str]:
+    """Return the Markdown that stands in for each picture, keyed by self_ref.
 
     With a ``writer`` (``--save-images``) each picture is saved through
     it as ``imgN.png``, numbered in document order, and linked. The
-    caller runs ``writer.commit()`` once the document is done. Captions
+    caller runs ``writer.commit(markdown)`` once the document is done. Captions
     move into the figure text, and each
     picture's caption list is cleared so Docling does not write the
     caption a second time as a plain paragraph.
@@ -632,7 +644,7 @@ def prepare_pictures(
     body_items = [item for item, _level in doc.iterate_items()]
     following = {id(a): b for a, b in zip(body_items, body_items[1:])}
     word = _word_pictures(doc, alt_texts)
-    figures: dict[int, str] = {}
+    figures: dict[str, str] = {}
     number = 0
     for item in body_items:
         if not is_picture(item):
@@ -655,31 +667,72 @@ def prepare_pictures(
             number += 1
             link = _save_picture(doc, item, writer, number)
         if text or link:
-            figures[id(item)] = f"![{alt_markdown(text)}]({link or NO_IMAGE_LINK})"
+            figures[item.self_ref] = f"![{alt_markdown(text)}]({link or NO_IMAGE_LINK})"
         else:
-            figures[id(item)] = ""
+            figures[item.self_ref] = ""
     return figures
 
 
-_TOKEN_RE = re.compile(re.escape(PICTURE_TOKEN))
+def fill_pictures(md: str, figures: dict[str, str]) -> str:
+    """Replace each picture token in ``md`` with its own picture's Markdown.
 
-
-def fill_pictures(
-    doc: Any, md: str, figures: dict[int, str], page_no: int | None = None
-) -> str:
-    """Replace each picture token in ``md`` with that picture's Markdown.
-
-    Docling writes the tokens in the order ``iterate_items`` yields the
-    pictures, for the whole document or for one page, so the two line
-    up one to one. A token left over (which that order rules out) is
-    removed rather than leaking into the output.
+    Each token names its picture's self_ref, so a picture that Docling
+    leaves out of the Markdown (or writes twice) cannot shift any other
+    picture's figure line onto the wrong place. A token for a picture
+    with no entry is removed.
     """
-    if PICTURE_TOKEN not in md:
-        return md
-    pictures = [
-        figures.get(id(item), "")
-        for item, _level in doc.iterate_items(page_no=page_no)
-        if is_picture(item)
-    ]
-    queue = iter(pictures)
-    return _TOKEN_RE.sub(lambda _m: next(queue, ""), md)
+    return _TOKEN_RE.sub(lambda m: figures.get(m.group(1), ""), md)
+
+
+def export_markdown(
+    doc: Any, *, labels: set[Any] | None = None, page_no: int | None = None
+) -> str:
+    """Docling's Markdown for ``doc``, with each picture as its token.
+
+    The parameters match ``DoclingDocument.export_to_markdown``'s defaults,
+    with one change: a picture serializer that writes the picture's token
+    instead of the shared ``<!-- image -->`` placeholder. A document that
+    is not a DoclingDocument (a stand-in in the unit tests) exports
+    itself and writes the tokens on its own.
+    """
+    try:
+        from docling_core.transforms.serializer.markdown import (
+            MarkdownDocSerializer,
+            MarkdownParams,
+        )
+        from docling_core.types.doc.document import (
+            DOCUMENT_TOKENS_EXPORT_LABELS,
+            DoclingDocument,
+        )
+    except ImportError:
+        DoclingDocument = None  # noqa: N806 -- mirrors the class name
+    if DoclingDocument is None or not isinstance(doc, DoclingDocument):
+        kwargs = {"labels": labels, "page_no": page_no}
+        return doc.export_to_markdown(
+            **{k: v for k, v in kwargs.items() if v is not None}
+        )
+    serializer = MarkdownDocSerializer(
+        doc=doc,
+        picture_serializer=_token_picture_serializer(),
+        params=MarkdownParams(
+            labels=labels if labels is not None else DOCUMENT_TOKENS_EXPORT_LABELS,
+            pages={page_no} if page_no is not None else None,
+        ),
+    )
+    return serializer.serialize().text
+
+
+def _token_picture_serializer() -> Any:
+    """A Markdown picture serializer that writes each picture's token."""
+    from docling_core.transforms.serializer.common import create_ser_result
+    from docling_core.transforms.serializer.markdown import MarkdownPictureSerializer
+
+    class _TokenPictureSerializer(MarkdownPictureSerializer):
+        def _serialize_image_part(
+            self, item, doc, image_mode, image_placeholder, **kwargs
+        ):
+            return create_ser_result(
+                text=picture_token(item.self_ref), span_source=item
+            )
+
+    return _TokenPictureSerializer()

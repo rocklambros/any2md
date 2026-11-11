@@ -206,7 +206,7 @@ def _extract_via_docling(
     # links to a picture becomes its figure line, and --save-images
     # writes images/<stem>/imgN.png and links it. A PDF has no alt text.
     from any2md.converters._office_pictures import (
-        PICTURE_TOKEN,
+        export_markdown,
         AltTexts,
         fill_pictures,
         prepare_pictures,
@@ -220,18 +220,17 @@ def _extract_via_docling(
     )
     try:
         with capture if capture is not None else nullcontext():
-            figures: dict[int, str] = {}
+            figures: dict[str, str] = {}
             if getattr(doc, "pictures", None):
                 figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
-            md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
-            md = fill_pictures(doc, md, figures)
+            md = fill_pictures(export_markdown(doc), figures)
     except Exception:
         # The caller falls back to pymupdf4llm, which links no images.
         if writer is not None:
             writer.discard()
         raise
     if writer is not None:
-        writer.commit()
+        writer.commit(md)
     return md, "docling"
 
 

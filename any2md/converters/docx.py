@@ -30,7 +30,7 @@ from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim f
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.converters._office_pictures import (
-    PICTURE_TOKEN,
+    export_markdown,
     alt_markdown,
     fill_pictures,
     prepare_pictures,
@@ -205,21 +205,20 @@ def _extract_via_docling(
             writer = ImageWriter(output_dir, src.name, overwrite=force)
     try:
         with capture if capture is not None else nullcontext():
-            figures: dict[int, str] = {}
+            figures: dict[str, str] = {}
             if getattr(doc, "pictures", None):
                 alt_texts = read_alt_texts(src, "docx")
                 if alt_texts.warning and capture is not None:
                     capture.note(alt_texts.warning)
                 figures = prepare_pictures(doc, "docx", alt_texts, writer)
-            md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
-            md = fill_pictures(doc, md, figures)
+            md = fill_pictures(export_markdown(doc), figures)
     except Exception:
         # The caller falls back to mammoth, which saves its own images.
         if writer is not None:
             writer.discard()
         raise
     if writer is not None:
-        writer.commit()
+        writer.commit(md)
     return md, "docling", messages
 
 
@@ -422,7 +421,7 @@ def _extract_via_mammoth(
             writer.discard()
         raise
     if writer is not None:
-        writer.commit()
+        writer.commit(md)
     return md, "mammoth+markdownify"
 
 

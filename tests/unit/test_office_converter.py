@@ -20,6 +20,7 @@ import any2md.converters.office as office
 from any2md._docling import INSTALL_CMD
 from any2md._safe_open import SourceFile
 from any2md.converters import SUPPORTED_EXTENSIONS, convert_file
+from any2md.converters._office_pictures import picture_token
 from any2md.pipeline import PipelineOptions
 from tests._office_fixtures import (
     Picture,
@@ -63,7 +64,9 @@ class _FakeImage:
         fp.write(b"PNG:" + format.encode() + self._tag)
 
 
-def _picture(caption="", description="", box=None, image=None, sheet=None):
+def _picture(
+    caption="", description="", box=None, image=None, sheet=None, no_token=False
+):
     """A picture item with the fields ``_office_pictures`` reads."""
     item = SimpleNamespace(
         label=_label("picture"),
@@ -76,6 +79,7 @@ def _picture(caption="", description="", box=None, image=None, sheet=None):
         parent=SimpleNamespace(resolve=lambda doc: SimpleNamespace(name=sheet)),
         prov=[],
         box=box,
+        no_token=no_token,
     )
     return item
 
@@ -113,6 +117,8 @@ class _FakeDoc:
                         else _BBOX
                     )
                     spec.prov = [SimpleNamespace(page_no=n, bbox=bbox)]
+                if not getattr(spec, "self_ref", None):
+                    spec.self_ref = f"#/items/{len(self._items)}"
                 self._items.append(spec)
         self._items += [
             SimpleNamespace(label=_label("paragraph"), text="", prov=[])
@@ -135,7 +141,11 @@ class _FakeDoc:
         if label == "section_header":
             return f"## {item.text}"
         if label == "picture":
-            return kwargs.get("image_placeholder", "<!-- image -->")
+            # What the token-writing picture serializer writes, unless the
+            # picture is one Docling leaves out of the Markdown.
+            return (
+                "" if getattr(item, "no_token", False) else picture_token(item.self_ref)
+            )
         return item.text
 
     def export_to_markdown(self, **kwargs):
@@ -549,6 +559,30 @@ def test_picture_only_slide_keeps_its_section(monkeypatch, tmp_path):
     # without text, so its section stays to show the slide was there.
     assert headings == ["# deck", "## Intro", "## Slide 2", "## Slide 4"]
     assert "## Slide 4\n\n*Figure: Org chart*" in body
+
+
+def test_a_picture_missing_from_the_markdown_shifts_no_other_figure(
+    monkeypatch, tmp_path
+):
+    """Each token carries its picture's ref. When Docling writes no token
+    for one picture, the next picture still gets its own figure and file."""
+    doc = _FakeDoc(
+        {
+            1: [
+                _picture(caption="Skipped", image=_FakeImage(b"one"), no_token=True),
+                _picture(caption="Shown", image=_FakeImage(b"two")),
+            ]
+        }
+    )
+
+    out, body = _convert_with(monkeypatch, tmp_path, doc, save_images=True)
+
+    assert "*Figure: Shown*\n\n![Shown](images/deck/img2.png)" in body
+    assert "Skipped" not in body
+    folder = out / "images" / "deck"
+    assert (folder / "img2.png").read_bytes() == b"PNG:PNGtwo"
+    # Nothing is saved that the Markdown does not link.
+    assert sorted(p.name for p in folder.iterdir()) == ["img2.png"]
 
 
 def test_figure_text_brackets_are_escaped(monkeypatch, tmp_path):

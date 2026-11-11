@@ -204,6 +204,33 @@ def test_identical_pictures_each_get_a_saved_and_linked_file(tmp_path):
     assert [m.group(2) for m in _IMG_LINK_RE.finditer(two)] == ["images/deck/img3.png"]
 
 
+def test_token_export_matches_doclings_own_markdown(tmp_path):
+    """export_markdown keeps every export_to_markdown default and changes
+    only the picture placeholder, so the rest of the Markdown is Docling's."""
+    import re
+
+    from any2md._docling_cache import get_office_converter
+    from any2md.converters._office_pictures import export_markdown
+
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(
+                title=["Cover"], pictures=[Picture(alt="Logo")], body="Intro_text <b>."
+            ),
+            Slide(title=["Two"], body="Body."),
+        ],
+    )
+    doc = get_office_converter("pptx").convert(deck).document
+
+    ours = export_markdown(doc)
+    tokens = re.findall(r"<!-- any2md-picture (#/[^ ]+) -->", ours)
+    assert tokens == [p.self_ref for p in doc.pictures]
+    assert re.sub(r"<!-- any2md-picture #/[^ ]+ -->", "<!-- image -->", ours) == (
+        doc.export_to_markdown()
+    )
+
+
 def test_xlsx_sheets_render_as_tables_under_headings(tmp_path):
     book = build_xlsx(
         tmp_path / "budget.xlsx",

@@ -33,8 +33,9 @@ from any2md._ooxml_guard import ArchiveRejected, check_ooxml_archive
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.converters._office_pictures import (
-    PICTURE_TOKEN,
+    export_markdown,
     fill_pictures,
+    has_picture_token,
     prepare_pictures,
     read_alt_texts,
 )
@@ -102,13 +103,13 @@ def _slide_title(doc: Any, page_no: int, title_labels: set[Any]) -> str:
     Markdown escaping, and joins a title of several paragraphs into one
     heading line.
     """
-    md = doc.export_to_markdown(page_no=page_no, labels=title_labels)
+    md = export_markdown(doc, page_no=page_no, labels=title_labels)
     parts = (line.lstrip("#").strip() for line in md.splitlines())
     return _one_line(" ".join(p for p in parts if p))
 
 
 def _page_sections(
-    doc: Any, fmt: OfficeFormat, figures: dict[int, str]
+    doc: Any, fmt: OfficeFormat, figures: dict[str, str]
 ) -> list[tuple[str, str, bool]] | None:
     """Split a converted deck or workbook into sections, one per page.
 
@@ -146,10 +147,7 @@ def _page_sections(
     sections: list[tuple[str, str, bool]] = []
     for i, page_no in enumerate(pages):
         title = ""
-        export: dict[str, Any] = {
-            "page_no": page_no,
-            "image_placeholder": PICTURE_TOKEN,
-        }
+        export: dict[str, Any] = {"page_no": page_no}
         try:
             if fmt == "xlsx":
                 heading = _one_line(names[i]) or f"Sheet {i + 1}"
@@ -161,12 +159,12 @@ def _page_sections(
                 # a title item Docling could not give text loses nothing.
                 if title:
                     export["labels"] = body_labels
-            md = doc.export_to_markdown(**export)
+            md = export_markdown(doc, **export)
         except TypeError:
             # docling-core releases without page filtering.
             return None
-        has_picture = PICTURE_TOKEN in md
-        md = fill_pictures(doc, md, figures, page_no=page_no).strip()
+        has_picture = has_picture_token(md)
+        md = fill_pictures(md, figures).strip()
         sections.append((heading, md, bool(title) or has_picture))
     return sections
 
@@ -185,15 +183,14 @@ def _demote_headings(md: str, by: int) -> str:
 
 
 def _render_markdown(
-    doc: Any, fmt: OfficeFormat, title: str, figures: dict[int, str] | None = None
+    doc: Any, fmt: OfficeFormat, title: str, figures: dict[str, str] | None = None
 ) -> str:
     """Render the deck or workbook. ``figures`` comes from ``prepare_pictures``."""
     figures = figures or {}
     parts = [f"# {title}"]
     sections = _page_sections(doc, fmt, figures)
     if sections is None:
-        md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
-        parts.append(fill_pictures(doc, md, figures))
+        parts.append(fill_pictures(export_markdown(doc), figures))
     else:
         for heading, md, keep_empty in sections:
             # Blank slides and empty or hidden sheets add nothing to read.
@@ -358,7 +355,7 @@ def convert_office(
         _logging.fail(f"{src.name} -- {e}")
         return False
     if writer is not None:
-        writer.commit()
+        writer.commit(full)
 
     if not is_quiet():
         wc = meta.word_count or 0
