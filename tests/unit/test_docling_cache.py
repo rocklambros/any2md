@@ -17,61 +17,54 @@ import threading
 
 import pytest
 
-from any2md._docling_cache import (
-    CacheStats,
-    ConverterCache,
-    _Key,
-    _cache_disabled,
-    _canonicalize,
-    _hash_opts,
-)
+import any2md._docling_cache as cm
 
 
 def test_canonicalize_passes_through_scalars():
-    assert _canonicalize(None) is None
-    assert _canonicalize(42) == 42
-    assert _canonicalize(3.14) == 3.14
-    assert _canonicalize("hello") == "hello"
-    assert _canonicalize(True) is True
-    assert _canonicalize(False) is False
+    assert cm._canonicalize(None) is None
+    assert cm._canonicalize(42) == 42
+    assert cm._canonicalize(3.14) == 3.14
+    assert cm._canonicalize("hello") == "hello"
+    assert cm._canonicalize(True) is True
+    assert cm._canonicalize(False) is False
 
 
 def test_canonicalize_sorts_dict_keys():
-    out = _canonicalize({"b": 1, "a": 2, "c": 3})
+    out = cm._canonicalize({"b": 1, "a": 2, "c": 3})
     assert list(out.keys()) == ["a", "b", "c"]
 
 
 def test_canonicalize_sorts_lists_of_scalars():
     # Same elements in different orders must canonicalize identically.
-    a = _canonicalize(["b", "a", "c"])
-    b = _canonicalize(["c", "b", "a"])
+    a = cm._canonicalize(["b", "a", "c"])
+    b = cm._canonicalize(["c", "b", "a"])
     assert a == b
     assert json.dumps(a) == json.dumps(b)
 
 
 def test_canonicalize_sorts_nested_lists_in_dicts():
-    a = _canonicalize({"k": ["b", "a"]})
-    b = _canonicalize({"k": ["a", "b"]})
+    a = cm._canonicalize({"k": ["b", "a"]})
+    b = cm._canonicalize({"k": ["a", "b"]})
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def test_canonicalize_handles_heterogeneous_lists():
     # Mix of dicts, strings, numbers — must produce a deterministic
     # ordering via the JSON-string sort key.
-    a = _canonicalize([{"x": 1}, "hello", 42])
-    b = _canonicalize([42, {"x": 1}, "hello"])
+    a = cm._canonicalize([{"x": 1}, "hello", 42])
+    b = cm._canonicalize([42, {"x": 1}, "hello"])
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def test_canonicalize_recurses_into_nested_lists_of_dicts():
-    a = _canonicalize([{"b": 2}, {"a": 1}])
-    b = _canonicalize([{"a": 1}, {"b": 2}])
+    a = cm._canonicalize([{"b": 2}, {"a": 1}])
+    b = cm._canonicalize([{"a": 1}, {"b": 2}])
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def test_key_is_frozen_and_hashable():
-    k1 = _Key(fmt="pdf", digest=b"\x00" * 32)
-    k2 = _Key(fmt="pdf", digest=b"\x00" * 32)
+    k1 = cm._Key(fmt="pdf", digest=b"\x00" * 32)
+    k2 = cm._Key(fmt="pdf", digest=b"\x00" * 32)
     assert k1 == k2
     assert hash(k1) == hash(k2)
     # Frozen — assignment must raise AttributeError (frozen dataclass behavior)
@@ -80,7 +73,7 @@ def test_key_is_frozen_and_hashable():
 
 
 def test_cache_stats_default_zero():
-    s = CacheStats()
+    s = cm.CacheStats()
     assert s.model_loads == 0
     assert s.cache_hits == 0
     assert s.cache_evictions == 0
@@ -89,7 +82,7 @@ def test_cache_stats_default_zero():
 
 
 def test_hash_opts_none_returns_zero_bytes():
-    assert _hash_opts(None) == b"\x00" * 32
+    assert cm._hash_opts(None) == b"\x00" * 32
 
 
 def test_hash_opts_stable_for_same_input():
@@ -100,8 +93,8 @@ def test_hash_opts_stable_for_same_input():
         a: int = 1
         b: str = "x"
 
-    h1 = _hash_opts(M())
-    h2 = _hash_opts(M())
+    h1 = cm._hash_opts(M())
+    h2 = cm._hash_opts(M())
     assert h1 == h2
     assert len(h1) == 32  # sha256 raw bytes
 
@@ -112,8 +105,8 @@ def test_hash_opts_different_for_different_input():
     class M(pydantic.BaseModel):
         a: int = 1
 
-    h1 = _hash_opts(M(a=1))
-    h2 = _hash_opts(M(a=2))
+    h1 = cm._hash_opts(M(a=1))
+    h2 = cm._hash_opts(M(a=2))
     assert h1 != h2
 
 
@@ -159,16 +152,16 @@ def test_hash_opts_set_field_stable_across_processes():
 
 def test_cache_disabled_env_var(monkeypatch):
     monkeypatch.delenv("ANY2MD_DOCLING_CACHE", raising=False)
-    assert _cache_disabled() is False
+    assert cm._cache_disabled() is False
 
     for value in ("0", "off", "OFF", "FALSE", "false"):
         monkeypatch.setenv("ANY2MD_DOCLING_CACHE", value)
-        assert _cache_disabled() is True
+        assert cm._cache_disabled() is True
 
     # Empty string and any non-disable token must NOT disable
     for value in ("1", "on", "true", "yes", "", "no", "n", "disabled"):
         monkeypatch.setenv("ANY2MD_DOCLING_CACHE", value)
-        assert _cache_disabled() is False
+        assert cm._cache_disabled() is False
 
 
 # ---------------------------------------------------------------------------
@@ -177,26 +170,26 @@ def test_cache_disabled_env_var(monkeypatch):
 
 
 def test_converter_cache_init_empty():
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     assert len(cache._store) == 0
     assert cache.stats().model_loads == 0
 
 
 def test_converter_cache_init_rejects_zero_maxsize():
     with pytest.raises(AssertionError, match="maxsize"):
-        ConverterCache(maxsize=0)
+        cm.ConverterCache(maxsize=0)
 
 
 def test_converter_cache_clear():
-    cache = ConverterCache()
-    cache._store[_Key(fmt="pdf", digest=b"\x00" * 32)] = object()
+    cache = cm.ConverterCache()
+    cache._store[cm._Key(fmt="pdf", digest=b"\x00" * 32)] = object()
     assert len(cache._store) == 1
     cache.clear()
     assert len(cache._store) == 0
 
 
 def test_converter_cache_stats_returns_snapshot():
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     cache._stats.model_loads = 7
     snap = cache.stats()
     assert snap.model_loads == 7
@@ -206,11 +199,11 @@ def test_converter_cache_stats_returns_snapshot():
 
 
 def test_after_fork_resets_all_state():
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     cache._stats.model_loads = 5
     cache._stats.cache_hits = 3
     cache._first_load_announced = True
-    cache._store[_Key(fmt="pdf", digest=b"\x00" * 32)] = object()
+    cache._store[cm._Key(fmt="pdf", digest=b"\x00" * 32)] = object()
 
     cache._after_fork()
 
@@ -224,7 +217,7 @@ def test_register_at_fork_optional_on_windows(monkeypatch):
     """ConverterCache must construct cleanly when register_at_fork is
     unavailable (Windows). Spec L195: hasattr-guard."""
     monkeypatch.delattr(os, "register_at_fork", raising=False)
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     assert cache is not None
     assert len(cache._store) == 0
 
@@ -235,7 +228,7 @@ def test_register_at_fork_optional_on_windows(monkeypatch):
 
 
 def test_get_or_build_caches_on_first_call_and_returns_same_object():
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     sentinel = object()
     builds = []
 
@@ -255,7 +248,7 @@ def test_get_or_build_caches_on_first_call_and_returns_same_object():
 
 
 def test_get_or_build_distinct_keys_distinct_builds():
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     sa, sb = object(), object()
 
     a = cache.get_or_build("pdf", None, lambda: sa)
@@ -268,7 +261,7 @@ def test_get_or_build_distinct_keys_distinct_builds():
 
 def test_env_var_disables_cache(monkeypatch):
     monkeypatch.setenv("ANY2MD_DOCLING_CACHE", "0")
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     builds = []
 
     def build():
@@ -285,7 +278,7 @@ def test_env_var_disables_cache(monkeypatch):
 
 
 def test_build_raises_rolls_back_announce_flag():
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
 
     def failing_build():
         raise RuntimeError("simulated HF 503")
@@ -300,14 +293,14 @@ def test_build_raises_rolls_back_announce_flag():
 
 
 def test_announce_returns_true_only_on_first_call():
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     assert cache._announce_first_load_if_needed() is True
     assert cache._announce_first_load_if_needed() is False
     assert cache._announce_first_load_if_needed() is False
 
 
 def test_maxsize_enforcement_evicts_lru():
-    cache = ConverterCache(maxsize=2)
+    cache = cm.ConverterCache(maxsize=2)
     sa, sb, sc = object(), object(), object()
 
     cache.get_or_build("pdf", None, lambda: sa)
@@ -324,7 +317,7 @@ def test_maxsize_enforcement_evicts_lru():
 
 
 def test_two_thread_same_key_race_returns_same_object():
-    cache = ConverterCache(maxsize=2)
+    cache = cm.ConverterCache(maxsize=2)
     barrier = threading.Barrier(8)
     results = []
     results_lock = threading.Lock()
@@ -351,7 +344,7 @@ def test_two_thread_same_key_race_returns_same_object():
 
 
 def test_maxsize_1_evicts_old_keeps_new():
-    cache = ConverterCache(maxsize=1)
+    cache = cm.ConverterCache(maxsize=1)
     sa, sb = object(), object()
 
     a = cache.get_or_build("pdf", None, lambda: sa)
@@ -371,8 +364,8 @@ def test_maxsize_1_evicts_old_keeps_new():
 
 
 def test_evict_returns_true_when_present_false_when_absent():
-    cache = ConverterCache()
-    cache.get_or_build("pdf", None, lambda: object())
+    cache = cm.ConverterCache()
+    cache.get_or_build("pdf", None, object)
 
     assert cache.evict("pdf", None) is True
     assert cache.evict("pdf", None) is False  # already evicted
@@ -380,8 +373,8 @@ def test_evict_returns_true_when_present_false_when_absent():
 
 
 def test_evict_and_record_failure_atomic():
-    cache = ConverterCache()
-    cache.get_or_build("pdf", None, lambda: object())
+    cache = cm.ConverterCache()
+    cache.get_or_build("pdf", None, object)
     assert cache.stats().model_loads == 1
     assert cache.stats().convert_failures == 0
 
@@ -394,7 +387,7 @@ def test_evict_and_record_failure_atomic():
 def test_evict_and_record_failure_increments_counter_even_when_absent():
     """Per spec: 'we observed a convert failure even if the slot
     was already evicted by a concurrent caller.'"""
-    cache = ConverterCache()
+    cache = cm.ConverterCache()
     cache.evict_and_record_failure("pdf", None)
     # No slot existed, but failure is recorded
     assert cache.stats().convert_failures == 1
@@ -407,8 +400,6 @@ def test_evict_and_record_failure_increments_counter_even_when_absent():
 
 
 def test_get_instance_returns_singleton(monkeypatch):
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     a = cm._get_instance()
@@ -420,8 +411,6 @@ def test_lazy_init_thread_safety(monkeypatch):
     """16 threads racing the first _get_instance() must observe
     exactly one ConverterCache. Without _INSTANCE_LOCK, two threads
     could each construct a cache, leaking a fork callback."""
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     instances = []
@@ -450,12 +439,10 @@ def test_lazy_init_thread_safety(monkeypatch):
 
 
 def test_release_models_clears_cache(monkeypatch):
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     inst = cm._get_instance()
-    inst.get_or_build("pdf", None, lambda: object())
+    inst.get_or_build("pdf", None, object)
     assert len(inst._store) == 1
 
     cm.release_models()
@@ -463,42 +450,43 @@ def test_release_models_clears_cache(monkeypatch):
 
 
 def test_docling_session_releases_on_normal_exit(monkeypatch):
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     with cm.docling_session():
         inst = cm._get_instance()
-        inst.get_or_build("pdf", None, lambda: object())
+        inst.get_or_build("pdf", None, object)
         assert len(inst._store) == 1
 
     assert len(inst._store) == 0
 
 
 def test_docling_session_releases_on_exception(monkeypatch):
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
-    inst_holder = []
-
-    with pytest.raises(RuntimeError, match="body raises"):
+    # try/except/else instead of pytest.raises keeps the post-exit checks
+    # on a path static analysis can see, and the else branch fails the
+    # test if docling_session ever swallows the body's exception.
+    try:
         with cm.docling_session():
             inst = cm._get_instance()
-            inst.get_or_build("pdf", None, lambda: object())
-            inst_holder.append(inst)
+            inst.get_or_build("pdf", None, object)
+            # Without this, an empty store after exit would pass even if
+            # get_or_build never cached anything.
+            assert len(inst._store) == 1
             raise RuntimeError("body raises")
+    except RuntimeError as exc:
+        assert str(exc) == "body raises"
+    else:
+        pytest.fail("docling_session swallowed the body's exception")
 
-    assert len(inst_holder[0]._store) == 0
+    assert len(inst._store) == 0
 
 
 def test_module_level_stats_returns_snapshot(monkeypatch):
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     inst = cm._get_instance()
-    inst.get_or_build("pdf", None, lambda: object())
+    inst.get_or_build("pdf", None, object)
 
     s = cm.stats()
     assert s.model_loads == 1
@@ -511,8 +499,6 @@ def test_module_level_stats_returns_snapshot(monkeypatch):
 
 def test_get_pdf_converter_uses_cache(monkeypatch):
     """Mock out Docling so we don't need it installed for unit tests."""
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     builds = []
@@ -568,8 +554,6 @@ def test_get_pdf_converter_uses_cache_without_pydantic(monkeypatch):
     Uses a stub class with a `model_dump` method so the test runs
     in CI's [dev] tier where pydantic is not installed.
     """
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     builds = []
@@ -622,8 +606,6 @@ def test_get_pdf_converter_uses_cache_without_pydantic(monkeypatch):
 
 
 def test_get_docx_converter_uses_cache(monkeypatch):
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
     builds = []
@@ -647,8 +629,6 @@ def test_get_docx_converter_uses_cache(monkeypatch):
 def test_evict_on_convert_failure_short_circuits_when_disabled(monkeypatch):
     """Per spec: when ANY2MD_DOCLING_CACHE=0, the helper must NOT
     lazily construct a ConverterCache solely to bump a counter."""
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
     monkeypatch.setenv("ANY2MD_DOCLING_CACHE", "0")
 
@@ -660,8 +640,6 @@ def test_evict_on_convert_failure_short_circuits_when_disabled(monkeypatch):
 def test_evict_on_convert_failure_swallows_internal_exceptions(monkeypatch):
     """Helper is called during exception handling; it MUST NOT raise
     and mask the original exception."""
-    import any2md._docling_cache as cm
-
     monkeypatch.setattr(cm, "_INSTANCE", None)
     monkeypatch.delenv("ANY2MD_DOCLING_CACHE", raising=False)
 

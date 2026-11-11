@@ -140,12 +140,6 @@ _ACADEMIC_BYLINE_RE = re.compile(
 # comma rather than rejected, and hostile input stays bounded.
 _MAX_AUTHOR_LINE = 4096
 
-# arxiv ID pattern in filename
-_ARXIV_FILENAME_RE = re.compile(
-    r"(?<!\d)(\d{4}\.\d{4,5})(?:v\d+)?(?=\.pdf$|\.|$)",
-    re.IGNORECASE,
-)
-
 
 class OrgFilterResult(NamedTuple):
     organization: str | None

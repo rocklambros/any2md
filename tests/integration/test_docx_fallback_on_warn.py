@@ -17,10 +17,6 @@ import yaml
 
 import any2md.converters.docx as docx_mod
 from any2md.converters import collected_warnings, reset_warnings
-from any2md.converters.docx import (
-    _DoclingMswordWarningCapture,
-    convert_docx,
-)
 from any2md.pipeline import PipelineOptions
 
 
@@ -84,7 +80,7 @@ def _build_listy_docx(out_path: Path) -> None:
 
 
 def test_capture_collects_warning_records():
-    cap = _DoclingMswordWarningCapture()
+    cap = docx_mod._DoclingMswordWarningCapture()
     log = logging.getLogger("docling.backend.msword_backend")
     with cap:
         log.warning("Parent element of the list item is not a ListGroup. Ignored.")
@@ -94,7 +90,7 @@ def test_capture_collects_warning_records():
 
 
 def test_capture_handler_detached_after_exit():
-    cap = _DoclingMswordWarningCapture()
+    cap = docx_mod._DoclingMswordWarningCapture()
     log = logging.getLogger("docling.backend.msword_backend")
     before = list(log.handlers)
     with cap:
@@ -104,7 +100,7 @@ def test_capture_handler_detached_after_exit():
 
 def test_capture_records_from_child_loggers():
     """Child-logger records propagate up; capture must see them."""
-    cap = _DoclingMswordWarningCapture()
+    cap = docx_mod._DoclingMswordWarningCapture()
     child = logging.getLogger("docling.backend.msword_backend.sub")
     with cap:
         child.warning("nested warning")
@@ -146,7 +142,9 @@ def test_fallback_fires_by_default(tmp_path, tmp_output_dir, monkeypatch, capsys
     _build_listy_docx(docx)
 
     reset_warnings()
-    ok = convert_docx(docx, tmp_output_dir, options=PipelineOptions(), force=True)
+    ok = docx_mod.convert_docx(
+        docx, tmp_output_dir, options=PipelineOptions(), force=True
+    )
     assert ok
 
     out = next(tmp_output_dir.glob("*.md")).read_text(encoding="utf-8")
@@ -187,7 +185,7 @@ def test_fallback_disabled_keeps_docling(tmp_path, tmp_output_dir, monkeypatch):
 
     reset_warnings()
     options = PipelineOptions(docx_fallback_on_warn=False)
-    ok = convert_docx(docx, tmp_output_dir, options=options, force=True)
+    ok = docx_mod.convert_docx(docx, tmp_output_dir, options=options, force=True)
     assert ok
 
     out = next(tmp_output_dir.glob("*.md")).read_text(encoding="utf-8")
@@ -211,7 +209,9 @@ def test_no_warnings_no_fallback(tmp_path, tmp_output_dir, monkeypatch):
     _build_listy_docx(docx)
 
     reset_warnings()
-    ok = convert_docx(docx, tmp_output_dir, options=PipelineOptions(), force=True)
+    ok = docx_mod.convert_docx(
+        docx, tmp_output_dir, options=PipelineOptions(), force=True
+    )
     assert ok
 
     out = next(tmp_output_dir.glob("*.md")).read_text(encoding="utf-8")
@@ -246,7 +246,7 @@ def test_explicit_docling_backend_still_falls_back(
 
     options = PipelineOptions(backend="docling")
     reset_warnings()
-    ok = convert_docx(docx, tmp_output_dir, options=options, force=True)
+    ok = docx_mod.convert_docx(docx, tmp_output_dir, options=options, force=True)
     assert ok
     out = next(tmp_output_dir.glob("*.md")).read_text(encoding="utf-8")
     end = out.index("\n---\n", 4)
