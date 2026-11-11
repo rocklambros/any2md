@@ -238,3 +238,213 @@ def test_office_fails_oversized_workbook_cleanly(tmp_path, monkeypatch, capsys):
     assert err.startswith("  FAIL: big.xlsx")
     assert "workbook XML part" in err
     assert "\x1b" not in err and err.count("\n") == 1
+
+
+# ---- binary parts declared in [Content_Types].xml ------------------------
+
+_CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_RELS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_SHEET_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+
+
+def _content_types(defaults=(), overrides=()):
+    body = "".join(
+        f'<Default Extension="{ext}" ContentType="{ct}"/>' for ext, ct in defaults
+    ) + "".join(f'<Override PartName="{p}" ContentType="{ct}"/>' for p, ct in overrides)
+    return f'<Types xmlns="{_CT_NS}">{body}</Types>'.encode()
+
+
+def _rels_xml(*rels):
+    body = "".join(
+        f'<Relationship Id="rId{i}" Type="{_REL}/{kind}" Target="{target}"/>'
+        for i, (kind, target) in enumerate(rels, start=1)
+    )
+    return f'<Relationships xmlns="{_RELS_NS}">{body}</Relationships>'.encode()
+
+
+def _book_with(
+    tmp_path, *, defaults=(), overrides=(), book_rels=(), drawing_rels=(), extra=None
+):
+    members = {
+        "[Content_Types].xml": _content_types(
+            (("xml", "application/xml"), *defaults), overrides
+        ),
+        "_rels/.rels": _rels_xml(("officeDocument", "xl/workbook.xml")),
+        "xl/workbook.xml": b"<workbook/>",
+        "xl/_rels/workbook.xml.rels": _rels_xml(*book_rels),
+        "xl/drawings/drawing1.xml": b"<wsDr/>",
+        "xl/drawings/_rels/drawing1.xml.rels": _rels_xml(*drawing_rels),
+        **(extra or {}),
+    }
+    return _zip_bytes(tmp_path, members)
+
+
+def _picture(size=50_000):
+    import os
+
+    return os.urandom(size)
+
+
+def test_xlsx_large_images_do_not_count_toward_the_workbook_caps(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_TOTAL", 20_000)
+    data = _book_with(
+        tmp_path,
+        defaults=(("png", "image/png"), ("jpeg", "image/jpeg")),
+        overrides=(
+            (
+                "/xl/embeddings/oleObject1.bin",
+                "application/vnd.openxmlformats-officedocument.oleObject",
+            ),
+        ),
+        book_rels=(("worksheet", "worksheets/sheet1.xml"),),
+        drawing_rels=(
+            ("image", "../media/image1.png"),
+            ("image", "../media/image2.jpeg"),
+        ),
+        extra={
+            "xl/worksheets/sheet1.xml": _sheet_xml(10),
+            "xl/media/image1.png": _picture(),
+            "xl/media/image2.jpeg": _picture(),
+            "xl/embeddings/oleObject1.bin": _picture(),
+        },
+    )
+    guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+@pytest.mark.parametrize(
+    "kind, target",
+    [
+        ("worksheet", "worksheets/sheet1.png"),
+        ("sharedStrings", "worksheets/sheet1.png"),
+        ("styles", "worksheets/sheet1.png"),
+    ],
+)
+def test_xlsx_part_parsed_as_xml_stays_capped_whatever_its_declared_type(
+    tmp_path, monkeypatch, kind, target
+):
+    """A sheet renamed .png and declared image/png is still read as a
+    worksheet through the workbook relationships, so it stays capped."""
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    data = _book_with(
+        tmp_path,
+        defaults=(("png", "image/png"),),
+        overrides=(("/xl/worksheets/sheet1.png", "image/png"),),
+        book_rels=((kind, target),),
+        extra={"xl/worksheets/sheet1.png": _sheet_xml(1000)},
+    )
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_workbook_declared_as_an_image_stays_capped(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    members = {
+        "[Content_Types].xml": _content_types(
+            overrides=(("/xl/book.png", "image/png"),)
+        ),
+        "_rels/.rels": _rels_xml(("officeDocument", "xl/book.png")),
+        "xl/book.png": _sheet_xml(1000),
+    }
+    data = _zip_bytes(tmp_path, members)
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_override_wins_over_an_image_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    data = _book_with(
+        tmp_path,
+        defaults=(("png", "image/png"),),
+        overrides=(("/xl/media/big.png", _SHEET_CT),),
+        extra={"xl/media/big.png": _picture()},
+    )
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+@pytest.mark.parametrize(
+    "defaults",
+    [
+        (),  # no type at all
+        (("png", "application/vnd.ms-excel.unknown"),),  # unknown type
+        (("png", "application/vnd.openxmlformats-officedocument.vmlDrawing"),),
+    ],
+)
+def test_xlsx_parts_without_a_binary_type_stay_capped(tmp_path, monkeypatch, defaults):
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    data = _book_with(
+        tmp_path, defaults=defaults, extra={"xl/media/big.png": _picture()}
+    )
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_without_content_types_caps_every_part(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    data = _zip_bytes(
+        tmp_path, {"xl/workbook.xml": b"<workbook/>", "xl/media/a.png": _picture()}
+    )
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_oversized_content_types_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_CONTENT_TYPES_BYTES", 1000)
+    data = _book_with(tmp_path, defaults=[(f"e{i}", "image/png") for i in range(100)])
+    with pytest.raises(guard.ArchiveRejected, match="Content_Types"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_unreadable_relationships_cap_every_part(tmp_path, monkeypatch):
+    """Without every relationship read, no part can be shown to be an
+    image only, so none is exempt."""
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    data = _book_with(
+        tmp_path,
+        defaults=(("png", "image/png"),),
+        extra={
+            "xl/media/a.png": _picture(),
+            "xl/worksheets/_rels/sheet1.xml.rels": b"<not xml",
+        },
+    )
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_relationship_budget_caps_every_part(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_PART", 10_000)
+    monkeypatch.setattr(guard, "MAX_RELS_TOTAL", 100)
+    data = _book_with(
+        tmp_path,
+        defaults=(("png", "image/png"),),
+        extra={"xl/media/a.png": _picture()},
+    )
+    with pytest.raises(guard.ArchiveRejected, match="workbook XML part"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_xlsx_images_still_count_toward_the_archive_ceiling(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "MAX_TOTAL_UNCOMPRESSED", 80_000)
+    data = _book_with(
+        tmp_path,
+        defaults=(("png", "image/png"),),
+        extra={"xl/media/a.png": _picture(), "xl/media/b.png": _picture()},
+    )
+    with pytest.raises(guard.ArchiveRejected, match="total uncompressed size"):
+        guard.check_ooxml_archive(SourceFile("a.xlsx", data=data), "xlsx")
+
+
+def test_real_workbook_with_pictures_passes_with_tight_xml_caps(tmp_path, monkeypatch):
+    from tests._office_fixtures import SheetPicture
+
+    book = build_xlsx(
+        tmp_path / "b.xlsx",
+        {"S": [["a"]]},
+        pictures={"S": [SheetPicture(alt="x"), SheetPicture(alt="y")]},
+    )
+    with zipfile.ZipFile(book) as z:
+        xml = sum(i.file_size for i in z.infolist() if "media/" not in i.filename)
+    monkeypatch.setattr(guard, "MAX_XLSX_XML_TOTAL", xml)
+    guard.check_ooxml_archive(SourceFile.from_path(book), "xlsx")
