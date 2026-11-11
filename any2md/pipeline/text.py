@@ -484,11 +484,26 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
     lines = text.split("\n")
     out: list[str] = []
     n = len(lines)
+    # Last non-blank source line before the current one. The v1.0.2 spec
+    # (section 5.5) drops a short line only when the text before it ended
+    # a sentence, since that is the shape of a fragment trafilatura cut
+    # from the start of a new paragraph. Without that check the stage
+    # dropped a plain-text title on line one and any short line after a
+    # heading, with no warning.
+    prev_text = ""
     for i, line in enumerate(lines):
         stripped = line.strip()
+        follows_sentence = bool(
+            prev_text
+            and not prev_text.startswith("#")
+            and _TERMINAL_PUNCT_RE.search(prev_text)
+        )
+        if stripped:
+            prev_text = stripped
         # Short incomplete sentence between blank lines
         if (
-            stripped
+            follows_sentence
+            and stripped
             and len(stripped) <= 25
             and not _TERMINAL_PUNCT_RE.search(stripped)
             and not _HEADING_OR_KNOWN_SHORT_RE.match(stripped)

@@ -33,3 +33,29 @@ def test_conservative_profile_is_noop():
     text = "Real paragraph.\n\n|\n\nfragment text\n\nAnother paragraph.\n"
     out = strip_web_fragments(text, PipelineOptions(profile="conservative"))
     assert out == text
+
+
+def test_keeps_short_first_line():
+    # No preceding paragraph, so the line cannot be a fragment trafilatura
+    # cut from the end of one.
+    text = "Title Line\n\nThe body paragraph.\n"
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == text
+
+
+def test_keeps_short_line_after_leading_blank_lines():
+    text = "\n\nTitle Line\n\nThe body paragraph.\n"
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == text
+
+
+def test_keeps_short_line_after_heading():
+    text = "# Report\n\nsection intro\n\nThe body paragraph.\n"
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == text
+
+
+def test_keeps_short_line_after_unterminated_paragraph():
+    text = "A paragraph with no period\n\nshort line\n\nThe body paragraph.\n"
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == text
