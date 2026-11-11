@@ -463,9 +463,10 @@ def test_docling_session_releases_on_normal_exit(monkeypatch):
 def test_docling_session_releases_on_exception(monkeypatch):
     monkeypatch.setattr(cm, "_INSTANCE", None)
 
-    # try/except/else instead of pytest.raises keeps the post-exit checks
-    # on a path static analysis can see, and the else branch fails the
-    # test if docling_session ever swallows the body's exception.
+    # A flag instead of pytest.raises or try/else keeps every statement on
+    # a path static analysis can see. It stays True only if
+    # docling_session swallows the body's exception, which must fail.
+    swallowed = True
     try:
         with cm.docling_session():
             inst = cm._get_instance()
@@ -475,10 +476,9 @@ def test_docling_session_releases_on_exception(monkeypatch):
             assert len(inst._store) == 1
             raise RuntimeError("body raises")
     except RuntimeError as exc:
+        swallowed = False
         assert str(exc) == "body raises"
-    else:
-        pytest.fail("docling_session swallowed the body's exception")
-
+    assert not swallowed, "docling_session swallowed the body's exception"
     assert len(inst._store) == 0
 
 
