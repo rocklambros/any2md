@@ -384,6 +384,20 @@ def _paragraph_style(paragraph: Any) -> str:
     return (style.get(_q(_W, "val")) or "") if style is not None else ""
 
 
+def _picture_stands_alone(paragraph: Any) -> bool:
+    """True when the paragraph holds no text besides its picture.
+
+    A Caption paragraph under a picture that sits in a line of text
+    describes that text, not the picture.
+    """
+    return not _paragraph_text(paragraph)
+
+
+def _is_table(element: Any) -> bool:
+    """A Caption paragraph right above a table is the table's caption."""
+    return element is not None and element.tag == _q(_W, "tbl")
+
+
 def word_picture_elements(paragraph: Any) -> list[Any]:
     """The picture elements in a paragraph: DrawingML drawings and VML images."""
     return [
@@ -427,11 +441,14 @@ def _docx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
         siblings = list(parent_of.get(id(paragraph), []))
         index = next(i for i, s in enumerate(siblings) if s is paragraph)
         following = siblings[index + 1] if index + 1 < len(siblings) else None
+        after = siblings[index + 2] if index + 2 < len(siblings) else None
         if (
             len(pictures) == 1
+            and _picture_stands_alone(paragraph)
             and following is not None
             and following.tag == _q(_W, "p")
             and _paragraph_style(following) in caption_ids
+            and not _is_table(after)
         ):
             caption = _paragraph_text(following)
         for el in pictures:

@@ -81,6 +81,35 @@ def test_failed_docling_lane_leaves_only_the_mammoth_images(tmp_path, monkeypatc
     assert (folder / "img1.png").read_bytes() == tiny_png()
 
 
+def test_docling_lane_keeps_text_and_table_captions_in_place(tmp_path):
+    from tests._office_fixtures import DocCaption, DocTable
+
+    doc = build_docx(
+        tmp_path / "caps.docx",
+        [
+            "A.",
+            DocPicture(
+                alt="Inline icon", text="Press the button", caption="Figure 1: Not it"
+            ),
+            DocPicture(alt="Logo"),
+            DocCaption("Table 1: Results"),
+            DocTable([["k", "v"], ["a", "1"]]),
+        ],
+    )
+    out = tmp_path / "out"
+
+    assert convert_docx(
+        doc, out, options=PipelineOptions(backend="docling"), force=True
+    )
+
+    body = _body(out / "caps.md")
+    assert "*Figure: Logo*" in body
+    assert "Figure 1: Not it" in body
+    assert "*Figure: Figure 1" not in body
+    assert "*Figure: Table 1" not in body
+    assert body.index("Table 1: Results") < body.index("| k")
+
+
 def test_docling_lane_save_images_writes_and_links(tmp_path):
     out, body = _convert(tmp_path, save_images=True)
 

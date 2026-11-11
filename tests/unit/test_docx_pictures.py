@@ -12,7 +12,13 @@ import any2md.converters.docx as docx_mod
 from any2md._safe_open import SourceFile
 from any2md.converters._office_pictures import WordPicture, read_alt_texts
 from any2md.pipeline import PipelineOptions
-from tests._office_fixtures import DocPicture, build_docx, tiny_png
+from tests._office_fixtures import (
+    DocCaption,
+    DocPicture,
+    DocTable,
+    build_docx,
+    tiny_png,
+)
 
 
 def test_reader_lists_word_pictures_in_document_order(tmp_path):
@@ -169,6 +175,39 @@ def test_mammoth_alt_text_brackets_are_escaped(tmp_path):
     _, body = _mammoth(tmp_path, [DocPicture(alt="Plan [draft] v2")])
 
     assert "*Figure: Plan \\[draft\\] v2*" in body
+
+
+_CAPTION_TRAPS = [
+    # The picture shares its paragraph with text, so the Caption below
+    # names the paragraph, not the picture.
+    DocPicture(alt="Inline icon", text="Press the button", caption="Figure 1: Not it"),
+    # A lone picture, then a Caption that sits right above a table: the
+    # caption belongs to the table.
+    DocPicture(alt="Logo"),
+    DocCaption("Table 1: Results"),
+    DocTable([["k", "v"], ["a", "1"]]),
+]
+
+
+def test_reader_takes_a_caption_only_under_a_picture_that_stands_alone(tmp_path):
+    doc = build_docx(tmp_path / "d.docx", ["A.", *_CAPTION_TRAPS])
+
+    alt = read_alt_texts(SourceFile.from_path(doc), "docx")
+
+    assert alt.in_order == [WordPicture(alt="Inline icon"), WordPicture(alt="Logo")]
+
+
+def test_mammoth_keeps_text_and_table_captions_in_place(tmp_path):
+    _, body = _mammoth(tmp_path, ["A.", *_CAPTION_TRAPS])
+
+    assert "*Figure: Inline icon*" in body
+    assert "*Figure: Logo*" in body
+    assert "Figure 1: Not it" in body
+    assert "*Figure: Figure 1" not in body
+    # The table caption stays above its table, as a plain paragraph.
+    table_caption = body.index("Table 1: Results")
+    assert body.index("*Figure: Logo*") < table_caption < body.index("| k | v |")
+    assert "*Figure: Table 1" not in body
 
 
 def test_reader_on_a_broken_package_finds_none(tmp_path):

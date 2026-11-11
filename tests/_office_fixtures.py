@@ -450,6 +450,8 @@ _DOCX_STYLES = (
     '<w:name w:val="Normal"/></w:style>'
     '<w:style w:type="paragraph" w:styleId="Caption">'
     '<w:name w:val="caption"/><w:basedOn w:val="Normal"/></w:style>'
+    '<w:style w:type="paragraph" w:styleId="Heading1">'
+    '<w:name w:val="heading 1"/><w:basedOn w:val="Normal"/></w:style>'
     "</w:styles>"
 )
 
@@ -462,12 +464,31 @@ class DocPicture:
     ``wp:docPr/@title``. ``caption`` adds a Caption-style paragraph right
     after the picture. ``linked`` points the picture at an external file
     instead of embedding it, the way "Link to File" does in Word.
+    ``text`` puts a text run in the picture's paragraph, before it.
+    ``where`` is "body", "cell" (the only cell of a one-cell table), or
+    "heading" (a Heading 1 paragraph).
     """
 
     alt: str = ""
     title: str = ""
     caption: str | None = None
     linked: bool = False
+    text: str = ""
+    where: str = "body"
+
+
+@dataclass
+class DocTable:
+    """A table of plain text cells."""
+
+    rows: list[list[str]]
+
+
+@dataclass
+class DocCaption:
+    """A Caption-style paragraph standing on its own."""
+
+    text: str
 
 
 def _attr(text: str) -> str:
@@ -478,8 +499,16 @@ def _docx_picture(n: int, pic: DocPicture) -> str:
     descr = f' descr="{_attr(pic.alt)}"' if pic.alt else ""
     title = f' title="{_attr(pic.title)}"' if pic.title else ""
     blip = f'r:link="rIdImg{n}"' if pic.linked else f'r:embed="rIdImg{n}"'
-    return (
-        "<w:p><w:r><w:drawing>"
+    ppr = (
+        '<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>' if pic.where == "heading" else ""
+    )
+    run = (
+        f'<w:r><w:t xml:space="preserve">{escape(pic.text)} </w:t></w:r>'
+        if pic.text
+        else ""
+    )
+    paragraph = (
+        f"<w:p>{ppr}{run}<w:r><w:drawing>"
         '<wp:inline distT="0" distB="0" distL="0" distR="0">'
         '<wp:extent cx="914400" cy="914400"/>'
         f'<wp:docPr id="{n}" name="Picture {n}"{descr}{title}/>'
@@ -491,6 +520,22 @@ def _docx_picture(n: int, pic: DocPicture) -> str:
         "</pic:pic></a:graphicData></a:graphic></wp:inline>"
         "</w:drawing></w:r></w:p>"
     )
+    if pic.where == "cell":
+        return _docx_table([[paragraph]], raw=True)
+    return paragraph
+
+
+def _docx_table(rows: list[list[str]], raw: bool = False) -> str:
+    """A table. ``raw`` cells hold paragraph XML instead of plain text."""
+    body = "".join(
+        "<w:tr>"
+        + "".join(
+            f"<w:tc>{cell if raw else _docx_paragraph(cell)}</w:tc>" for cell in row
+        )
+        + "</w:tr>"
+        for row in rows
+    )
+    return f"<w:tbl><w:tblPr/>{body}</w:tbl>"
 
 
 def _docx_paragraph(text: str, style: str | None = None) -> str:
@@ -499,9 +544,12 @@ def _docx_paragraph(text: str, style: str | None = None) -> str:
 
 
 def build_docx(
-    path: Path, blocks: list[str | DocPicture], title: str | None = None
+    path: Path,
+    blocks: list[str | DocPicture | DocTable | DocCaption],
+    title: str | None = None,
 ) -> Path:
-    """Write a Word document: a str is a paragraph, a ``DocPicture`` a picture."""
+    """Write a Word document: a str is a paragraph, a ``DocPicture`` a
+    picture, a ``DocTable`` a table, a ``DocCaption`` a Caption paragraph."""
     body = []
     doc_rels = [_rel("rIdStyles", "styles", "styles.xml")]
     pictures = [b for b in blocks if isinstance(b, DocPicture)]
@@ -509,6 +557,12 @@ def build_docx(
     for block in blocks:
         if isinstance(block, str):
             body.append(_docx_paragraph(block))
+            continue
+        if isinstance(block, DocTable):
+            body.append(_docx_table(block.rows))
+            continue
+        if isinstance(block, DocCaption):
+            body.append(_docx_paragraph(block.text, "Caption"))
             continue
         number += 1
         body.append(_docx_picture(number, block))

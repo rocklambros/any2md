@@ -347,8 +347,10 @@ def _lift_captions(element):
     """mammoth ``transform_document``: a Caption paragraph names its picture.
 
     The rule matches the Docling lane: a Caption-style paragraph right
-    after a paragraph holding exactly one picture becomes that picture's
-    figure text, ahead of its alt text, and leaves the body.
+    after a paragraph holding exactly one picture and no text becomes
+    that picture's figure text, ahead of its alt text, and leaves the
+    body. A Caption paragraph right above a table is the table's own and
+    stays where it is.
     """
     children = getattr(element, "children", None)
     if children is None:
@@ -358,11 +360,14 @@ def _lift_captions(element):
     i = 0
     while i < len(kids):
         kid = kids[i]
+        after = kids[i + 2] if i + 2 < len(kids) else None
         if (
             isinstance(kid, mammoth.documents.Paragraph)
             and i + 1 < len(kids)
             and _is_caption(kids[i + 1])
             and len(_images_in(kid)) == 1
+            and not _text_in(kid).strip()
+            and not isinstance(after, mammoth.documents.Table)
         ):
             caption = " ".join(_text_in(kids[i + 1]).split())
             if caption:

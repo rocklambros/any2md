@@ -291,7 +291,10 @@ PDF, DOCX (both lanes), PPTX, and XLSX follow one rule for pictures:
   Docling links to the picture (a PDF figure caption or a chart title), a
   Word Caption-style paragraph right after the picture (which then leaves
   the body), the description Docling recorded, the alt text typed in Word,
-  PowerPoint, or Excel. A picture with none of these leaves no line.
+  PowerPoint, or Excel. A Caption paragraph counts only when the picture
+  stands alone in its paragraph, and a Caption paragraph right above a
+  table stays as the table's caption. A picture with none of these leaves
+  no line.
 - **With `--save-images`.** Each picture is written to
   `<output>/images/<name>/imgN.<ext>`, numbered in document order, and
   linked below its figure line as `![text](images/<name>/imgN.<ext>)`,
