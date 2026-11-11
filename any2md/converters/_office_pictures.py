@@ -65,11 +65,30 @@ Box = tuple[float, float, float, float]
 
 
 @dataclass
+class WordPicture:
+    """One picture of a Word document, in document order.
+
+    ``caption`` is the text of a Caption-style paragraph right after the
+    paragraph that holds the picture, the place Word's Insert Caption
+    puts it by default.
+    """
+
+    alt: str = ""
+    caption: str = ""
+
+
+@dataclass
 class AltTexts:
-    """Alt text per page, each entry a (box, text) pair in package order."""
+    """Alt text found in a package.
+
+    PowerPoint and Excel entries sit in ``by_page`` as (box, text) pairs
+    in package order. A Word document has no positions Docling keeps, so
+    its pictures sit in ``in_order``, one per drawing in document order.
+    """
 
     by_page: dict[Any, list[tuple[Box, str]]] = field(default_factory=dict)
     tolerance: float = _EMU_TOLERANCE
+    in_order: list[WordPicture] | None = None
 
     def add(self, page: Any, box: Box, text: str) -> None:
         self.by_page.setdefault(page, []).append((box, text))
@@ -334,6 +353,105 @@ def _xlsx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
     return out
 
 
+_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+_V = "urn:schemas-microsoft-com:vml"
+_O = "urn:schemas-microsoft-com:office:office"
+
+
+def _caption_style_ids(z: zipfile.ZipFile) -> set[str]:
+    """Paragraph style ids named "caption" (Word's built-in name), or "Caption"."""
+    ids = {"Caption"}
+    styles = _read_xml(z, "word/styles.xml")
+    if styles is None:
+        return ids
+    for style in styles.iter(_q(_W, "style")):
+        name = style.find(_q(_W, "name"))
+        if name is not None and (name.get(_q(_W, "val")) or "").casefold() == "caption":
+            ids.add(style.get(_q(_W, "styleId")) or "")
+    return ids
+
+
+def _paragraph_text(paragraph: Any) -> str:
+    return " ".join("".join(t.text or "" for t in paragraph.iter(_q(_W, "t"))).split())
+
+
+def _paragraph_style(paragraph: Any) -> str:
+    style = paragraph.find(f"{_q(_W, 'pPr')}/{_q(_W, 'pStyle')}")
+    return (style.get(_q(_W, "val")) or "") if style is not None else ""
+
+
+def word_picture_elements(paragraph: Any) -> list[Any]:
+    """The picture elements in a paragraph: DrawingML drawings and VML images."""
+    return [
+        el
+        for el in paragraph.iter()
+        if el.tag == _q(_W, "drawing") or el.tag == _q(_V, "imagedata")
+    ]
+
+
+def _word_alt(element: Any) -> str:
+    """Alt text the way mammoth reads it: description, else title."""
+    if element.tag == _q(_W, "drawing"):
+        props = element.find(f".//{_q(_WP, 'docPr')}")
+        if props is None:
+            return ""
+        descr = props.get("descr") or ""
+        return " ".join((descr if descr.strip() else props.get("title") or "").split())
+    return " ".join((element.get(_q(_O, "title")) or "").split())
+
+
+def _docx_alt_texts(z: zipfile.ZipFile) -> AltTexts:
+    document = _read_xml(z, "word/document.xml")
+    body = None if document is None else document.find(_q(_W, "body"))
+    if body is None:
+        return AltTexts(in_order=[])
+    caption_ids = _caption_style_ids(z)
+    # Every paragraph, wherever it sits (table cells, content controls,
+    # text boxes), with its parent so the next sibling can be checked.
+    parent_of = {id(child): parent for parent in body.iter() for child in parent}
+    order = {id(el): i for i, el in enumerate(body.iter())}
+    entries: list[tuple[int, WordPicture]] = []
+    for paragraph in body.iter(_q(_W, "p")):
+        pictures = [
+            el
+            for el in word_picture_elements(paragraph)
+            if _owning_paragraph(el, paragraph)
+        ]
+        if not pictures:
+            continue
+        caption = ""
+        siblings = list(parent_of.get(id(paragraph), []))
+        index = next(i for i, s in enumerate(siblings) if s is paragraph)
+        following = siblings[index + 1] if index + 1 < len(siblings) else None
+        if (
+            len(pictures) == 1
+            and following is not None
+            and following.tag == _q(_W, "p")
+            and _paragraph_style(following) in caption_ids
+        ):
+            caption = _paragraph_text(following)
+        for el in pictures:
+            entry = WordPicture(alt=_word_alt(el), caption=caption)
+            entries.append((order.get(id(el), 0), entry))
+    entries.sort(key=lambda e: e[0])
+    return AltTexts(in_order=[entry for _pos, entry in entries])
+
+
+def _owning_paragraph(element: Any, paragraph: Any) -> bool:
+    """True when ``element`` is not inside a nested paragraph of ``paragraph``.
+
+    A text box inside a drawing holds paragraphs of its own, and those
+    are visited as their own container.
+    """
+    for nested in paragraph.iter(_q(_W, "p")):
+        if nested is paragraph:
+            continue
+        if any(el is element for el in nested.iter()):
+            return False
+    return True
+
+
 def read_alt_texts(src: SourceFile, fmt: str) -> AltTexts:
     """Read the picture alt text in ``src``. An unreadable package gives none.
 
@@ -345,6 +463,8 @@ def read_alt_texts(src: SourceFile, fmt: str) -> AltTexts:
         with src.open_binary() as fh, zipfile.ZipFile(fh) as z:
             if fmt == "pptx":
                 return _pptx_alt_texts(z)
+            if fmt == "docx":
+                return _docx_alt_texts(z)
             return _xlsx_alt_texts(z)
     except (OSError, zipfile.BadZipFile, ValueError):
         return AltTexts()
@@ -412,6 +532,51 @@ def _save_picture(doc: Any, item: Any, image_path: Path) -> bool:
     return True
 
 
+def _content_layer(name: str) -> Any | None:
+    """docling-core's ContentLayer member ``name``, or None without Docling."""
+    try:
+        from docling_core.types.doc import ContentLayer
+    except ImportError:
+        return None
+    return getattr(ContentLayer, name, None)
+
+
+def _word_pictures(doc: Any, alt_texts: AltTexts) -> dict[int, WordPicture]:
+    """Pair Word pictures with Docling's picture items by document order.
+
+    Docling files a tiny or blank image as an invisible spacer, but it
+    still has a drawing in ``document.xml``, so the count covers the body
+    and invisible layers. Header and footer pictures live in other parts
+    and stay out. Any other mismatch (a drawing Docling splits into
+    several pictures, a text box it reads as text) breaks the pairing,
+    so the pairing is used only when both counts agree.
+    """
+    if not alt_texts.in_order:
+        return {}
+    layers = {_content_layer("BODY"), _content_layer("INVISIBLE")} - {None}
+    kwargs = {"included_content_layers": layers} if layers else {}
+    pictures = [
+        item for item, _level in doc.iterate_items(**kwargs) if is_picture(item)
+    ]
+    if len(pictures) != len(alt_texts.in_order):
+        return {}
+    return {id(p): entry for p, entry in zip(pictures, alt_texts.in_order)}
+
+
+def _hide_caption_paragraph(item: Any, caption: str) -> None:
+    """Keep a Word caption paragraph out of the body once it is a figure line.
+
+    Docling does not link a Word caption to its picture and writes it as
+    the paragraph right after the picture. Moving that one item to the
+    invisible layer stops the caption from showing twice.
+    """
+    if item is None or " ".join((getattr(item, "text", "") or "").split()) != caption:
+        return
+    invisible = _content_layer("INVISIBLE")
+    if invisible is not None:
+        item.content_layer = invisible
+
+
 def prepare_pictures(
     doc: Any,
     fmt: str,
@@ -426,16 +591,29 @@ def prepare_pictures(
     ``link_dir/imgN.png``. Captions move into the figure text, and each
     picture's caption list is cleared so Docling does not write the
     caption a second time as a plain paragraph.
+
+    The text is, in order: the Docling caption, a Word Caption paragraph
+    right after the picture, the Docling description, the alt text.
     """
+    body_items = [item for item, _level in doc.iterate_items()]
+    following = {id(a): b for a, b in zip(body_items, body_items[1:])}
+    word = _word_pictures(doc, alt_texts)
     figures: dict[int, str] = {}
     number = 0
-    for item, _level in doc.iterate_items():
+    for item in body_items:
         if not is_picture(item):
             continue
-        text = _caption(doc, item) or _description(item)
-        key = _position_key(doc, item, fmt)
-        alt = alt_texts.take(*key) if key is not None else ""
-        text = text or alt
+        entry = word.get(id(item))
+        text = _caption(doc, item)
+        if not text and entry is not None and entry.caption:
+            text = entry.caption
+            _hide_caption_paragraph(following.get(id(item)), entry.caption)
+        text = text or _description(item)
+        if not text and entry is not None:
+            text = entry.alt
+        elif not text and alt_texts.in_order is None:
+            key = _position_key(doc, item, fmt)
+            text = alt_texts.take(*key) if key is not None else ""
         if getattr(item, "captions", None):
             item.captions = []
         link = None
@@ -464,6 +642,8 @@ def fill_pictures(
     up one to one. A token left over (which that order rules out) is
     removed rather than leaking into the output.
     """
+    if PICTURE_TOKEN not in md:
+        return md
     pictures = [
         figures.get(id(item), "")
         for item, _level in doc.iterate_items(page_no=page_no)

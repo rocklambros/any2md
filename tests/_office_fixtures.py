@@ -82,14 +82,19 @@ def _content_types(overrides: list[tuple[str, str]], with_core: bool) -> str:
 
 
 def tiny_png() -> bytes:
-    """A valid 2x2 RGB PNG, built by hand so no imaging library is needed."""
+    """A valid 8x8 RGB PNG, built by hand so no imaging library is needed.
+
+    Docling's Word backend files any image of 25 pixels or less, or one
+    that is pure white, as an invisible layout spacer, so the image is
+    larger than that and colored.
+    """
 
     def chunk(kind: bytes, data: bytes) -> bytes:
         body = kind + data
         return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
 
-    header = struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)
-    rows = b"".join(b"\x00" + b"\x80\x20\x20" * 2 for _ in range(2))
+    header = struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0)
+    rows = b"".join(b"\x00" + b"\x80\x20\x20" * 8 for _ in range(8))
     return (
         b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", header)
@@ -429,6 +434,116 @@ def build_xlsx(
                     _rel(f"rId{k}", "image", f"../media/image{image_no}.png")
                 )
             z.writestr(f"xl/drawings/_rels/drawing{i}.xml.rels", _rels(*drawing_rels))
+        if title is not None:
+            z.writestr("docProps/core.xml", _CORE_PROPS.format(title=escape(title)))
+    return path
+
+
+_WML = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+_PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+
+_DOCX_STYLES = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    f'<w:styles xmlns:w="{_WML}">'
+    '<w:style w:type="paragraph" w:default="1" w:styleId="Normal">'
+    '<w:name w:val="Normal"/></w:style>'
+    '<w:style w:type="paragraph" w:styleId="Caption">'
+    '<w:name w:val="caption"/><w:basedOn w:val="Normal"/></w:style>'
+    "</w:styles>"
+)
+
+
+@dataclass
+class DocPicture:
+    """One inline picture in a Word document.
+
+    ``alt`` goes in ``wp:docPr/@descr`` and ``title`` in
+    ``wp:docPr/@title``. ``caption`` adds a Caption-style paragraph right
+    after the picture. ``linked`` points the picture at an external file
+    instead of embedding it, the way "Link to File" does in Word.
+    """
+
+    alt: str = ""
+    title: str = ""
+    caption: str | None = None
+    linked: bool = False
+
+
+def _attr(text: str) -> str:
+    return escape(text, {'"': "&quot;"})
+
+
+def _docx_picture(n: int, pic: DocPicture) -> str:
+    descr = f' descr="{_attr(pic.alt)}"' if pic.alt else ""
+    title = f' title="{_attr(pic.title)}"' if pic.title else ""
+    blip = f'r:link="rIdImg{n}"' if pic.linked else f'r:embed="rIdImg{n}"'
+    return (
+        "<w:p><w:r><w:drawing>"
+        '<wp:inline distT="0" distB="0" distL="0" distR="0">'
+        '<wp:extent cx="914400" cy="914400"/>'
+        f'<wp:docPr id="{n}" name="Picture {n}"{descr}{title}/>'
+        f'<a:graphic><a:graphicData uri="{_PIC}"><pic:pic>'
+        f'<pic:nvPicPr><pic:cNvPr id="{n}" name="image{n}.png"/><pic:cNvPicPr/>'
+        f"</pic:nvPicPr><pic:blipFill><a:blip {blip}/><a:stretch><a:fillRect/>"
+        f"</a:stretch></pic:blipFill><pic:spPr>{_xfrm(0, 0, 914400, 914400)}"
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+        "</pic:pic></a:graphicData></a:graphic></wp:inline>"
+        "</w:drawing></w:r></w:p>"
+    )
+
+
+def _docx_paragraph(text: str, style: str | None = None) -> str:
+    ppr = f'<w:pPr><w:pStyle w:val="{style}"/></w:pPr>' if style else ""
+    return f"<w:p>{ppr}<w:r><w:t>{escape(text)}</w:t></w:r></w:p>"
+
+
+def build_docx(
+    path: Path, blocks: list[str | DocPicture], title: str | None = None
+) -> Path:
+    """Write a Word document: a str is a paragraph, a ``DocPicture`` a picture."""
+    body = []
+    doc_rels = [_rel("rIdStyles", "styles", "styles.xml")]
+    pictures = [b for b in blocks if isinstance(b, DocPicture)]
+    number = 0
+    for block in blocks:
+        if isinstance(block, str):
+            body.append(_docx_paragraph(block))
+            continue
+        number += 1
+        body.append(_docx_picture(number, block))
+        if block.linked:
+            doc_rels.append(
+                f'<Relationship Id="rIdImg{number}" Type="{_DOC_RELS}/image" '
+                f'Target="file:///nonexistent/linked{number}.png" '
+                'TargetMode="External"/>'
+            )
+        else:
+            doc_rels.append(
+                _rel(f"rIdImg{number}", "image", f"media/image{number}.png")
+            )
+        if block.caption is not None:
+            body.append(_docx_paragraph(block.caption, "Caption"))
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:document xmlns:w="{_WML}" xmlns:wp="{_WP}" xmlns:a="{_DML}" '
+        f'xmlns:pic="{_PIC}" xmlns:r="{_DOC_RELS}">'
+        f"<w:body>{''.join(body)}</w:body></w:document>"
+    )
+    wml_ct = "application/vnd.openxmlformats-officedocument.wordprocessingml."
+    overrides = [
+        ("/word/document.xml", wml_ct + "document.main+xml"),
+        ("/word/styles.xml", wml_ct + "styles+xml"),
+    ]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", _content_types(overrides, title is not None))
+        z.writestr("_rels/.rels", _package_rels("word/document.xml", title is not None))
+        z.writestr("word/document.xml", document)
+        z.writestr("word/styles.xml", _DOCX_STYLES)
+        z.writestr("word/_rels/document.xml.rels", _rels(*doc_rels))
+        for i, pic in enumerate(pictures, start=1):
+            if not pic.linked:
+                z.writestr(f"word/media/image{i}.png", tiny_png())
         if title is not None:
             z.writestr("docProps/core.xml", _CORE_PROPS.format(title=escape(title)))
     return path

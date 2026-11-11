@@ -27,10 +27,16 @@ from any2md._ooxml_guard import check_ooxml_archive
 from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
+from any2md.converters._office_pictures import (
+    PICTURE_TOKEN,
+    fill_pictures,
+    prepare_pictures,
+    read_alt_texts,
+)
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
-from any2md.utils import atomic_write_text, sanitize_filename
+from any2md.utils import atomic_write_text, safe_dir_name, sanitize_filename
 
 
 _DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
@@ -142,12 +148,19 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
 
 def _extract_via_docling(
     docx_path: Path | SourceFile,
+    options: PipelineOptions | None = None,
+    output_dir: Path | None = None,
 ) -> tuple[str, str, list[str]]:
     """Returns (markdown, 'docling', captured_warnings).
 
     ``captured_warnings`` is the list of WARNING+ messages emitted by
     Docling's ``msword_backend`` logger during the conversion. It is
     empty for clean runs. Raises on Docling errors.
+
+    Each picture becomes ``![text](link)`` for S1, the same as for PPTX
+    and XLSX. Under ``--save-images`` (``options.save_images`` with an
+    ``output_dir``) each picture is written to
+    ``<output_dir>/images/<stem>/imgN.png`` and linked.
 
     v1.1.0: uses the persistent ConverterCache rather than constructing
     a fresh DocumentConverter per call. On any convert exception the
@@ -159,15 +172,34 @@ def _extract_via_docling(
         get_docx_converter,
     )
 
+    src = as_source(docx_path)
     converter = get_docx_converter()
     with _DoclingMswordWarningCapture() as cap:
         try:
             # Never a str: see SourceFile.docling_input.
-            result = converter.convert(as_source(docx_path).docling_input())
+            result = converter.convert(src.docling_input())
         except Exception:
             evict_on_convert_failure("docx", None)
             raise
-    return result.document.export_to_markdown(), "docling", list(cap.messages)
+    doc = result.document
+    messages = list(cap.messages)
+
+    image_dir = None
+    folder = safe_dir_name(src.stem)
+    # A msword_backend warning makes convert_docx throw this output away
+    # for mammoth's, which then saves the images itself. Writing them here
+    # too would leave files the final Markdown never links.
+    discarded = bool(messages) and options is not None and options.docx_fallback_on_warn
+    if options is not None and options.save_images and output_dir is not None:
+        if not discarded:
+            image_dir = output_dir / "images" / folder
+    figures: dict[int, str] = {}
+    if getattr(doc, "pictures", None):
+        figures = prepare_pictures(
+            doc, "docx", read_alt_texts(src, "docx"), image_dir, f"images/{folder}"
+        )
+    md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
+    return fill_pictures(doc, md, figures), "docling", messages
 
 
 # mammoth 1.11.0 added ``external_file_access`` and turned it off by
@@ -269,13 +301,17 @@ def convert_docx(
             lane = "text"
         elif options.backend == "docling":
             with DoclingWarningCapture() as cap:
-                md_text, extracted_via, docling_warnings = _extract_via_docling(src)
+                md_text, extracted_via, docling_warnings = _extract_via_docling(
+                    src, options, output_dir
+                )
             py_warnings = cap.messages
             lane = "structured"
         elif has_docling():
             try:
                 with DoclingWarningCapture() as cap:
-                    md_text, extracted_via, docling_warnings = _extract_via_docling(src)
+                    md_text, extracted_via, docling_warnings = _extract_via_docling(
+                        src, options, output_dir
+                    )
                 py_warnings = cap.messages
                 lane = "structured"
             except Exception as e:  # noqa: BLE001 — fall back rather than fail
