@@ -1,7 +1,7 @@
 """DOCX to Markdown converter (v1.0).
 
 Phase 2: Docling primary backend with mammoth+markdownify fallback.
-Backend selection is automatic — if `docling` is importable we use it;
+Backend selection is automatic. If `docling` is importable we use it,
 otherwise we fall back to mammoth+markdownify. Core property metadata
 is always read directly from the DOCX zip independent of which backend
 produces the markdown body.
@@ -26,7 +26,7 @@ from any2md import _logging, pipeline
 from any2md._docling import DoclingLogCapture, DoclingWarningCapture, has_docling
 from any2md._image_files import ImageWriter
 from any2md._ooxml_guard import check_ooxml_archive
-from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
+from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x, remove in v1.2
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.converters._office_pictures import (
@@ -50,7 +50,7 @@ from any2md.utils import atomic_write_text, sanitize_filename
 
 _DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
 
-_MAX_DOCX_METADATA_SIZE = 1 * 1024 * 1024  # 1 MB; core.xml/app.xml are typically <10 KB
+_MAX_DOCX_METADATA_SIZE = 1 * 1024 * 1024  # 1 MB. core.xml/app.xml are typically <10 KB
 
 
 def _safe_zip_open(
@@ -77,7 +77,7 @@ class _DoclingMswordWarningCapture(DoclingLogCapture):
     Used as a context manager around a Docling DOCX conversion to detect
     upstream's silent list-item-drop guard (msword_backend.py:1377/1675).
     Any captured records signal that Docling's Markdown output is
-    incomplete; ``convert_docx`` consults this to decide whether to
+    incomplete, and ``convert_docx`` consults this to decide whether to
     auto-retry with the mammoth lane.
     """
 
@@ -131,7 +131,7 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
                 company = root.findtext("ext:Company", namespaces=_NS_APP)
                 application = root.findtext("ext:Application", namespaces=_NS_APP)
                 # v1.0.2: Company takes priority for `organization` (real
-                # legal entity); Application is software → goes to
+                # legal entity). Application is software → goes to
                 # `produced_by` via filter_organization. When Company is
                 # absent we route Application through filter_organization
                 # for both fields so a real-org Application name still
@@ -474,7 +474,7 @@ def _extract_via_mammoth(
             html_result.value,
             heading_style="ATX",
             bullets="-",
-            # mammoth never emits <thead>; without inference markdownify 1.x
+            # mammoth never emits <thead>. Without inference markdownify 1.x
             # writes an empty header row and demotes the real header.
             table_infer_header=True,
             # Inside a table cell or a heading markdownify writes a picture
@@ -521,7 +521,7 @@ def convert_docx(
 
         # Backend override (PipelineOptions.backend). When set, honor the
         # caller's choice instead of the auto-select. ``pymupdf4llm`` is
-        # invalid for DOCX — fail the file with a clear error.
+        # invalid for DOCX, so fail the file with a clear error.
         if options.backend == "pymupdf4llm":
             _logging.fail(
                 f"{src.name} -- backend 'pymupdf4llm' is not "
@@ -553,7 +553,7 @@ def convert_docx(
                 )
                 py_warnings = cap.messages
                 lane = "structured"
-            except Exception as e:  # noqa: BLE001 — fall back rather than fail
+            except Exception as e:  # noqa: BLE001 -- fall back rather than fail
                 _logging.warn(
                     f"Docling extraction failed for {src.name}: {e}; "
                     f"falling back to mammoth."

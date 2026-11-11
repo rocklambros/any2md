@@ -1,7 +1,7 @@
 """PDF to Markdown converter (v1.0).
 
 Phase 2: Docling primary backend with pymupdf4llm fallback. Backend
-selection is automatic — if `docling` is importable we use it; otherwise
+selection is automatic. If `docling` is importable we use it, otherwise
 we fall back to pymupdf4llm. The `--high-fidelity` flag forces Docling
 (enforced upstream in the CLI) but does not change the converter logic
 beyond surfacing the requested backend in extracted_via.
@@ -87,7 +87,7 @@ def pdf_looks_complex(pdf_path: Path | SourceFile) -> bool:
     Docling would handle better:
       - Total pages > 5 AND
         (multi-column layout detected on any sampled page OR
-         average chars-per-page < 200 — suggests scanned PDF).
+         average chars-per-page < 200, which suggests a scanned PDF).
 
     Sampling: at most 5 pages, evenly distributed.
     """
@@ -115,7 +115,7 @@ def _doc_looks_complex(doc: "pymupdf.Document") -> bool:
             page = doc[idx]
             text = page.get_text("text") or ""
             total_chars += len(text)
-            # Multi-column heuristic: collect block x-positions; if there
+            # Multi-column heuristic: collect block x-positions. If there
             # are clusters around two distinct x ranges with > 100 px
             # separation, flag.
             blocks = page.get_text("blocks") or []
@@ -266,7 +266,7 @@ def convert_pdf(
     try:
         # Backend override (PipelineOptions.backend). When set, honor the
         # caller's choice instead of the auto-select. ``mammoth`` is
-        # invalid for PDFs — fail the file with a clear error.
+        # invalid for PDFs, so fail the file with a clear error.
         if options.backend == "mammoth":
             _logging.fail(
                 f"{src.name} -- backend 'mammoth' is not "
@@ -296,7 +296,7 @@ def convert_pdf(
             if not use_docling and options.backend is None and _doc_looks_complex(doc):
                 install_hint()
 
-            # Always extract metadata via PyMuPDF — independent of which
+            # Always extract metadata via PyMuPDF, independent of which
             # backend produces the markdown body.
             page_count = len(doc)
             props = _parse_pdf_metadata(doc)
@@ -312,7 +312,7 @@ def convert_pdf(
                     )
                     py_warnings = cap.messages
                     lane = "structured"
-                except Exception as e:  # noqa: BLE001 — fall back rather than fail
+                except Exception as e:  # noqa: BLE001 -- fall back rather than fail
                     _logging.warn(
                         f"Docling extraction failed for {src.name}: {e}; "
                         f"falling back to pymupdf4llm."

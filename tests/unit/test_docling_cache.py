@@ -1,7 +1,7 @@
 """Unit tests for any2md/_docling_cache.py.
 
 All tests in this file mock the Docling build callback. The real
-Docling library is NOT required — Docling integration tests live in
+Docling library is NOT required. Docling integration tests live in
 tests/integration/test_docling_persistence.py and are gated by
 pytest.mark.skipif(not has_docling()).
 """
@@ -49,7 +49,7 @@ def test_canonicalize_sorts_nested_lists_in_dicts():
 
 
 def test_canonicalize_handles_heterogeneous_lists():
-    # Mix of dicts, strings, numbers — must produce a deterministic
+    # Mix of dicts, strings, numbers: must produce a deterministic
     # ordering via the JSON-string sort key.
     a = cm._canonicalize([{"x": 1}, "hello", 42])
     b = cm._canonicalize([42, {"x": 1}, "hello"])
@@ -67,7 +67,7 @@ def test_key_is_frozen_and_hashable():
     k2 = cm._Key(fmt="pdf", digest=b"\x00" * 32)
     assert k1 == k2
     assert hash(k1) == hash(k2)
-    # Frozen — assignment must raise AttributeError (frozen dataclass behavior)
+    # Frozen: assignment must raise AttributeError (frozen dataclass behavior)
     with pytest.raises(AttributeError):
         k1.fmt = "docx"  # type: ignore
 
@@ -145,7 +145,7 @@ def test_hash_opts_set_field_stable_across_processes():
         check=True,
     )
     assert r1.stdout.strip() == r2.stdout.strip(), (
-        "Hash diverged across cold processes — canonicalizer is not "
+        "Hash diverged across cold processes: canonicalizer is not "
         "sorting list contents (likely a regression in _canonicalize)."
     )
 
@@ -272,7 +272,7 @@ def test_env_var_disables_cache(monkeypatch):
     a = cache.get_or_build("pdf", None, build)
     b = cache.get_or_build("pdf", None, build)
 
-    assert a is not b  # Different builds — cache bypassed
+    assert a is not b  # Different builds: cache bypassed
     assert cache.stats().model_loads == 0  # Counter not incremented
     assert len(builds) == 2
 
@@ -305,7 +305,7 @@ def test_maxsize_enforcement_evicts_lru():
 
     cache.get_or_build("pdf", None, lambda: sa)
     cache.get_or_build("docx", None, lambda: sb)
-    # Third distinct key — must evict pdf (LRU)
+    # Third distinct key: must evict pdf (LRU)
     cache.get_or_build("xfmt", None, lambda: sc)
 
     assert cache.stats().cache_evictions >= 1
@@ -623,7 +623,7 @@ def test_get_pdf_converter_uses_cache_without_pydantic(monkeypatch):
     )
 
     class StubOpts:
-        """Minimal stand-in for a Pydantic model — must implement
+        """Minimal stand-in for a Pydantic model. It must implement
         model_dump(mode='json') for _hash_opts."""
 
         def model_dump(self, mode="json"):

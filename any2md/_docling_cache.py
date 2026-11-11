@@ -1,9 +1,9 @@
 """Process-lifetime cache of DocumentConverter instances.
 
 Stability: experimental for v1.1.0. Public API surface:
-- `release_models()` — imperative escape hatch
-- `docling_session()` — contextmanager (preferred)
-- `ANY2MD_DOCLING_CACHE=0` — disable cache entirely
+- `release_models()`: imperative escape hatch
+- `docling_session()`: contextmanager (preferred)
+- `ANY2MD_DOCLING_CACHE=0`: disable cache entirely
 
 Other names in this module are internal and may change.
 """
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 _MAX_RESIDENT = 2  # Empirically: pdf + docx are the model-loading
-# construction sites; 2 slots covers 99% of mixed batches with
+# construction sites. 2 slots covers 99% of mixed batches with
 # bounded RSS (~1GB extra steady-state worst case).
 
 # The pptx and xlsx converters load no ML models. They get their own
@@ -44,7 +44,7 @@ def _canonicalize(obj: Any) -> Any:
     `json.dumps(..., sort_keys=True)` only sorts dict keys at every
     level, NOT list contents. Pydantic v2 `model_dump(mode="json")`
     serializes `set`/`frozenset` to `list` with iteration order
-    affected by `PYTHONHASHSEED` — producing different bytes for
+    affected by `PYTHONHASHSEED`, producing different bytes for
     identical option payloads across processes. We sort lists too
     so the cache key is stable.
 
@@ -57,9 +57,9 @@ def _canonicalize(obj: Any) -> Any:
     Input contract: ``obj`` must be the output of Pydantic
     ``model_dump(mode="json")`` or equivalent JSON-clean structure
     (string-keyed dicts, JSON-scalar leaves). Non-string dict keys or
-    non-JSON types (e.g., ``bytes``) are NOT supported — they will
+    non-JSON types (e.g., ``bytes``) are NOT supported. They will
     raise downstream from ``json.dumps`` rather than here. Callers
-    that pass arbitrary user data must validate first; the cache's
+    that pass arbitrary user data must validate first. The cache's
     only call site (``_hash_opts``) goes through ``model_dump`` so the
     contract is upheld.
     """
@@ -92,7 +92,7 @@ class CacheStats:
     Exposed via the module-level `stats()` function (NOT
     `ConverterCache.stats()`, which is an instance method).
 
-    Counters are eventually-consistent under thread contention;
+    Counters are eventually-consistent under thread contention, and
     snapshots are not transactionally coherent. Acceptable for
     debug/observability use, not for control logic.
     """
@@ -110,13 +110,13 @@ def _hash_opts(opts: Any | None) -> bytes:
     Uses Pydantic `model_dump(mode="json")` then a recursive
     canonicalizer (sorts dicts AND lists) to produce a process-stable
     digest. Non-JSON-representable types raise from `model_dump` with
-    `mode="json"` — that is the desired loud-failure behavior.
+    `mode="json"`, which is the desired loud-failure behavior.
 
     Known limitation: if a future Docling field uses
     `default_factory=lambda: random_value()` (unique per construction),
-    the cache becomes a silent no-op for that field — different digest
-    every call. Acceptance criterion #1 (`model_loads == 1` across two
-    same-options calls) is the canary; the maintainer benchmark script
+    the cache becomes a silent no-op for that field (a different digest
+    every call). Acceptance criterion #1 (`model_loads == 1` across two
+    same-options calls) is the canary, and the maintainer benchmark script
     `scripts/bench_docling_cache.py` is the periodic verifier.
     """
     if opts is None:
@@ -127,9 +127,9 @@ def _hash_opts(opts: Any | None) -> bytes:
 
 
 def _cache_disabled() -> bool:
-    """Read the env var on every call (intentional — supports test
+    """Read the env var on every call (intentional: it supports test
     harnesses that toggle it). Cost is one `os.environ.get` per
-    `get_or_build`; negligible vs the work the cache guards.
+    `get_or_build`, negligible next to the work the cache guards.
 
     Accepted disable values (case-insensitive): ``0``, ``off``,
     ``false``. Other values (including ``no``, ``n``, ``disabled``)
@@ -143,7 +143,7 @@ class ConverterCache:
     """Thread-safe LRU cache of DocumentConverter instances.
 
     Build runs OUTSIDE the lock so two distinct keys can construct in
-    parallel; double-check on insert prevents racing same-key builds
+    parallel. A double-check on insert prevents racing same-key builds
     from polluting the cache (one of the two builds is discarded).
     """
 
@@ -164,7 +164,7 @@ class ConverterCache:
         flag.
 
         Resetting stats is intentional: ``release_models()`` is the
-        public release verb and the autouse test-isolation fixture; if
+        public release verb and the autouse test-isolation fixture. If
         ``clear()`` only emptied ``_store``, callers asserting exact
         counter values (e.g. ``stats().model_loads == 1``) would
         observe leakage from prior tests/sessions. Mirrors the state
@@ -181,7 +181,7 @@ class ConverterCache:
 
     def _after_fork(self) -> None:
         # Reassign lock (parent's may be in held state) and clear all
-        # per-process state — including stats counters, since AC#1
+        # per-process state, including stats counters, since AC#1
         # uses exact equality (`model_loads == 1`) and child must
         # start fresh.
         self._lock = threading.Lock()
@@ -198,7 +198,7 @@ class ConverterCache:
                 self._stats.cache_hits += 1
                 self._store.move_to_end(key)
                 return self._store[key]
-        # Build outside lock; rollback announce-flag if build raises so
+        # Build outside lock. Roll back announce-flag if build raises so
         # a subsequent successful build still announces.
         announced_now = self._announce_first_load_if_needed()
         try:
@@ -220,7 +220,7 @@ class ConverterCache:
                     self._stats.cache_evictions += 1
             # Defensive `.get(key, conv)` rather than `[key]`: the
             # current control flow guarantees presence (insert +
-            # move_to_end places our key at MRU position; eviction
+            # move_to_end places our key at MRU position, and eviction
             # only pops LRU), but a future maintainer reordering
             # eviction-before-insert or moving the eviction loop
             # outside this lock would otherwise raise KeyError here.
@@ -297,22 +297,22 @@ _INSTANCE_LOCK = threading.Lock()
 def _reset_module_lock_after_fork() -> None:
     """Reassign the module-level lazy-init lock in the child process
     after fork. If a parent thread held `_INSTANCE_LOCK` at fork
-    time, the child would inherit a permanently-locked Lock;
-    reassigning gives the child a fresh, unlocked one. Mirrors the
+    time, the child would inherit a permanently-locked Lock.
+    Reassigning gives the child a fresh, unlocked one. Mirrors the
     instance-level treatment in ``ConverterCache._after_fork``.
     """
     global _INSTANCE_LOCK
     _INSTANCE_LOCK = threading.Lock()
 
 
-# POSIX-only; matches the hasattr-guard pattern in ConverterCache.__init__.
+# POSIX-only. Matches the hasattr-guard pattern in ConverterCache.__init__.
 if hasattr(os, "register_at_fork"):
     os.register_at_fork(after_in_child=_reset_module_lock_after_fork)
 
 
 def _get_instance() -> ConverterCache:
     """Lock-serialized lazy init. Without the lock, two threads
-    racing first-call could each construct a ConverterCache; the
+    racing first-call could each construct a ConverterCache, and the
     losing instance's `register_at_fork` callback remains registered
     and runs on stale state at the next fork.
     """
@@ -332,10 +332,10 @@ def release_models() -> None:
 
     Stability: experimental for v1.1.0. Use this in long-running
     processes (services, notebooks, batch workers) to free Docling
-    model state between workloads. CLI users typically don't need it
-    — process exit is sufficient.
+    model state between workloads. CLI users typically don't need it,
+    since process exit is sufficient.
 
-    Short-circuits when no singleton exists yet — avoids phantom
+    Short-circuits when no singleton exists yet. That avoids phantom
     `register_at_fork` callbacks from constructing a ConverterCache
     just to clear an empty store.
     """
@@ -349,7 +349,7 @@ def docling_session() -> Iterator[None]:
     """Context manager that releases cached converters on exit.
 
     Stability: experimental for v1.1.0. Preferred shape for library
-    use; guarantees release on `__exit__` even if the body raises.
+    use. It guarantees release on `__exit__` even if the body raises.
 
         from any2md import docling_session
         from any2md.converters import convert_file
@@ -358,7 +358,7 @@ def docling_session() -> Iterator[None]:
             convert_file("b.pdf", out_dir)
         # models freed here
 
-    Note: ``convert_file`` lives in ``any2md.converters``; only
+    Note: ``convert_file`` lives in ``any2md.converters``, and only
     ``docling_session`` and ``release_models`` are re-exported from
     the top-level ``any2md`` package in v1.1.0.
     """
@@ -376,7 +376,7 @@ def stats() -> CacheStats:
     A CLI flag (`--debug-cache-stats`) lands in v1.2.0.
 
     Short-circuits to a zero-valued snapshot when no singleton exists
-    yet — same rationale as ``release_models``.
+    yet, for the same reason as ``release_models``.
     """
     if _INSTANCE is None:
         return CacheStats()
@@ -452,7 +452,7 @@ def evict_on_convert_failure(fmt: str, opts: Any | None) -> None:
     """Convenience for converters: drop the cache slot after a
     convert exception AND increment the failure counter, atomically.
 
-    Short-circuits when ``ANY2MD_DOCLING_CACHE=0`` is set — the
+    Short-circuits when ``ANY2MD_DOCLING_CACHE=0`` is set. The
     env-var disables the cache entirely, so we don't lazily
     construct a `ConverterCache` singleton (with its `register_at_fork`
     side-effect) just to bump a counter that the user has chosen not

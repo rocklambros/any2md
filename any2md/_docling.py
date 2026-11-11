@@ -3,7 +3,7 @@
 Docling is an optional dependency installed via:
     pip install "any2md[high-fidelity]"
 
-This module never imports docling at module load — it does so inside
+This module never imports docling at module load. It does so inside
 function bodies so that `import any2md` stays cheap when docling is
 absent.
 """
@@ -176,7 +176,7 @@ def has_docling() -> bool:
 
 
 def install_hint() -> None:
-    """Print the install hint to stderr — at most once per process."""
+    """Print the install hint to stderr, at most once per process."""
     if _hint_emitted.is_set():
         return
     print(f"  WARN: {INSTALL_HINT_MSG}", file=sys.stderr)  # log-safe: literal

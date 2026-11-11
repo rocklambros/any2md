@@ -194,7 +194,7 @@ array. Use the comma-array syntax: `--meta authors="Alice, Bob"` or, in
 
 **auto** | type: `string`
 
-**Derivation:** PDF/DOCX/PPTX/XLSX `Company` field; HTML `og:site_name` via trafilatura;
+**Derivation:** PDF/DOCX/PPTX/XLSX `Company` field, HTML `og:site_name` via trafilatura,
 otherwise empty. User overrides commonly set this for corpus-wide attribution.
 
 **Example empty:** `""`
