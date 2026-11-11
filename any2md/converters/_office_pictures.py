@@ -1,18 +1,20 @@
-"""Pictures in a PowerPoint deck or an Excel workbook.
+"""Pictures in Docling documents: PDF, Word, PowerPoint, and Excel.
 
-Docling's PowerPoint and Excel backends add every picture to the
-DoclingDocument, but its Markdown writes each one as a bare
-``<!-- image -->`` placeholder that structured-lane S1 deletes. This
-module turns each picture into the Markdown image S1 expects,
-``![text](link)``, so S1 writes ``*Figure: text*`` and keeps the link
-only under ``--save-images``, the same as for any other lane.
+Docling adds every picture to the DoclingDocument, but its Markdown
+writes each one as a bare ``<!-- image -->`` placeholder that
+structured-lane S1 deletes. This module turns each picture into the
+Markdown image S1 expects, ``![text](link)``, so S1 writes
+``*Figure: text*`` and keeps the link only under ``--save-images``.
+The DOCX mammoth lane builds the same images through mammoth's hooks,
+so every lane follows one rule.
 
-The figure text is the picture's Docling caption (a chart title), else
-the description Docling recorded (an image placed in a cell), else the
-alt text the author typed. Docling drops that alt text (the ``descr``
-attribute of the picture's ``cNvPr`` element), so this module reads it
-straight from the OOXML package and keys each entry by where the
-picture sits, to pair it with the Docling picture at the same place.
+The figure text is the picture's Docling caption (a PDF caption or a
+chart title), else a Word Caption paragraph right after the picture,
+else the description Docling recorded (an image placed in a cell), else
+the alt text the author typed. Docling drops that alt text, so this
+module reads it straight from the OOXML package and pairs it with the
+Docling picture: by position for PowerPoint and Excel, by document
+order for Word.
 
 The position key copies the arithmetic Docling uses for a picture's
 provenance box: slide EMUs mapped through every enclosing group's
@@ -608,7 +610,7 @@ def prepare_pictures(
         text = text or _description(item)
         if not text and entry is not None:
             text = entry.alt
-        elif not text and alt_texts.in_order is None:
+        elif not text and fmt in ("pptx", "xlsx"):
             key = _position_key(doc, item, fmt)
             text = alt_texts.take(*key) if key is not None else ""
         if getattr(item, "captions", None):

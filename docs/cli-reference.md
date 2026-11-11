@@ -282,21 +282,32 @@ stderr regardless of network availability.
 ### `--save-images`
 
 Keep the images of a document. Implies `--high-fidelity`, so it needs the
-`[high-fidelity]` install. What it does depends on the input format:
+`[high-fidelity]` install.
 
-| Input | Files written | Body |
+PDF, DOCX (both lanes), PPTX, and XLSX follow one rule for pictures:
+
+- **Figure line, with or without the flag.** A picture with text gets a
+  `*Figure: text*` line where it sits. The text is the first of: a caption
+  Docling links to the picture (a PDF figure caption or a chart title), a
+  Word Caption-style paragraph right after the picture (which then leaves
+  the body), the description Docling recorded, the alt text typed in Word,
+  PowerPoint, or Excel. A picture with none of these leaves no line.
+- **With `--save-images`.** Each picture is written to
+  `<output>/images/<source_stem>/imgN.<ext>`, numbered in document order, and
+  linked below its figure line as `![text](images/<source_stem>/imgN.<ext>)`,
+  or as `![](...)` alone when it has no text. Images are never inlined as
+  data URIs. A picture with no image data gets its figure line and no file.
+- An existing image file is left in place, not overwritten.
+
+Limits by format and lane:
+
+| Input | Figure text available | Saved files |
 |---|---|---|
-| PPTX, XLSX | `<output>/images/<source_stem>/imgN.png`, one per picture, numbered in document order | `![text](images/<source_stem>/imgN.png)` below each picture's `*Figure: text*` line, or `![](...)` alone for a picture with no text |
-| PDF (Docling) | `<output>/images/<source_stem>/imgN.png` | No image references |
-| DOCX (Docling) | None | No image references |
-| DOCX (mammoth) | None | Each image inline as `![alt](data:image/...;base64,...)` |
-
-Without `--save-images`, a PPTX or XLSX picture still leaves a
-`*Figure: text*` line when it has text: its Docling caption (a chart title),
-else the description Docling recorded, else the alt text typed in PowerPoint
-or Excel. A picture with none of these leaves no trace. DOCX and PDF pictures
-produce no `*Figure:*` line on either setting. A caption Docling links to a
-PDF picture stays in the body as a plain paragraph.
+| PPTX, XLSX | Chart title, Docling description, alt text | PNG. A chart Docling cannot render has no image data, so no file |
+| PDF (Docling) | A caption Docling's layout model links to the picture. A PDF has no alt text | PNG |
+| PDF (`--backend pymupdf4llm`) | None. This lane drops pictures | None |
+| DOCX (Docling) | Caption paragraph, alt text. Alt text pairs with Docling's pictures by document order, and is skipped for the file when the two picture counts disagree (for example a drawing Docling splits in two) | PNG. A linked (not embedded) image has no data, so no file |
+| DOCX (mammoth) | Caption paragraph, alt text | The image's own bytes and format: PNG, JPEG, GIF, BMP, TIFF, or WebP, at most 64 MiB. EMF, WMF, and SVG images get no file. A linked image is never read, so no file. With mammoth before 1.11 no image is read at all |
 
 **Use this when** the images are part of the document's content (architecture
 diagrams, figures referenced by ID in the prose) and downstream consumers can

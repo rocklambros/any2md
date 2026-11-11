@@ -188,7 +188,7 @@ def _extract_via_docling(
     a descriptor-backed source is not read a second time.
 
     When ``options.save_images`` is True, extracted picture images are
-    written to ``<output_dir>/images/<pdf_stem>/imgN.png``.
+    written to ``<output_dir>/images/<pdf_stem>/imgN.png`` and linked from the body.
 
     v1.1.0: uses the persistent ConverterCache rather than constructing
     a fresh DocumentConverter per call. On any convert exception the
@@ -217,23 +217,26 @@ def _extract_via_docling(
         evict_on_convert_failure("pdf", pipeline_opts)
         raise
 
-    if options.save_images:
-        pictures = getattr(result.document, "pictures", None) or []
-        if pictures:
-            images_dir = output_dir / "images" / safe_dir_name(src.stem)
-            images_dir.mkdir(parents=True, exist_ok=True)
-            for i, picture in enumerate(pictures):
-                try:
-                    pil_image = picture.get_image(result.document)
-                    if pil_image is None:
-                        continue
-                    img_path = images_dir / f"img{i + 1}.png"
-                    _save_image_safely(img_path, pil_image)
-                except Exception as e:  # noqa: BLE001
-                    _logging.warn(f"failed to save image {i}: {e}")
+    # The same picture handling as DOCX, PPTX, and XLSX: a caption Docling
+    # links to a picture becomes its figure line, and --save-images
+    # writes images/<stem>/imgN.png and links it. A PDF has no alt text.
+    from any2md.converters._office_pictures import (
+        PICTURE_TOKEN,
+        AltTexts,
+        fill_pictures,
+        prepare_pictures,
+    )
 
-    md = result.document.export_to_markdown()
-    return md, "docling"
+    doc = result.document
+    folder = safe_dir_name(src.stem)
+    image_dir = output_dir / "images" / folder if options.save_images else None
+    figures: dict[int, str] = {}
+    if getattr(doc, "pictures", None):
+        figures = prepare_pictures(
+            doc, "pdf", AltTexts(), image_dir, f"images/{folder}"
+        )
+    md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
+    return fill_pictures(doc, md, figures), "docling"
 
 
 def _extract_via_pymupdf4llm(doc: "pymupdf.Document") -> tuple[str, str]:

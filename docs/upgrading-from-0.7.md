@@ -189,7 +189,7 @@ The v0.7 flag set works unchanged in v1.0. The following flags are new:
 |---|---|
 | `--high-fidelity`, `-H` | Force the Docling backend for PDF / DOCX. Exit 1 if Docling is not installed. |
 | `--ocr-figures` | Run OCR on figures (Docling path). Implies `-H`. |
-| `--save-images` | Save extracted images to `<output>/images/` (PDF, PPTX, and XLSX). Implies `-H`. See the CLI reference for what each format writes. |
+| `--save-images` | Save extracted images to `<output>/images/` and link them from the body (PDF, DOCX, PPTX, and XLSX). Implies `-H`. See the CLI reference for what each format writes. |
 | `--auto-id` | Generate `document_id` as `{PREFIX}-{YYYY}-{TYPE}-{SHA8}`. |
 | `--meta KEY=VAL` | Set or override a frontmatter field. Repeatable. Comma values become arrays. Dotted keys are nested. |
 | `--meta-file PATH` | Load TOML defaults from `PATH`. Auto-discovery of `.any2md.toml` walks up from cwd when absent. |
