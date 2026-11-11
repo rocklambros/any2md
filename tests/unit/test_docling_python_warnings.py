@@ -113,3 +113,32 @@ def test_failed_docling_attempt_does_not_count_its_warnings(
     got = collected_warnings()
     reset_warnings()
     assert not any("outside page bounds" in w for w in got)
+
+
+def test_docx_warning_fallback_drops_the_discarded_lanes_warnings(
+    fixture_dir, tmp_output_dir, monkeypatch, capsys
+):
+    """After a msword_backend warning, mammoth's output is kept. Python
+    warnings and alt-text notes from the thrown-away Docling run must not
+    count, while the msword warning that caused the fallback still does."""
+
+    def fake(*args, **kwargs):
+        _docling_warning(args, kwargs)
+        capture = next(a for a in args if isinstance(a, DoclingWarningCapture))
+        capture.note("alt text could not be read")
+        return "# Docling output\n", "docling", ["list item dropped"]
+
+    monkeypatch.setattr(docx_mod, "has_docling", lambda: True)
+    monkeypatch.setattr(docx_mod, "_extract_via_docling", fake)
+    reset_warnings()
+
+    assert docx_mod.convert_docx(
+        fixture_dir / "table_heavy.docx", tmp_output_dir, force=True
+    )
+
+    got = collected_warnings()
+    reset_warnings()
+    assert not any("outside page bounds" in w for w in got)
+    assert not any("alt text could not be read" in w for w in got)
+    assert "docling.msword_backend: list item dropped" in got
+    assert "via docling→mammoth" in capsys.readouterr().out

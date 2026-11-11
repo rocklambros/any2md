@@ -586,6 +586,11 @@ def convert_docx(
             md_text, _ = _extract_via_mammoth(src, options, writer)
             extracted_via = "docling→mammoth (warning fallback)"
             lane = "text"
+            # Python warnings and alt-text notes describe the Docling
+            # output this fallback threw away, not the Markdown being
+            # written. The msword_backend warnings below stay, since they
+            # record why the fallback ran.
+            py_warnings = []
             add_warnings(
                 [
                     f"docling.msword_backend: {_sanitize_log_text(m)}"
