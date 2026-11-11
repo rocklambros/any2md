@@ -221,7 +221,7 @@ def enforce_heading_hierarchy(text: str, _options: "PipelineOptions") -> str:
       never treated as headings.
     """
     lines = text.split("\n")
-    headings = find_headings(lines)
+    headings = find_headings(text)
     if not headings:
         return text
 

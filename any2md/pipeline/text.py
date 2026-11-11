@@ -47,7 +47,7 @@ def _is_structural(line: str) -> bool:
 def repair_line_wraps(text: str, _options: "PipelineOptions") -> str:
     """T1: Join lines that look like soft wraps inside paragraphs."""
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     i = 0
     while i < len(lines):
@@ -134,7 +134,7 @@ def dehyphenate(text: str, _options: "PipelineOptions") -> str:
 
     out: list[str] = []
     lines = text.split("\n")
-    for code, start, end in fence_runs(fenced_lines(lines)):
+    for code, start, end in fence_runs(fenced_lines(text)):
         if code:
             out.extend(lines[start:end])
         else:
@@ -167,7 +167,7 @@ def strip_repeated_byline(text: str, options: "PipelineOptions") -> str:
     if options.profile not in ("aggressive", "maximum"):
         return text
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     for i, line in enumerate(lines):
         if fenced[i]:
@@ -205,7 +205,7 @@ def dedupe_paragraphs(text: str, _options: "PipelineOptions") -> str:
     them.
     """
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     if not any(fenced):
         return _dedupe_prose(text)
     # Dedupe each run of prose lines on its own and copy fenced runs
@@ -284,7 +284,7 @@ def _body_heading_titles(text: str) -> set[str]:
     lines = text.split("\n")
     # A "##" line inside fenced code is a comment, not a body heading, so
     # it must not count as a match for a TOC entry.
-    for line, code in zip(lines, fenced_lines(lines)):
+    for line, code in zip(lines, fenced_lines(text)):
         if code:
             continue
         level = len(line) - len(line.lstrip("#"))
@@ -304,7 +304,7 @@ def dedupe_toc_block(text: str, options: "PipelineOptions") -> str:
         return text
 
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     # Find the longest run of consecutive TOC-shaped lines starting near
     # the top. Fenced code ends the run: numbered code lines look like
     # TOC entries.
@@ -374,7 +374,7 @@ def dedupe_toc_table(text: str, options: "PipelineOptions") -> str:
 
     cutoff = max(1, int(len(lines) * 0.3))
     # A table inside fenced code is an example, not the document's TOC.
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
 
     # Find first table block within the first 30% of the doc.
     i = 0
@@ -462,7 +462,7 @@ def strip_running_headers_footers(text: str, _options: "PipelineOptions") -> str
     # Fence flags are per "\n" line, and a "\f" sits inside one such line.
     # Each page after the first starts on the line that holds its "\f",
     # so the line index advances only on a "\n" within a page.
-    fenced = fenced_lines(text.split("\n"))
+    fenced = fenced_lines(text)
     page_lines: list[list[tuple[str, bool]]] = []
     g = 0
     for page in pages:
@@ -531,7 +531,7 @@ def strip_orphan_punctuation(text: str, options: "PipelineOptions") -> str:
     lines = text.split("\n")
     return "\n".join(
         ln
-        for ln, code in zip(lines, fenced_lines(lines))
+        for ln, code in zip(lines, fenced_lines(text))
         if code or not _ORPHAN_PUNCT_RE.match(ln)
     )
 
@@ -542,7 +542,7 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
         return text
     text = strip_orphan_punctuation(text, options)
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     n = len(lines)
     # The nearest kept, non-fenced, non-blank line before the current one.
@@ -600,7 +600,7 @@ def restore_lists_and_code(text: str, _options: "PipelineOptions") -> str:
     not already inside a fence.
     """
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     i = 0
     while i < len(lines):
@@ -655,7 +655,7 @@ def strip_cover_artifacts(text: str, options: "PipelineOptions") -> str:
     if options.profile not in ("aggressive", "maximum"):
         return text
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     out: list[str] = []
     seen_h2 = False
     for i, line in enumerate(lines):

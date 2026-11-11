@@ -11,11 +11,11 @@ from any2md.pipeline.blocks import (
 
 
 def _flags(text: str) -> list[bool]:
-    return fenced_lines(text.split("\n"))
+    return list(fenced_lines(text))
 
 
 def _protected(text: str) -> list[bool]:
-    return protected_lines(text.split("\n"))
+    return protected_lines(text)
 
 
 # protected_lines covers fenced code and raw HTML blocks.
@@ -451,7 +451,7 @@ def test_lazy_marker_that_cannot_interrupt_starts_a_list():
 
 
 def _headings(text: str) -> list[tuple[int, int, int]]:
-    return find_headings(text.split("\n"))
+    return find_headings(text)
 
 
 def test_setext_h1_and_h2():
@@ -586,3 +586,32 @@ def test_separator_mid_line_does_not_shift_indent():
 )
 def test_fence_runs_cover_every_line_in_order(flags, runs):
     assert list(fence_runs(flags)) == runs
+
+
+def test_scan_runs_once_per_distinct_text(monkeypatch):
+    from any2md.pipeline import blocks
+
+    calls = []
+    real = blocks._scan_blocks
+
+    def counting(lines):
+        calls.append(len(lines))
+        return real(lines)
+
+    monkeypatch.setattr(blocks, "_scan_blocks", counting)
+    blocks._scan_text.cache_clear()
+    text = "a\n```\nx\n```\n# h"
+    same = "".join(list(text))  # equal text, different object
+    assert same is not text
+    fenced_lines(text)
+    fenced_lines(same)
+    find_headings(same)
+    protected_lines(text)
+    assert len(calls) == 1
+    fenced_lines(text + "\nmore")
+    assert len(calls) == 2
+    blocks._scan_text.cache_clear()
+
+
+def test_cached_flags_are_immutable():
+    assert isinstance(fenced_lines("```\nx\n```"), tuple)

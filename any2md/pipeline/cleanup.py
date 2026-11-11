@@ -19,7 +19,7 @@ def _map_outside_fences(text: str, fn: Callable[[str], str]) -> str:
     """Apply a per-line rewrite to every line outside fenced code."""
     lines = text.split("\n")
     return "\n".join(
-        line if code else fn(line) for line, code in zip(lines, fenced_lines(lines))
+        line if code else fn(line) for line, code in zip(lines, fenced_lines(text))
     )
 
 
@@ -106,7 +106,7 @@ def collapse_whitespace(text: str, _options: "PipelineOptions") -> str:
     lines = text.split("\n")
     n = len(lines)
     out: list[str] = []
-    for code, start, end in fence_runs(fenced_lines(lines)):
+    for code, start, end in fence_runs(fenced_lines(text)):
         if code:
             out.extend(lines[start:end])
         else:
@@ -230,7 +230,7 @@ def strip_footnote_markers(text: str, options: "PipelineOptions") -> str:
     if options.profile not in ("aggressive", "maximum"):
         return text
     lines = text.split("\n")
-    fenced = fenced_lines(lines)
+    fenced = fenced_lines(text)
     # A "## Notes" line inside a code sample is not the footnotes section.
     heading = next(
         (
@@ -260,7 +260,7 @@ def validate(text: str, _options: "PipelineOptions") -> str:
     lines = text.split("\n")
     levels = [
         len(m.group(1))
-        for line, code in zip(lines, fenced_lines(lines))
+        for line, code in zip(lines, fenced_lines(text))
         if not code and (m := _HEADING_RE.match(line))
     ]
     h1_count = sum(1 for level in levels if level == 1)

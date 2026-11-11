@@ -13,8 +13,10 @@ created an import cycle.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Iterator, Sequence
+from typing import NamedTuple
 
 
 def _blank_from(s: str, i: int) -> bool:
@@ -255,10 +257,36 @@ _QUOTE = -1
 Heading = tuple[int, int, int]
 
 
-def fenced_lines(lines: list[str]) -> list[bool]:
-    """Flag each line that belongs to a fenced code block, fences included."""
-    kinds, _ = _scan_blocks(lines)
-    return [bool(kind & _FENCE) for kind in kinds]
+class _BlockMap(NamedTuple):
+    kinds: tuple[int, ...]
+    setext: tuple[Heading, ...]
+    fenced: tuple[bool, ...]
+
+
+# Every lane stage asks for the map of the text it was handed, and most
+# stages return text equal to their input, so one text-lane run used to
+# scan the same body 15 or more times. Keying on the text makes a repeat
+# a hash lookup. Two entries cover a stage that also scans a slice of its
+# input (T4 and T7 read the body after a TOC). The cache holds whole
+# texts, so it stays small to bound memory on large documents. Results
+# are tuples, so no caller can change a cached map.
+_SCAN_CACHE_SIZE = 2
+
+
+@functools.lru_cache(maxsize=_SCAN_CACHE_SIZE)
+def _scan_text(text: str) -> _BlockMap:
+    kinds, setext = _scan_blocks(text.split("\n"))
+    return _BlockMap(
+        tuple(kinds), tuple(setext), tuple(bool(kind & _FENCE) for kind in kinds)
+    )
+
+
+def fenced_lines(text: str) -> tuple[bool, ...]:
+    """Flag each line that belongs to a fenced code block, fences included.
+
+    Lines are the pieces of ``text.split("\\n")``.
+    """
+    return _scan_text(text).fenced
 
 
 def fence_runs(fenced: Sequence[bool]) -> Iterator[tuple[bool, int, int]]:
@@ -276,7 +304,7 @@ def fence_runs(fenced: Sequence[bool]) -> Iterator[tuple[bool, int, int]]:
             start = k
 
 
-def protected_lines(lines: list[str]) -> list[bool]:
+def protected_lines(text: str) -> list[bool]:
     """Flag each line where a ``#`` is never a document heading.
 
     That is every line of a fenced code block, a raw HTML block, or a
@@ -284,15 +312,14 @@ def protected_lines(lines: list[str]) -> list[bool]:
     not to the document outline. Both heading passes (S4 and the HTML
     converter) skip these lines.
     """
-    kinds, _ = _scan_blocks(lines)
-    return [kind != _TEXT for kind in kinds]
+    return [kind != _TEXT for kind in _scan_text(text).kinds]
 
 
 # Leading form feeds and vertical tabs are zero width, as in _scan_blocks.
 _ATX_LINE_RE = re.compile(r"[\f\v]*(#{1,6})[ \t]+\S")
 
 
-def find_headings(lines: list[str]) -> list[Heading]:
+def find_headings(text: str) -> list[Heading]:
     """Return the headings S4 and the HTML lane rank, in document order.
 
     An ATX heading counts when it starts at column 0 outside fenced
@@ -302,7 +329,8 @@ def find_headings(lines: list[str]) -> list[Heading]:
     a block quote are left alone, the same rule the ATX pattern applies
     by requiring column 0.
     """
-    kinds, setext = _scan_blocks(lines)
+    kinds, setext, _ = _scan_text(text)
+    lines = text.split("\n")
     headings: list[Heading] = []
     nxt = 0  # the next setext heading not yet passed
     i = 0

@@ -141,7 +141,7 @@ def _ensure_h1(body: str, title: str | None) -> str:
     - Otherwise ``# <title>`` and a blank line are prepended.
     """
     lines = body.split("\n")
-    headings = find_headings(lines)
+    headings = find_headings(body)
     if any(level == 1 for _, _, level in headings):
         return body
 
@@ -189,7 +189,7 @@ def _normalize_heading_levels(body: str) -> str:
     returned unchanged.
     """
     lines = body.split("\n")
-    headings = find_headings(lines)
+    headings = find_headings(body)
     ranked = rank_heading_levels([level for _, _, level in headings])
     out: list[str] = []
     last = 0
