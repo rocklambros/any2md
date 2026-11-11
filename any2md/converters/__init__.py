@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from any2md import _logging
+from any2md._safe_open import SourceFile, as_source
 from any2md.pipeline import PipelineOptions
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".html", ".htm", ".txt"}
@@ -58,15 +59,21 @@ def is_verbose() -> bool:
 
 
 def convert_file(
-    file_path: Path,
+    file_path: Path | SourceFile,
     output_dir: Path,
     options: PipelineOptions | None = None,
     force: bool = False,
     strip_links_flag: bool = False,
 ) -> bool:
-    """Dispatch to the appropriate converter based on file extension."""
+    """Dispatch to the appropriate converter based on file extension.
+
+    ``file_path`` is a path the converter opens itself, or a
+    ``SourceFile`` from ``_safe_open.open_scanned`` whose bytes are
+    already read.
+    """
     if options is None:
         options = PipelineOptions(strip_links=strip_links_flag)
+    file_path = as_source(file_path)
     ext = file_path.suffix.lower()
     if ext == ".pdf":
         from any2md.converters.pdf import convert_pdf

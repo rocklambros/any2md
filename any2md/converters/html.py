@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 
 from any2md import _logging, pipeline
 from any2md._http import safe_fetch
+from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
@@ -24,7 +25,6 @@ from any2md.pipeline.structured import (
 )
 from any2md.utils import (
     atomic_write_text,
-    read_text_with_fallback,
     sanitize_filename,
     scrub_url_credentials,
     url_to_filename,
@@ -246,7 +246,7 @@ def _extract_metadata(
 
 
 def convert_html(
-    html_path: Path | None,
+    html_path: Path | SourceFile | None,
     output_dir: Path,
     options: PipelineOptions | None = None,
     force: bool = False,
@@ -256,13 +256,14 @@ def convert_html(
 ) -> bool:
     if options is None:
         options = PipelineOptions(strip_links=strip_links_flag)
+    src = as_source(html_path) if html_path is not None else None
 
     if source_url:
         out_name = url_to_filename(source_url)
         name_for_error = source_url
-    elif html_path is not None:
-        out_name = sanitize_filename(html_path.name)
-        name_for_error = html_path.name
+    elif src is not None:
+        out_name = sanitize_filename(src.name)
+        name_for_error = src.name
     else:
         print(
             "  FAIL: source_url or html_path required", file=sys.stderr
@@ -277,15 +278,15 @@ def convert_html(
     try:
         if html_content is not None:
             raw_html = html_content
-        elif html_path is not None:
-            file_size = html_path.stat().st_size
+        elif src is not None:
+            file_size = src.size()
             if file_size > _MAX_FILE_SIZE:
                 _logging.fail(
                     f"{name_for_error} -- file too large "
                     f"({file_size} bytes, max {_MAX_FILE_SIZE})"
                 )
                 return False
-            raw_html = read_text_with_fallback(html_path)
+            raw_html = src.read_text()
         else:
             print(
                 "  FAIL: html_content or html_path required", file=sys.stderr
@@ -319,7 +320,7 @@ def convert_html(
             keywords=keywords,
             pages=None,
             word_count=len(md_text.split()),
-            source_file=html_path.name if html_path else None,
+            source_file=src.name if src else None,
             source_url=source_url,
             doc_type="html",
             extracted_via=extracted_via,

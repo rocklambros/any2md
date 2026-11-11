@@ -7,10 +7,11 @@ from datetime import date
 from pathlib import Path
 
 from any2md import _logging, pipeline
+from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
-from any2md.utils import atomic_write_text, read_text_with_fallback, sanitize_filename
+from any2md.utils import atomic_write_text, sanitize_filename
 
 # Existing structurize() heuristic stays in this file from v0.7 — keep it.
 _SEPARATOR_RE = re.compile(r"^([=\-*_~])\1{2,}\s*$")
@@ -150,20 +151,21 @@ def structurize(text: str) -> str:
     return "\n".join(output)
 
 
-def _build_meta(txt_path: Path, body: str) -> SourceMeta:
+def _build_meta(txt_path: Path | SourceFile, body: str) -> SourceMeta:
+    src = as_source(txt_path)
+    try:
+        mtime_date: str | None = date.fromtimestamp(src.mtime()).isoformat()
+    except FileNotFoundError:
+        mtime_date = None
     return SourceMeta(
         title_hint=None,
         authors=[],
         organization=None,
-        date=(
-            date.fromtimestamp(txt_path.stat().st_mtime).isoformat()
-            if txt_path.exists()
-            else None
-        ),
+        date=mtime_date,
         keywords=[],
         pages=None,
         word_count=len(body.split()),
-        source_file=txt_path.name,
+        source_file=src.name,
         source_url=None,
         doc_type="txt",
         extracted_via="heuristic",
@@ -172,32 +174,36 @@ def _build_meta(txt_path: Path, body: str) -> SourceMeta:
 
 
 def convert_txt(
-    txt_path: Path,
+    txt_path: Path | SourceFile,
     output_dir: Path,
     options: PipelineOptions | None = None,
     force: bool = False,
     strip_links_flag: bool = False,
 ) -> bool:
-    """Convert a plain-text file to v1.0 SAGE-compatible Markdown."""
+    """Convert a plain-text file to v1.0 SAGE-compatible Markdown.
+
+    ``txt_path`` is a path, or a ``SourceFile`` the CLI already opened.
+    """
     if options is None:
         options = PipelineOptions(strip_links=strip_links_flag)
+    src = as_source(txt_path)
 
-    out_name = sanitize_filename(txt_path.name)
+    out_name = sanitize_filename(src.name)
     out_path = output_dir / out_name
     if out_path.exists() and not force:
         print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
         return True
 
     try:
-        raw_text = read_text_with_fallback(txt_path)
+        raw_text = src.read_text()
         if not raw_text.strip():
-            _logging.fail(f"{txt_path.name} -- empty file")
+            _logging.fail(f"{src.name} -- empty file")
             return False
 
         md_text = structurize(raw_text)
         md_text, warnings = pipeline.run(md_text, "text", options)
         add_warnings(warnings)
-        meta = _build_meta(txt_path, md_text)
+        meta = _build_meta(src, md_text)
         full = compose(md_text, meta, options, overrides=options.frontmatter_overrides)
 
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -211,5 +217,5 @@ def convert_txt(
         return True
 
     except (OSError, ValueError) as e:
-        _logging.fail(f"{txt_path.name} -- {e}")
+        _logging.fail(f"{src.name} -- {e}")
         return False
