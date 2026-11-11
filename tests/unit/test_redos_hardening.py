@@ -145,3 +145,12 @@ def test_f10_structurize_long_blank_run_in_indented_block():
     with _budget():
         out = structurize(body)
     assert "a" in out and "b" in out
+
+
+def test_picture_line_check_is_linear():
+    # A long alt text full of escapes, and a long destination with no
+    # closing parenthesis, both fail in one pass.
+    with _budget():
+        assert not text._is_picture_line("![" + "\\]" * 200_000)
+        assert not text._is_picture_line("[![a](" + "b" * 200_000)
+        assert not text._is_picture_line("[![" + "a" * 200_000 + "](b)](c")

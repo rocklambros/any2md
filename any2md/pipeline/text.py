@@ -28,6 +28,28 @@ _HEADING_RE = re.compile(r"^#{1,6}\s")
 _TABLE_RE = re.compile(r"^\s*\|")
 
 
+# The *Figure: text* line S1 and the mammoth lane write for a picture.
+_FIGURE_LINE_RE = re.compile(r"^\*Figure: [^\n]*\*$")
+# A line that is one Markdown image, ``![alt](url)``, or one image link,
+# ``[![alt](url)](url)``. The alt text and destination follow S1's
+# ``_IMG_LINK_RE``, which this module cannot import (structured imports
+# text). Each part has one way to match, so a long line costs linear time.
+_IMG = r"!\[(?:[^\[\]\\]|\\[\s\S])*\]\([^)\n]{1,2048}\)"
+_IMAGE_LINE_RE = re.compile(rf"{_IMG}|\[{_IMG}\]\([^)\n]{{1,2048}}\)")
+
+
+def _is_picture_line(stripped: str) -> bool:
+    """True for a stripped line that stands for a picture.
+
+    A figure line or an image line is short by nature, and two pictures
+    in a row can give the same line twice. Neither is a fragment or a
+    duplicate, and dropping one leaves a saved image unlinked or a
+    figure line without its image. Stages that drop short or repeated
+    lines skip these.
+    """
+    return bool(_FIGURE_LINE_RE.match(stripped) or _IMAGE_LINE_RE.fullmatch(stripped))
+
+
 def _is_structural(line: str) -> bool:
     """Return True for a line T1 never joins into or out of.
 
@@ -190,7 +212,7 @@ def _dedupe_prose(text: str) -> str:
     last = None
     for part in parts:
         normalized = part.strip()
-        if normalized and normalized == last:
+        if normalized and normalized == last and not _is_picture_line(normalized):
             continue
         out.append(part)
         last = normalized
@@ -497,7 +519,7 @@ def strip_running_headers_footers(text: str, _options: "PipelineOptions") -> str
         kept = []
         for ln, code in tagged:
             stripped = ln.strip()
-            if code:
+            if code or _is_picture_line(stripped):
                 kept.append(ln)
                 continue
             if stripped in repeated:
@@ -511,9 +533,6 @@ def strip_running_headers_footers(text: str, _options: "PipelineOptions") -> str
 
 _ORPHAN_PUNCT_RE = re.compile(r"^\s*[|>]+\s*$")
 _TERMINAL_PUNCT_RE = re.compile(r"[.!?:;]$")
-# The *Figure: text* line S1 writes for a picture.
-_FIGURE_LINE_RE = re.compile(r"^\*Figure: [^\n]*\*$")
-
 _HEADING_OR_KNOWN_SHORT_RE = re.compile(
     r"^(Contents|References|Appendix|Notes|Note:|Index|Glossary|"
     r"Acknowledgments|Abstract|Summary)\s*$",
@@ -587,8 +606,7 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
             and len(stripped) <= 25
             and not _TERMINAL_PUNCT_RE.search(stripped)
             and not _HEADING_OR_KNOWN_SHORT_RE.match(stripped)
-            # A figure line is short by nature and is not a fragment.
-            and not _FIGURE_LINE_RE.match(stripped)
+            and not _is_picture_line(stripped)
             and not stripped.startswith("#")
             and not stripped.startswith("-")
             and not stripped.startswith("|")
@@ -674,7 +692,7 @@ def strip_cover_artifacts(text: str, options: "PipelineOptions") -> str:
             continue
         if _FIRST_H2_RE.match(line):
             seen_h2 = True
-        if seen_h2 or i > 30:
+        if seen_h2 or i > 30 or _is_picture_line(line.strip()):
             out.append(line)
             continue
         if (
