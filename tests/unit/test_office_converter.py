@@ -970,10 +970,10 @@ _TORCH_FILE = "/venv/lib/python3.12/site-packages/torch/nn/modules/module.py"
 
 def _warn_from(filename, message):
     """Raise a UserWarning as if from ``filename``."""
-    import warnings
+    from tests._warnings import warn_from
 
     module = "docling_core.types" if "docling" in filename else "torch.nn"
-    warnings.warn_explicit(message, UserWarning, filename, 1, module=module)
+    warn_from(filename, module, message)
 
 
 def _docling_that_warns(monkeypatch, doc, during_render=False):
@@ -1131,3 +1131,58 @@ def test_docling_logs_still_reach_configured_handlers(monkeypatch, tmp_path):
 
     assert office.convert_office(book, tmp_path / "out", "xlsx", force=True) is False
     assert seen == ["not valid"]
+
+
+def test_xlsx_alt_text_reads_drawings_without_parsing_the_sheet(tmp_path, monkeypatch):
+    """The drawing of a sheet is found through the sheet's relationships,
+    so a large sheet costs no parse and does not hide its pictures."""
+    import zipfile
+
+    rows = [[f"value {i}"] for i in range(400)]
+    book = build_xlsx(
+        tmp_path / "book.xlsx",
+        {"Charts": rows},
+        pictures={"Charts": [SheetPicture(alt="Trend", cells=(1, 2, 4, 9))]},
+    )
+    with zipfile.ZipFile(book) as z:
+        sheet = z.getinfo("xl/worksheets/sheet1.xml").file_size
+        drawing = z.getinfo("xl/drawings/drawing1.xml").file_size
+    assert sheet > 4 * drawing
+    monkeypatch.setattr(office_pictures, "_MAX_PART_BYTES", 2 * drawing)
+
+    alt = office_pictures.read_alt_texts(SourceFile.from_path(book), "xlsx")
+
+    assert alt.take("Charts", (1, 2, 5, 10)) == "Trend"
+    assert alt.warning is None
+
+
+@pytest.mark.parametrize("fmt", ["pptx", "xlsx", "docx"])
+def test_alt_text_part_skipped_for_size_is_a_warning(tmp_path, monkeypatch, fmt):
+    """A part too large to read costs its alt text, and says so."""
+    from tests._office_fixtures import DocPicture, build_docx
+
+    if fmt == "pptx":
+        src = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
+    elif fmt == "xlsx":
+        src = build_xlsx(
+            tmp_path / "book.xlsx",
+            {"S": [["a"]]},
+            pictures={"S": [SheetPicture(alt="Trend")]},
+        )
+    else:
+        src = build_docx(tmp_path / "doc.docx", ["A.", DocPicture(alt="Chart")])
+    monkeypatch.setattr(office_pictures, "_MAX_PART_BYTES", 64)
+
+    alt = office_pictures.read_alt_texts(SourceFile.from_path(src), fmt)
+
+    assert alt.warning is not None
+    assert "alt text" in alt.warning and "larger than" in alt.warning
+
+
+def test_prepare_figures_is_annotated_like_prepare_pictures():
+    """Figures are keyed by the picture's self_ref, a string."""
+    import typing
+
+    returned = typing.get_type_hints(office._prepare_figures)["return"]
+    assert returned == dict[str, str]
+    assert returned == typing.get_type_hints(office_pictures.prepare_pictures)["return"]

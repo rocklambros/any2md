@@ -280,3 +280,47 @@ def test_reader_on_a_broken_package_finds_none(tmp_path):
     bad.write_bytes(b"PK\x03\x04 not a zip archive")
 
     assert read_alt_texts(SourceFile.from_path(bad), "docx").in_order is None
+
+
+_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
+
+def _raw_docx(path, body: str):
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+        ' xmlns:v="urn:schemas-microsoft-com:vml"'
+        ' xmlns:o="urn:schemas-microsoft-com:office:office"'
+        f' xmlns:mc="{_MC}">'
+        f"<w:body>{body}</w:body></w:document>"
+    )
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("word/document.xml", document)
+    return SourceFile.from_path(path)
+
+
+def test_reader_counts_an_alternate_content_picture_once(tmp_path):
+    """Word writes a drawing as mc:AlternateContent with a DrawingML
+    Choice and a VML Fallback. Docling reads one picture there, so the
+    reader must too, or the counts differ and alt text turns off for the
+    whole document."""
+    src = _raw_docx(
+        tmp_path / "d.docx",
+        "<w:p><w:r>"
+        "<mc:AlternateContent>"
+        '<mc:Choice Requires="wps"><w:drawing><wp:inline>'
+        '<wp:docPr id="1" name="P" descr="Chosen"/>'
+        "</wp:inline></w:drawing></mc:Choice>"
+        "<mc:Fallback><w:pict><v:shape>"
+        '<v:imagedata o:title="Fallback copy"/>'
+        "</v:shape></w:pict></mc:Fallback>"
+        "</mc:AlternateContent>"
+        "</w:r></w:p>"
+        '<w:p><w:r><w:pict><v:shape><v:imagedata o:title="Plain VML"/>'
+        "</v:shape></w:pict></w:r></w:p>",
+    )
+
+    alt = read_alt_texts(src, "docx")
+
+    assert alt.in_order == [WordPicture(alt="Chosen"), WordPicture(alt="Plain VML")]

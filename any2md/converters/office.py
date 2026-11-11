@@ -219,7 +219,7 @@ def _prepare_figures(
     fmt: OfficeFormat,
     writer: ImageWriter | None,
     capture: DoclingWarningCapture,
-) -> dict[int, str]:
+) -> dict[str, str]:
     """Build each picture's Markdown, staging images under --save-images.
 
     Images go to ``<output>/images/<name>/imgN.png``, the layout every
@@ -291,7 +291,7 @@ def convert_office(
 
     try:
         # Before Docling or the docProps reader inflate anything.
-        check_ooxml_archive(src)
+        check_ooxml_archive(src, fmt)
     except ArchiveRejected as e:
         _logging.fail(f"{src.name} -- {e}")
         return False

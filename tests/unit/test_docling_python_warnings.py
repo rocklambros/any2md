@@ -8,12 +8,13 @@ so they run without Docling installed.
 
 from __future__ import annotations
 
-import warnings
 
 import any2md.converters.docx as docx_mod
+from any2md._docling import DoclingWarningCapture
 import any2md.converters.pdf as pdf_mod
 from any2md.converters import collected_warnings, reset_warnings
 from any2md.pipeline import PipelineOptions
+from tests._warnings import warn_from
 
 _BBOX = "Provenance bbox coordinate b on page 2 is outside page bounds: value=9"
 
@@ -24,11 +25,11 @@ _DOCLING_FILE = "/venv/lib/python3.12/site-packages/docling_core/types/doc/docum
 def _docling_warning(args, kwargs):
     """Raise the bbox warning from a docling-core file, inside the capture
     the converter passed (positionally for DOCX, by name for PDF)."""
-    capture = kwargs.get("capture") or (args[4] if len(args) > 4 else None)
+    capture = kwargs.get("capture") or next(
+        a for a in args if isinstance(a, DoclingWarningCapture)
+    )
     with capture:
-        warnings.warn_explicit(
-            _BBOX, UserWarning, _DOCLING_FILE, 333, module="docling_core.types"
-        )
+        warn_from(_DOCLING_FILE, "docling_core.types", _BBOX)
 
 
 def _warn_then(result):
@@ -110,3 +111,32 @@ def test_failed_docling_attempt_does_not_count_its_warnings(
     got = collected_warnings()
     reset_warnings()
     assert not any("outside page bounds" in w for w in got)
+
+
+def test_docx_warning_fallback_drops_the_discarded_lanes_warnings(
+    fixture_dir, tmp_output_dir, monkeypatch, capsys
+):
+    """After a msword_backend warning, mammoth's output is kept. Python
+    warnings and alt-text notes from the thrown-away Docling run must not
+    count, while the msword warning that caused the fallback still does."""
+
+    def fake(*args, **kwargs):
+        _docling_warning(args, kwargs)
+        capture = next(a for a in args if isinstance(a, DoclingWarningCapture))
+        capture.note("alt text could not be read")
+        return "# Docling output\n", "docling", ["list item dropped"]
+
+    monkeypatch.setattr(docx_mod, "has_docling", lambda: True)
+    monkeypatch.setattr(docx_mod, "_extract_via_docling", fake)
+    reset_warnings()
+
+    assert docx_mod.convert_docx(
+        fixture_dir / "table_heavy.docx", tmp_output_dir, force=True
+    )
+
+    got = collected_warnings()
+    reset_warnings()
+    assert not any("outside page bounds" in w for w in got)
+    assert not any("alt text could not be read" in w for w in got)
+    assert "docling.msword_backend: list item dropped" in got
+    assert "via docling→mammoth" in capsys.readouterr().out

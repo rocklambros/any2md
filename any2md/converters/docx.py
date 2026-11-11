@@ -158,8 +158,7 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
 def _extract_via_docling(
     docx_path: Path | SourceFile,
     options: PipelineOptions | None = None,
-    output_dir: Path | None = None,
-    force: bool = False,
+    writer: ImageWriter | None = None,
     capture: DoclingWarningCapture | None = None,
 ) -> tuple[str, str, list[str]]:
     """Returns (markdown, 'docling', captured_warnings).
@@ -169,9 +168,9 @@ def _extract_via_docling(
     empty for clean runs. Raises on Docling errors.
 
     Each picture becomes ``![text](link)`` for S1, the same as for PPTX
-    and XLSX. Under ``--save-images`` (``options.save_images`` with an
-    ``output_dir``) each picture is written to
-    ``<output_dir>/images/<stem>/imgN.png`` and linked.
+    and XLSX. With a ``writer`` (``--save-images``) each picture is
+    staged as ``images/<stem>/imgN.png`` and linked. The caller commits
+    the staged images once the final Markdown is written.
 
     ``capture`` counts Python warnings from the conversion, export, and
     fill. The converter is built before it starts, so construction and
@@ -200,30 +199,18 @@ def _extract_via_docling(
     doc = result.document
     messages = list(cap.messages)
 
-    writer = None
     # A msword_backend warning makes convert_docx throw this output away
-    # for mammoth's, which then saves the images itself. Writing them here
-    # too would leave files the final Markdown never links.
-    discarded = bool(messages) and options is not None and options.docx_fallback_on_warn
-    if options is not None and options.save_images and output_dir is not None:
-        if not discarded:
-            writer = ImageWriter(output_dir, src.name, overwrite=force)
-    try:
-        with capture if capture is not None else nullcontext():
-            figures: dict[str, str] = {}
-            if getattr(doc, "pictures", None):
-                alt_texts = read_alt_texts(src, "docx")
-                if alt_texts.warning and capture is not None:
-                    capture.note(alt_texts.warning)
-                figures = prepare_pictures(doc, "docx", alt_texts, writer)
-            md = fill_pictures(export_markdown(doc), figures)
-    except Exception:
-        # The caller falls back to mammoth, which saves its own images.
-        if writer is not None:
-            writer.discard()
-        raise
-    if writer is not None:
-        writer.commit(md)
+    # for mammoth's, so staging its images would only cost time.
+    if messages and options is not None and options.docx_fallback_on_warn:
+        writer = None
+    with capture if capture is not None else nullcontext():
+        figures: dict[str, str] = {}
+        if getattr(doc, "pictures", None):
+            alt_texts = read_alt_texts(src, "docx")
+            if alt_texts.warning and capture is not None:
+                capture.note(alt_texts.warning)
+            figures = prepare_pictures(doc, "docx", alt_texts, writer)
+        md = fill_pictures(export_markdown(doc), figures)
     return md, "docling", messages
 
 
@@ -446,16 +433,16 @@ def _move_images_out_of_cells_and_headings(md: str) -> str:
 def _extract_via_mammoth(
     docx_path: Path | SourceFile,
     options: PipelineOptions,
-    output_dir: Path | None = None,
-    force: bool = False,
+    writer: ImageWriter | None = None,
 ) -> tuple[str, str]:
+    """Returns (markdown, 'mammoth+markdownify').
+
+    With a ``writer`` (``--save-images``) each embedded picture is staged
+    and linked. The caller commits the staged images once the final
+    Markdown is written.
+    """
     src = as_source(docx_path)
     safe = _mammoth_blocks_external_files()
-    writer = (
-        ImageWriter(output_dir, src.name, overwrite=force)
-        if options.save_images and output_dir is not None
-        else None
-    )
     kwargs: dict = {
         # mammoth before 1.11 cannot refuse a linked file, and its image
         # object does not say where the bytes come from, so no image is
@@ -467,31 +454,24 @@ def _extract_via_mammoth(
     }
     if safe:
         kwargs["external_file_access"] = False
-    try:
-        with src.open_binary() as f:
-            html_result = mammoth.convert_to_html(f, **kwargs)
-        md = markdownify.markdownify(
-            html_result.value,
-            heading_style="ATX",
-            bullets="-",
-            # mammoth never emits <thead>. Without inference markdownify 1.x
-            # writes an empty header row and demotes the real header.
-            table_infer_header=True,
-            # Inside a table cell or a heading markdownify writes a picture
-            # as its bare alt text. Keeping the image lets the step below
-            # move it out to its own figure.
-            keep_inline_images_in=_INLINE_IMAGE_PARENTS,
-        )
-        md = _move_images_out_of_cells_and_headings(md)
-        # The text lane has no S1, so the figure lines come from S1's own
-        # function here, giving the same lines as every other lane.
-        md = lift_figure_captions(md, options)
-    except Exception:
-        if writer is not None:
-            writer.discard()
-        raise
-    if writer is not None:
-        writer.commit(md)
+    with src.open_binary() as f:
+        html_result = mammoth.convert_to_html(f, **kwargs)
+    md = markdownify.markdownify(
+        html_result.value,
+        heading_style="ATX",
+        bullets="-",
+        # mammoth never emits <thead>. Without inference markdownify 1.x
+        # writes an empty header row and demotes the real header.
+        table_infer_header=True,
+        # Inside a table cell or a heading markdownify writes a picture
+        # as its bare alt text. Keeping the image lets the step below
+        # move it out to its own figure.
+        keep_inline_images_in=_INLINE_IMAGE_PARENTS,
+    )
+    md = _move_images_out_of_cells_and_headings(md)
+    # The text lane has no S1, so the figure lines come from S1's own
+    # function here, giving the same lines as every other lane.
+    md = lift_figure_captions(md, options)
     return md, "mammoth+markdownify"
 
 
@@ -514,10 +494,22 @@ def convert_docx(
         print(f"  SKIP (exists): {_logging.safe_oneline(out_name)}")
         return True
 
+    def new_writer() -> ImageWriter | None:
+        # One writer per lane attempt, so a lane whose output is thrown
+        # away takes its staged images with it.
+        if not options.save_images:
+            return None
+        return ImageWriter(output_dir, src.name, overwrite=force)
+
+    # Images the kept lane staged. They are published only after the
+    # Markdown is written, with that Markdown, so a failed write keeps the
+    # old images its old Markdown links and a link a pipeline stage drops
+    # publishes nothing. Anything that fails first discards them.
+    writer: ImageWriter | None = None
     try:
         # Before mammoth, Docling, or the docProps reader inflate anything.
         # A rejection is a ValueError, reported below as a per-file FAIL.
-        check_ooxml_archive(src)
+        check_ooxml_archive(src, "docx")
 
         # Backend override (PipelineOptions.backend). When set, honor the
         # caller's choice instead of the auto-select. ``pymupdf4llm`` is
@@ -534,22 +526,23 @@ def convert_docx(
         # raised falls back to mammoth, and its warnings go with it.
         py_warnings: list[str] = []
         if options.backend == "mammoth":
-            md_text, extracted_via = _extract_via_mammoth(
-                src, options, output_dir, force
-            )
+            writer = new_writer()
+            md_text, extracted_via = _extract_via_mammoth(src, options, writer)
             lane = "text"
         elif options.backend == "docling":
+            writer = new_writer()
             cap = DoclingWarningCapture()
             md_text, extracted_via, docling_warnings = _extract_via_docling(
-                src, options, output_dir, force, cap
+                src, options, writer, cap
             )
             py_warnings = cap.messages
             lane = "structured"
         elif has_docling():
+            writer = new_writer()
             try:
                 cap = DoclingWarningCapture()
                 md_text, extracted_via, docling_warnings = _extract_via_docling(
-                    src, options, output_dir, force, cap
+                    src, options, writer, cap
                 )
                 py_warnings = cap.messages
                 lane = "structured"
@@ -558,15 +551,15 @@ def convert_docx(
                     f"Docling extraction failed for {src.name}: {e}; "
                     f"falling back to mammoth."
                 )
-                md_text, extracted_via = _extract_via_mammoth(
-                    src, options, output_dir, force
-                )
+                if writer is not None:
+                    writer.discard()
+                writer = new_writer()
+                md_text, extracted_via = _extract_via_mammoth(src, options, writer)
                 lane = "text"
                 docling_warnings = []
         else:
-            md_text, extracted_via = _extract_via_mammoth(
-                src, options, output_dir, force
-            )
+            writer = new_writer()
+            md_text, extracted_via = _extract_via_mammoth(src, options, writer)
             lane = "text"
 
         # v1.0.5: Docling's DOCX backend silently drops list items in a
@@ -587,9 +580,17 @@ def convert_docx(
                 f"by Docling).",
                 prefix="FALLBACK",
             )
-            md_text, _ = _extract_via_mammoth(src, options, output_dir, force)
+            if writer is not None:
+                writer.discard()
+            writer = new_writer()
+            md_text, _ = _extract_via_mammoth(src, options, writer)
             extracted_via = "docling→mammoth (warning fallback)"
             lane = "text"
+            # Python warnings and alt-text notes describe the Docling
+            # output this fallback threw away, not the Markdown being
+            # written. The msword_backend warnings below stay, since they
+            # record why the fallback ran.
+            py_warnings = []
             add_warnings(
                 [
                     f"docling.msword_backend: {_sanitize_log_text(m)}"
@@ -621,6 +622,8 @@ def convert_docx(
 
         output_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_text(out_path, full)
+        if writer is not None:
+            writer.commit(full)
         wc = meta.word_count or 0
         suffix = f", {len(warnings)} warning(s)" if warnings else ""
         if not is_quiet():
@@ -633,3 +636,7 @@ def convert_docx(
     except (OSError, ValueError) as e:
         _logging.fail(f"{src.name} -- {e}")
         return False
+    finally:
+        # A no-op after commit. Otherwise it drops what failed to publish.
+        if writer is not None:
+            writer.discard()
