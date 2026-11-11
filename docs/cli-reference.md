@@ -293,7 +293,10 @@ SHA8 is the first 8 hex chars of `content_hash`.
 ### `--meta KEY=VAL`
 
 Set or override a frontmatter field. Repeatable. Comma-separated values become
-arrays. Dotted keys set nested fields.
+arrays. Dotted keys set nested fields. A repeated key keeps the last value, but
+a key that is both a plain value and a parent of dotted keys (for example
+`--meta organization=OWASP --meta organization.name=OWASP`) is an error, so no
+value is dropped silently.
 
 **Use this when** you have ad-hoc, per-invocation overrides — a one-off
 attribution, a flag from a build script, or a quick test of how a frontmatter
