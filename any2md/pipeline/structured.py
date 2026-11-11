@@ -197,10 +197,14 @@ def _render_heading(lines: list[str], heading: Heading, level: int) -> str:
     """
     first, last, _ = heading
     if first == last:
-        m = _HEADING_LINE_RE.match(lines[first])
+        line = lines[first]
+        # find_headings skips a leading page break, and the rewrite keeps
+        # it in front of the new marker so the page boundary survives.
+        body = line.lstrip("\f\v")
+        m = _HEADING_LINE_RE.match(body)
         if m is None:  # find_headings matched it, so this cannot happen
-            return lines[first]
-        return "#" * level + " " + m.group(2).rstrip()
+            return line
+        return line[: len(line) - len(body)] + "#" * level + " " + m.group(2).rstrip()
     return "#" * level + " " + setext_text(lines, heading)
 
 

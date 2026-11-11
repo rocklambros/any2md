@@ -149,3 +149,7 @@ def test_setext_heading_always_written_as_atx():
 def test_lazy_quote_line_heading_after_is_ranked():
     body = "# T\n\n> q\nlazy\n\n### Real\n"
     assert _normalize_heading_levels(body) == "# T\n\n> q\nlazy\n\n## Real\n"
+
+
+def test_page_break_before_heading_is_kept_when_ranked():
+    assert _normalize_heading_levels("# T\n\n\f### A\n") == "# T\n\n\f## A\n"

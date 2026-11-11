@@ -272,14 +272,16 @@ def protected_lines(lines: list[str]) -> list[bool]:
     return [kind != _TEXT for kind in kinds]
 
 
-_ATX_LINE_RE = re.compile(r"(#{1,6})[ \t]+\S")
+# Leading form feeds and vertical tabs are zero width, as in _scan_blocks.
+_ATX_LINE_RE = re.compile(r"[\f\v]*(#{1,6})[ \t]+\S")
 
 
 def find_headings(lines: list[str]) -> list[Heading]:
     """Return the headings S4 and the HTML lane rank, in document order.
 
     An ATX heading counts when it starts at column 0 outside fenced
-    code, raw HTML, and block quotes. A setext heading counts when its
+    code, raw HTML, and block quotes. Form feeds and vertical tabs
+    before it take no column. A setext heading counts when its
     paragraph sits at the top level. Headings nested in a list item or
     a block quote are left alone, the same rule the ATX pattern applies
     by requiring column 0.
@@ -309,7 +311,7 @@ def setext_text(lines: list[str], heading: Heading) -> str:
     # one line, so a hard break joins the same way and loses its marker:
     # strip() drops the trailing-spaces form, and _drop_hard_break drops
     # a final unescaped backslash. The last line has no break after it.
-    parts = [line.strip(" \t\r") for line in lines[first:last]]
+    parts = [line.strip(" \t\r\f\v") for line in lines[first:last]]
     parts = [_drop_hard_break(part) for part in parts[:-1]] + parts[-1:]
     text = " ".join(part for part in parts if part)
     head = text.rstrip("#")
@@ -330,6 +332,13 @@ def _drop_hard_break(part: str) -> str:
     if run % 2:
         return part[:-1].rstrip(" \t")
     return part
+
+
+# Form feeds and vertical tabs mark page breaks in extracted text. The
+# scanner reads them as zero width, so a fence, quote, list marker, or
+# heading right after a page break still counts, and a line holding
+# only them is blank, the same as Python's str.strip() sees it.
+_ZERO_WIDTH = str.maketrans("", "", "\f\v")
 
 
 def _skip_spaces(s: str, i: int) -> int:
@@ -370,7 +379,9 @@ def _scan_blocks(lines: list[str]) -> tuple[list[int], list[Heading]]:
     is a heading:
 
     - Tabs expand to 4-column stops in a working copy of each line before
-      indents and list markers are measured. The input is not changed.
+      indents and list markers are measured. Form feeds and vertical tabs
+      are dropped from that copy first, so a page break before a block
+      marker takes no column. The input is not changed.
     - Containers are block quotes and list items, tracked on one stack
       so they nest in any order. A quote line starts with ``>`` after at
       most three spaces, and one space after the ``>`` is part of the
@@ -426,6 +437,8 @@ def _scan_blocks(lines: list[str]) -> tuple[list[int], list[Heading]]:
     empty_item = -1  # stack index of a list item with no content yet, or -1
     for i, line in enumerate(lines):
         # After expansion every index equals its CommonMark column.
+        if "\f" in line or "\v" in line:
+            line = line.translate(_ZERO_WIDTH)
         work = line.expandtabs(4)
         size = len(work)
         end = _content_end(work)

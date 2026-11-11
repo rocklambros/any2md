@@ -524,3 +524,44 @@ def test_long_underline_run_is_linear():
 def test_empty_list_item_ends_at_blank_line():
     # An item may not open with a blank line, so "  ```" is top level.
     assert _flags("-\n\n  ```\nx") == [False, False, True, True]
+
+
+# Form feed and vertical tab: extractors put "\f" at page breaks, often
+# right before a block marker. The scanner reads both as zero width, so
+# the marker after them still counts.
+
+
+@pytest.mark.parametrize("sep", ["\f", "\v", "\f\v"])
+def test_separator_before_fence_opener(sep):
+    text = f"intro\n{sep}```\ncode\n```\nrest text\nmore"
+    assert _flags(text) == [False, True, True, True, False, False]
+
+
+def test_separator_before_fence_closer():
+    assert _flags("```\ncode\n\f```\nrest") == [True, True, True, False]
+
+
+def test_separator_before_quote_marker():
+    assert _protected("\f> # x\n\nb") == [True, False, False]
+
+
+def test_separator_before_list_marker():
+    assert _flags("\f- ```\n  x\n  ```\nb") == [True, True, True, False]
+
+
+def test_separator_only_line_is_blank():
+    # A blank line ends the quote, so "b" is not lazy quoted text.
+    assert _protected("> a\n\f\nb") == [True, False, False]
+
+
+def test_separator_before_atx_heading():
+    assert _headings("\f# Title\ntext") == [(0, 0, 1)]
+
+
+def test_separator_before_setext_underline():
+    assert _headings("Title\n\f===") == [(0, 1, 1)]
+
+
+def test_separator_mid_line_does_not_shift_indent():
+    # "\f" is zero width, so the fence still sits at column 3.
+    assert _flags("   \f```\nx\n```") == [True, True, True]

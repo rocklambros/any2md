@@ -60,3 +60,10 @@ def test_spaced_dash_at_line_end_keeps_space():
 def test_setext_underline_and_rules_not_joined(rule):
     text = f"Some heading text\n{rule}\nbody here\n"
     assert repair_line_wraps(text, PipelineOptions()) == text
+
+
+def test_form_feed_before_fence_does_not_hide_the_opener():
+    # The closer must not open a new fence that swallows the prose after it.
+    text = "intro\n\f```\ncode\n```\nrest text\nmore"
+    out = repair_line_wraps(text, PipelineOptions())
+    assert out == "intro\n\f```\ncode\n```\nrest text more"

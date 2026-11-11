@@ -197,7 +197,10 @@ def _normalize_heading_levels(body: str) -> str:
         if first == end:
             if new_level == level:
                 continue
-            line = "#" * new_level + lines[first][level:]
+            raw = lines[first]
+            # Keep a leading page break, which find_headings skips.
+            body = raw.lstrip("\f\v")
+            line = raw[: len(raw) - len(body)] + "#" * new_level + body[level:]
         else:
             line = "#" * new_level + " " + setext_text(lines, (first, end, level))
         out.extend(lines[last:first])
