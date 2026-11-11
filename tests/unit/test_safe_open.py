@@ -274,12 +274,9 @@ def test_each_stream_starts_at_zero_and_keeps_its_own_position(tree):
 def test_close_is_idempotent_and_blocks_later_reads(tree):
     root, _ = tree
     before = _open_fds()
-    src = so.open_scanned(root, Path("top.txt"), CAP)
-    try:
+    with so.open_scanned(root, Path("top.txt"), CAP) as src:
         assert _open_fds() == before + 1
-    finally:
-        src.close()
-    # A second close must be a no-op.
+    # The with block closed it once. A second close must be a no-op.
     src.close()
     assert _open_fds() == before
     with pytest.raises(ValueError, match="closed"):
