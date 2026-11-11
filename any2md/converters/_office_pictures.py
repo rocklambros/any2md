@@ -29,12 +29,12 @@ import posixpath
 import re
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Iterator
 
 from defusedxml.ElementTree import ParseError, fromstring
 
 from any2md import _logging
+from any2md._image_files import ImageWriter
 from any2md._safe_open import SourceFile
 from any2md.pipeline.structured import NO_IMAGE_LINK
 
@@ -515,20 +515,16 @@ def alt_markdown(text: str) -> str:
     return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
-def _save_picture(doc: Any, item: Any, image_path: Path) -> bool:
-    """Write the picture as a PNG. Returns False when it has no image data."""
-    from any2md.converters.pdf import _save_image_safely
-
+def _save_picture(doc: Any, item: Any, writer: ImageWriter, number: int) -> str | None:
+    """Save the picture as ``imgN.png``. Returns its link, or None without data."""
     try:
         pil_image = item.get_image(doc)
-        if pil_image is None:
-            return False
-        image_path.parent.mkdir(parents=True, exist_ok=True)
-        _save_image_safely(image_path, pil_image)
     except Exception as e:  # noqa: BLE001 -- one bad picture must not fail the file
-        _logging.warn(f"failed to save image {image_path.name}: {e}")
-        return False
-    return True
+        _logging.warn(f"failed to read image img{number}: {e}")
+        return None
+    if pil_image is None:
+        return None
+    return writer.write_png(number, pil_image)
 
 
 def _content_layer(name: str) -> Any | None:
@@ -580,14 +576,14 @@ def prepare_pictures(
     doc: Any,
     fmt: str,
     alt_texts: AltTexts,
-    image_dir: Path | None,
-    link_dir: str,
+    writer: ImageWriter | None,
 ) -> dict[int, str]:
     """Return the Markdown that stands in for each picture, keyed by ``id``.
 
-    With ``image_dir`` set (``--save-images``) each picture is written
-    there as ``imgN.png``, numbered in document order, and linked as
-    ``link_dir/imgN.png``. Captions move into the figure text, and each
+    With a ``writer`` (``--save-images``) each picture is saved through
+    it as ``imgN.png``, numbered in document order, and linked. The
+    caller runs ``writer.finish()`` once the document is done. Captions
+    move into the figure text, and each
     picture's caption list is cleared so Docling does not write the
     caption a second time as a plain paragraph.
 
@@ -616,11 +612,9 @@ def prepare_pictures(
         if getattr(item, "captions", None):
             item.captions = []
         link = None
-        if image_dir is not None:
+        if writer is not None:
             number += 1
-            name = f"img{number}.png"
-            if _save_picture(doc, item, image_dir / name):
-                link = f"{link_dir}/{name}"
+            link = _save_picture(doc, item, writer, number)
         if text or link:
             figures[id(item)] = f"![{alt_markdown(text)}]({link or NO_IMAGE_LINK})"
         else:

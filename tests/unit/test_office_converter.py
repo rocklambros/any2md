@@ -56,8 +56,11 @@ _BBOX = SimpleNamespace(l=0.0, t=0.0, r=1.0, b=1.0)
 class _FakeImage:
     """Stands in for a PIL image: ``save`` writes fixed bytes."""
 
+    def __init__(self, tag: bytes = b""):
+        self._tag = tag
+
     def save(self, fp, format):
-        fp.write(b"PNG:" + format.encode())
+        fp.write(b"PNG:" + format.encode() + self._tag)
 
 
 def _picture(caption="", description="", box=None, image=None, sheet=None):
@@ -557,6 +560,61 @@ def test_save_images_writes_and_links_each_picture(monkeypatch, tmp_path):
     # A picture without image data keeps its figure line and gets no link.
     assert "## Slide 3\n\n*Figure: No pixels*\n" in body
     assert "No pixels](" not in body
+
+
+def _run_saving(monkeypatch, deck, out, doc, force):
+    _fake_docling(monkeypatch, doc)
+    return office.convert_office(
+        deck, out, "pptx", options=PipelineOptions(save_images=True), force=force
+    )
+
+
+def test_force_regenerates_images_and_drops_stale_ones(monkeypatch, tmp_path):
+    deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
+    out = tmp_path / "out"
+    folder = out / "images" / "deck"
+    three = _FakeDoc({n: [_picture(image=_FakeImage(b"old"))] for n in (1, 2, 3)})
+    assert _run_saving(monkeypatch, deck, out, three, force=True)
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "img1.png",
+        "img2.png",
+        "img3.png",
+    ]
+
+    # The deck lost two pictures and its first one changed.
+    one = _FakeDoc({1: [_picture(image=_FakeImage(b"new"))]})
+    assert _run_saving(monkeypatch, deck, out, one, force=True)
+
+    assert sorted(p.name for p in folder.iterdir()) == ["img1.png"]
+    assert (folder / "img1.png").read_bytes() == b"PNG:PNGnew"
+    assert "img2" not in _body(out / "deck.md")
+
+
+def test_force_with_no_pictures_left_removes_every_old_image(monkeypatch, tmp_path):
+    deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
+    out = tmp_path / "out"
+    folder = out / "images" / "deck"
+    pictured = _FakeDoc({1: [_picture(image=_FakeImage())]})
+    assert _run_saving(monkeypatch, deck, out, pictured, force=True)
+
+    assert _run_saving(monkeypatch, deck, out, _FakeDoc({1: "Text only."}), force=True)
+
+    assert list(folder.iterdir()) == []
+
+
+def test_without_force_existing_output_leaves_images_alone(monkeypatch, tmp_path):
+    deck = build_pptx(tmp_path / "deck.pptx", [("a", "b")])
+    out = tmp_path / "out"
+    folder = out / "images" / "deck"
+    two = _FakeDoc({n: [_picture(image=_FakeImage(b"old"))] for n in (1, 2)})
+    assert _run_saving(monkeypatch, deck, out, two, force=True)
+
+    one = _FakeDoc({1: [_picture(image=_FakeImage(b"new"))]})
+    assert _run_saving(monkeypatch, deck, out, one, force=False)
+
+    # The Markdown exists, so the file is skipped and nothing is touched.
+    assert sorted(p.name for p in folder.iterdir()) == ["img1.png", "img2.png"]
+    assert (folder / "img1.png").read_bytes() == b"PNG:PNGold"
 
 
 def test_without_save_images_nothing_is_written(monkeypatch, tmp_path):

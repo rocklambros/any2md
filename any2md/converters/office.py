@@ -27,6 +27,7 @@ from any2md._docling import (
     has_docling,
 )
 from any2md._logging import _sanitize_log_text
+from any2md._image_files import ImageWriter
 from any2md._ooxml_guard import ArchiveRejected, check_ooxml_archive
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
@@ -40,7 +41,7 @@ from any2md.converters.docx import _read_docx_metadata
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
 from any2md.pipeline.structured import _render_heading, find_headings
-from any2md.utils import atomic_write_text, safe_dir_name, sanitize_filename
+from any2md.utils import atomic_write_text, sanitize_filename
 
 OfficeFormat = Literal["pptx", "xlsx"]
 
@@ -209,19 +210,26 @@ def _prepare_figures(
     fmt: OfficeFormat,
     output_dir: Path,
     options: PipelineOptions,
+    force: bool,
 ) -> dict[int, str]:
     """Build each picture's Markdown, saving images under --save-images.
 
-    Images go to ``<output>/images/<stem>/imgN.png``, the layout the PDF
-    converter uses, and the body links them by that relative path.
+    Images go to ``<output>/images/<stem>/imgN.png``, the layout every
+    converter uses, and the body links them by that relative path. With
+    ``force`` they are regenerated and stale ones removed, even when the
+    document has no pictures left.
     """
-    if not getattr(doc, "pictures", None):
-        return {}
-    folder = safe_dir_name(src.stem)
-    image_dir = output_dir / "images" / folder if options.save_images else None
-    return prepare_pictures(
-        doc, fmt, read_alt_texts(src, fmt), image_dir, f"images/{folder}"
+    writer = (
+        ImageWriter(output_dir, src.stem, overwrite=force)
+        if options.save_images
+        else None
     )
+    figures: dict[int, str] = {}
+    if getattr(doc, "pictures", None):
+        figures = prepare_pictures(doc, fmt, read_alt_texts(src, fmt), writer)
+    if writer is not None:
+        writer.finish()
+    return figures
 
 
 def _convert_via_docling(src: SourceFile, fmt: OfficeFormat) -> Any:
@@ -295,7 +303,7 @@ def convert_office(
             DoclingWarningCapture() as py_warnings,
         ):
             doc = _convert_via_docling(src, fmt)
-            figures = _prepare_figures(doc, src, fmt, output_dir, options)
+            figures = _prepare_figures(doc, src, fmt, output_dir, options, force)
             md_text = _render_markdown(doc, fmt, title, figures)
     except Exception as e:  # noqa: BLE001 -- untrusted input, fail this file only
         # Docling and its parsers raise many exception types on a corrupt

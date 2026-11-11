@@ -297,7 +297,15 @@ PDF, DOCX (both lanes), PPTX, and XLSX follow one rule for pictures:
   linked below its figure line as `![text](images/<source_stem>/imgN.<ext>)`,
   or as `![](...)` alone when it has no text. Images are never inlined as
   data URIs. A picture with no image data gets its figure line and no file.
-- An existing image file is left in place, not overwritten.
+- With `--force`, a document's images are regenerated: each `imgN` file is
+  overwritten, and any `imgN.*` in its `images/<source_stem>/` folder that
+  the run did not write is removed, so a document that lost a picture does
+  not keep its old file. Without `--force` a document whose `.md` exists is
+  skipped, and its images stay as they are.
+- Each file is written atomically (a temporary file in the same folder, then
+  a rename), a symlink is never written through, and nothing is written if
+  `images` or `images/<source_stem>` is a symlink or leads outside the
+  output directory.
 
 Limits by format and lane:
 

@@ -117,6 +117,19 @@ def test_mammoth_lane_save_images_writes_embedded_images_only(tmp_path):
     assert "data:" not in body
 
 
+def test_mammoth_force_rerun_drops_stale_images(tmp_path):
+    _mammoth(tmp_path, _BLOCKS, save_images=True)
+
+    # The document lost two pictures. A --force run removes their files.
+    out, body = _mammoth(
+        tmp_path, ["Intro.", DocPicture(alt="Only one")], save_images=True
+    )
+
+    folder = out / "images" / "report"
+    assert sorted(p.name for p in folder.iterdir()) == ["img1.png"]
+    assert "![Only one](images/report/img1.png)" in body
+
+
 def test_mammoth_without_safe_external_access_saves_no_images(tmp_path, monkeypatch):
     """A mammoth release before 1.11 cannot refuse linked files, so no
     image is read at all, and alt text still gives figure lines."""

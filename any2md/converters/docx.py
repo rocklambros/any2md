@@ -23,6 +23,7 @@ import markdownify
 
 from any2md import _logging, pipeline
 from any2md._docling import DoclingLogCapture, DoclingWarningCapture, has_docling
+from any2md._image_files import ImageWriter
 from any2md._ooxml_guard import check_ooxml_archive
 from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
 from any2md._safe_open import SourceFile, as_source
@@ -38,7 +39,7 @@ from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
 from any2md.pipeline.structured import NO_IMAGE_LINK, lift_figure_captions
-from any2md.utils import atomic_write_text, safe_dir_name, sanitize_filename
+from any2md.utils import atomic_write_text, sanitize_filename
 
 
 _DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
@@ -152,6 +153,7 @@ def _extract_via_docling(
     docx_path: Path | SourceFile,
     options: PipelineOptions | None = None,
     output_dir: Path | None = None,
+    force: bool = False,
 ) -> tuple[str, str, list[str]]:
     """Returns (markdown, 'docling', captured_warnings).
 
@@ -186,20 +188,19 @@ def _extract_via_docling(
     doc = result.document
     messages = list(cap.messages)
 
-    image_dir = None
-    folder = safe_dir_name(src.stem)
+    writer = None
     # A msword_backend warning makes convert_docx throw this output away
     # for mammoth's, which then saves the images itself. Writing them here
     # too would leave files the final Markdown never links.
     discarded = bool(messages) and options is not None and options.docx_fallback_on_warn
     if options is not None and options.save_images and output_dir is not None:
         if not discarded:
-            image_dir = output_dir / "images" / folder
+            writer = ImageWriter(output_dir, src.stem, overwrite=force)
     figures: dict[int, str] = {}
     if getattr(doc, "pictures", None):
-        figures = prepare_pictures(
-            doc, "docx", read_alt_texts(src, "docx"), image_dir, f"images/{folder}"
-        )
+        figures = prepare_pictures(doc, "docx", read_alt_texts(src, "docx"), writer)
+    if writer is not None:
+        writer.finish()
     md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
     return fill_pictures(doc, md, figures), "docling", messages
 
@@ -255,19 +256,13 @@ class _MammothImages:
     ``images/<stem>/imgN.<ext>``, numbered in document order. A linked
     image fails to open while ``external_file_access`` is off, so it
     keeps its figure line and gets no file.
+
+    ``writer`` is None when no image bytes may be read: without
+    ``--save-images``, and on a mammoth release before 1.11.
     """
 
-    def __init__(self, options: PipelineOptions, output_dir: Path | None, stem: str):
-        self._folder = safe_dir_name(stem)
-        # mammoth before 1.11 cannot refuse a linked file, and its image
-        # object does not say where the bytes come from, so no image is
-        # read at all on such a release.
-        self._read = (
-            options.save_images
-            and output_dir is not None
-            and _mammoth_blocks_external_files()
-        )
-        self._dir = output_dir / "images" / self._folder if output_dir else None
+    def __init__(self, writer: ImageWriter | None):
+        self._writer = writer
         self._number = 0
 
     def __call__(self, image) -> dict:
@@ -275,17 +270,16 @@ class _MammothImages:
         alt = " ".join((image.alt_text or "").split())
         if alt:
             attrs["alt"] = alt_markdown(alt)
-        if not self._read or self._dir is None:
+        if self._writer is None:
             return attrs
         self._number += 1
-        link = self._save(image, self._dir, self._number)
+        link = self._save(image, self._writer, self._number)
         if link:
             attrs["src"] = link
         return attrs
 
-    def _save(self, image, folder: Path, number: int) -> str | None:
-        from any2md.converters.pdf import _save_bytes_safely
-
+    @staticmethod
+    def _save(image, writer: ImageWriter, number: int) -> str | None:
         ext = _MAMMOTH_IMAGE_EXTENSIONS.get(image.content_type or "")
         if ext is None:
             return None
@@ -294,17 +288,10 @@ class _MammothImages:
                 data = f.read(_MAX_MAMMOTH_IMAGE_BYTES + 1)
         except Exception:  # noqa: BLE001 -- a linked or unreadable image keeps no file
             return None
-        name = f"img{number}.{ext}"
         if len(data) > _MAX_MAMMOTH_IMAGE_BYTES:
-            _logging.warn(f"image {name} is larger than 64 MiB, not saved")
+            _logging.warn(f"image img{number}.{ext} is larger than 64 MiB, not saved")
             return None
-        try:
-            folder.mkdir(parents=True, exist_ok=True)
-            _save_bytes_safely(folder / name, data)
-        except OSError as e:
-            _logging.warn(f"failed to save image {name}: {e}")
-            return None
-        return f"images/{self._folder}/{name}"
+        return writer.write_bytes(number, ext, data)
 
 
 def _is_caption(element) -> bool:
@@ -373,18 +360,30 @@ def _extract_via_mammoth(
     docx_path: Path | SourceFile,
     options: PipelineOptions,
     output_dir: Path | None = None,
+    force: bool = False,
 ) -> tuple[str, str]:
     src = as_source(docx_path)
+    safe = _mammoth_blocks_external_files()
+    writer = (
+        ImageWriter(output_dir, src.stem, overwrite=force)
+        if options.save_images and output_dir is not None
+        else None
+    )
     kwargs: dict = {
+        # mammoth before 1.11 cannot refuse a linked file, and its image
+        # object does not say where the bytes come from, so no image is
+        # read at all on such a release.
         "convert_image": mammoth.images.img_element(
-            _MammothImages(options, output_dir, src.stem)
+            _MammothImages(writer if safe else None)
         ),
         "transform_document": _lift_captions,
     }
-    if _mammoth_blocks_external_files():
+    if safe:
         kwargs["external_file_access"] = False
     with src.open_binary() as f:
         html_result = mammoth.convert_to_html(f, **kwargs)
+    if writer is not None:
+        writer.finish()
     md = markdownify.markdownify(
         html_result.value,
         heading_style="ATX",
@@ -437,12 +436,14 @@ def convert_docx(
         # raised falls back to mammoth, and its warnings go with it.
         py_warnings: list[str] = []
         if options.backend == "mammoth":
-            md_text, extracted_via = _extract_via_mammoth(src, options, output_dir)
+            md_text, extracted_via = _extract_via_mammoth(
+                src, options, output_dir, force
+            )
             lane = "text"
         elif options.backend == "docling":
             with DoclingWarningCapture() as cap:
                 md_text, extracted_via, docling_warnings = _extract_via_docling(
-                    src, options, output_dir
+                    src, options, output_dir, force
                 )
             py_warnings = cap.messages
             lane = "structured"
@@ -450,7 +451,7 @@ def convert_docx(
             try:
                 with DoclingWarningCapture() as cap:
                     md_text, extracted_via, docling_warnings = _extract_via_docling(
-                        src, options, output_dir
+                        src, options, output_dir, force
                     )
                 py_warnings = cap.messages
                 lane = "structured"
@@ -459,11 +460,15 @@ def convert_docx(
                     f"Docling extraction failed for {src.name}: {e}; "
                     f"falling back to mammoth."
                 )
-                md_text, extracted_via = _extract_via_mammoth(src, options, output_dir)
+                md_text, extracted_via = _extract_via_mammoth(
+                    src, options, output_dir, force
+                )
                 lane = "text"
                 docling_warnings = []
         else:
-            md_text, extracted_via = _extract_via_mammoth(src, options, output_dir)
+            md_text, extracted_via = _extract_via_mammoth(
+                src, options, output_dir, force
+            )
             lane = "text"
 
         # v1.0.5: Docling's DOCX backend silently drops list items in a
@@ -484,7 +489,7 @@ def convert_docx(
                 f"by Docling).",
                 prefix="FALLBACK",
             )
-            md_text, _ = _extract_via_mammoth(src, options, output_dir)
+            md_text, _ = _extract_via_mammoth(src, options, output_dir, force)
             extracted_via = "docling→mammoth (warning fallback)"
             lane = "text"
             add_warnings(

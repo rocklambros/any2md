@@ -9,8 +9,6 @@ beyond surfacing the requested backend in extracted_via.
 
 from __future__ import annotations
 
-import errno
-import os
 from datetime import date
 from pathlib import Path
 
@@ -19,12 +17,13 @@ import pymupdf4llm
 
 from any2md import _logging, pipeline
 from any2md._docling import DoclingWarningCapture, has_docling, install_hint
+from any2md._image_files import ImageWriter
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
-from any2md.utils import atomic_write_text, safe_dir_name, sanitize_filename
+from any2md.utils import atomic_write_text, sanitize_filename
 
 
 def _parse_pdf_authors(raw: str | None) -> list[str]:
@@ -62,47 +61,6 @@ def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
             k.strip() for k in (meta.get("keywords") or "").split(",") if k.strip()
         ],
     }
-
-
-def _save_image_safely(img_path: Path, pil_image) -> None:
-    """Save ``pil_image`` to ``img_path`` refusing to follow symlinks.
-
-    Uses ``O_EXCL|O_NOFOLLOW`` to defuse a TOCTOU race between an
-    is_symlink() check and the actual write. On EEXIST we skip
-    (image already saved this run); on ELOOP we warn and skip.
-    """
-    fd = _open_new_image(img_path)
-    if fd is None:
-        return
-    with os.fdopen(fd, "wb") as fp:
-        pil_image.save(fp, format="PNG")
-
-
-def _save_bytes_safely(img_path: Path, data: bytes) -> None:
-    """Write ``data`` to ``img_path`` with the same no-follow rules.
-
-    For an image kept in its own format, such as one mammoth reads from
-    a DOCX package.
-    """
-    fd = _open_new_image(img_path)
-    if fd is None:
-        return
-    with os.fdopen(fd, "wb") as fp:
-        fp.write(data)
-
-
-def _open_new_image(img_path: Path) -> int | None:
-    """Create ``img_path`` for writing, or None when it exists or is a link."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        return os.open(img_path, flags, 0o600)
-    except FileExistsError:
-        return None  # already exists, leave it
-    except OSError as e:
-        if getattr(e, "errno", None) in (errno.ELOOP, errno.EMLINK):
-            _logging.warn(f"refusing to write through symlink at {img_path}")
-            return None
-        raise
 
 
 def _open_pdf(src: SourceFile, data: bytes | None = None) -> "pymupdf.Document":
@@ -181,6 +139,7 @@ def _extract_via_docling(
     options: PipelineOptions,
     output_dir: Path,
     data: bytes | None = None,
+    force: bool = False,
 ) -> tuple[str, str]:
     """Returns (markdown, 'docling'). Raises on Docling errors.
 
@@ -188,7 +147,9 @@ def _extract_via_docling(
     a descriptor-backed source is not read a second time.
 
     When ``options.save_images`` is True, extracted picture images are
-    written to ``<output_dir>/images/<pdf_stem>/imgN.png`` and linked from the body.
+    written to ``<output_dir>/images/<pdf_stem>/imgN.png`` and linked
+    from the body. With ``force`` they are regenerated and stale ones
+    removed.
 
     v1.1.0: uses the persistent ConverterCache rather than constructing
     a fresh DocumentConverter per call. On any convert exception the
@@ -228,13 +189,16 @@ def _extract_via_docling(
     )
 
     doc = result.document
-    folder = safe_dir_name(src.stem)
-    image_dir = output_dir / "images" / folder if options.save_images else None
+    writer = (
+        ImageWriter(output_dir, src.stem, overwrite=force)
+        if options.save_images
+        else None
+    )
     figures: dict[int, str] = {}
     if getattr(doc, "pictures", None):
-        figures = prepare_pictures(
-            doc, "pdf", AltTexts(), image_dir, f"images/{folder}"
-        )
+        figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
+    if writer is not None:
+        writer.finish()
     md = doc.export_to_markdown(image_placeholder=PICTURE_TOKEN)
     return fill_pictures(doc, md, figures), "docling"
 
@@ -313,7 +277,7 @@ def convert_pdf(
                 try:
                     with DoclingWarningCapture() as cap:
                         md_text, extracted_via = _extract_via_docling(
-                            src, options, output_dir, data=data
+                            src, options, output_dir, data=data, force=force
                         )
                     py_warnings = cap.messages
                     lane = "structured"
