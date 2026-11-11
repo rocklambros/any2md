@@ -317,20 +317,20 @@ class SourceMeta:
 
 | Field | Filled by | Required for SAGE contract |
 |---|---|---|
-| `title_hint` | All converters when source metadata has a title (PDF `/Title`, DOCX `dc:title`, HTML `<title>`, otherwise `None`) | No — `frontmatter.derive_title` falls back to first H1, then filename |
-| `authors` | PDF (`/Author` parsed), DOCX (`dc:creator`), HTML (`<meta name="author">`), TXT (always `[]`). v1.0.2 adds body-text extraction and an arxiv API enrichment via `heuristics.extract_authors`. | No — empty `[]` is valid |
-| `organization` | PDF/DOCX `Company`, HTML `og:site_name`, otherwise `None`. v1.0.2 routes the PDF `Creator` field and DOCX `<Application>` element through `heuristics.filter_organization` so software values populate `produced_by` instead. | No — empty `""` is valid |
-| `produced_by` | PDF `Creator` field (when it matches a known software pattern); DOCX `<Application>` element of `docProps/app.xml`; otherwise `None`. New in v1.0.2. | No — extension field |
-| `seo_title` | HTML/URL only: trafilatura's metadata title (`og:title` / `<title>`). `compose()` emits it only when it differs from the final `title`, which follows the body H1. Before the pipeline runs, the HTML converter restores that H1 from the page's single `<h1>` (else the metadata title) when trafilatura drops it. New in v1.2.0. | No — extension field |
-| `date` | PDF `creationDate`, DOCX `dcterms:modified`, URL `Last-Modified` HEAD response, file mtime, today | Yes — derived to today if all sources fail |
-| `keywords` | PDF `/Keywords`, DOCX `cp:keywords`, HTML `<meta name="keywords">`, trafilatura `categories`, otherwise `[]` | No — emitted only when non-empty |
-| `pages` | PDF only (page count via `pymupdf.open`); other formats `None` | No — extension field |
-| `word_count` | DOCX, PPTX, XLSX, HTML, TXT (whitespace-split count); PDF `None` | No — extension field |
-| `source_file` | All file inputs; URL inputs `None` | No — extension field |
-| `source_url` | URL inputs only; file inputs `None` | No — extension field |
-| `doc_type` | All converters | Yes — emitted as `type` in the YAML |
-| `extracted_via` | All converters | Yes — non-SAGE extension but required for traceability |
-| `lane` | All converters | Yes — drives pipeline routing |
+| `title_hint` | All converters when source metadata has a title (PDF `/Title`, DOCX `dc:title`, HTML `<title>`, otherwise `None`) | No: `frontmatter.derive_title` falls back to first H1, then filename |
+| `authors` | PDF (`/Author` parsed), DOCX (`dc:creator`), HTML (`<meta name="author">`), TXT (always `[]`). v1.0.2 adds body-text extraction and an arxiv API enrichment via `heuristics.extract_authors`. | No: empty `[]` is valid |
+| `organization` | PDF/DOCX `Company`, HTML `og:site_name`, otherwise `None`. v1.0.2 routes the PDF `Creator` field and DOCX `<Application>` element through `heuristics.filter_organization` so software values populate `produced_by` instead. | No: empty `""` is valid |
+| `produced_by` | PDF `Creator` field (when it matches a known software pattern); DOCX `<Application>` element of `docProps/app.xml`; otherwise `None`. New in v1.0.2. | No: extension field |
+| `seo_title` | HTML/URL only: trafilatura's metadata title (`og:title` / `<title>`). `compose()` emits it only when it differs from the final `title`, which follows the body H1. Before the pipeline runs, the HTML converter restores that H1 from the page's single `<h1>` (else the metadata title) when trafilatura drops it. New in v1.2.0. | No: extension field |
+| `date` | PDF `creationDate`, DOCX `dcterms:modified`, URL `Last-Modified` HEAD response, file mtime, today | Yes: derived to today if all sources fail |
+| `keywords` | PDF `/Keywords`, DOCX `cp:keywords`, HTML `<meta name="keywords">`, trafilatura `categories`, otherwise `[]` | No: emitted only when non-empty |
+| `pages` | PDF only (page count via `pymupdf.open`); other formats `None` | No: extension field |
+| `word_count` | DOCX, PPTX, XLSX, HTML, TXT (whitespace-split count); PDF `None` | No: extension field |
+| `source_file` | All file inputs; URL inputs `None` | No: extension field |
+| `source_url` | URL inputs only; file inputs `None` | No: extension field |
+| `doc_type` | All converters | Yes: emitted as `type` in the YAML |
+| `extracted_via` | All converters | Yes: non-SAGE extension but required for traceability |
+| `lane` | All converters | Yes: drives pipeline routing |
 
 The four "required" fields above are required for the v1.0 contract to be
 fillable, not for SAGE strict conformance. Strict SAGE has a different

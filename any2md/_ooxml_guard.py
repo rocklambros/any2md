@@ -26,7 +26,7 @@ from any2md._safe_open import SourceFile
 # inflated XML, not on the size the user allowed on disk.
 MAX_TOTAL_UNCOMPRESSED = 1024 * 1024 * 1024
 
-# Office XML compresses about 10 to 30 times, and very repetitive sheet
+# Office XML compresses about 10 to 30 times, and highly repetitive sheet
 # XML can reach 100. Deflate tops out near 1030, which is where bombs
 # sit. 250 leaves room for odd but honest files.
 MAX_COMPRESSION_RATIO = 250
