@@ -59,3 +59,30 @@ def test_keeps_short_line_after_unterminated_paragraph():
     text = "A paragraph with no period\n\nshort line\n\nThe body paragraph.\n"
     out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
     assert out == text
+
+
+def test_drops_consecutive_fragments_without_blank_run():
+    # A dropped line must not become the "text before" the next one, and
+    # each drop takes its trailing blank line with it.
+    text = "A sentence.\n\nfrag one\n\nfrag two\n\nMore text here."
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == "A sentence.\n\nMore text here."
+
+
+def test_drop_leaves_one_blank_line():
+    text = "Real paragraph here.\n\nfragment text\n\nAnother real paragraph follows.\n"
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == "Real paragraph here.\n\nAnother real paragraph follows.\n"
+
+
+def test_fenced_lines_are_not_the_text_before():
+    # The closing fence is code, so the sentence before the block decides.
+    text = "A sentence.\n\n```\ncode\n```\n\nfrag text\n\nMore prose here."
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == "A sentence.\n\n```\ncode\n```\n\nMore prose here."
+
+
+def test_kept_short_line_is_the_text_before():
+    text = "No period here\n\nshort line\n\nfrag two\n\nThe body paragraph.\n"
+    out = strip_web_fragments(text, PipelineOptions(profile="aggressive"))
+    assert out == text

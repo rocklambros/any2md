@@ -554,26 +554,36 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
     fenced = fenced_lines(lines)
     out: list[str] = []
     n = len(lines)
-    # Last non-blank source line before the current one. The v1.0.2 spec
-    # (section 5.5) drops a short line only when the text before it ended
-    # a sentence, since that is the shape of a fragment trafilatura cut
-    # from the start of a new paragraph. Without that check the stage
-    # dropped a plain-text title on line one and any short line after a
-    # heading, with no warning.
+    # The nearest kept, non-fenced, non-blank line before the current one.
+    # The v1.0.2 spec (section 5.5) drops a short line only when the text
+    # before it ended a sentence, since that is the shape of a fragment
+    # trafilatura cut from the start of a new paragraph. Without that
+    # check the stage dropped a plain-text title on line one and any
+    # short line after a heading, with no warning. A dropped line never
+    # becomes the text before, so a run of fragments goes as one, and a
+    # closing fence is code, not the end of a sentence.
     prev_text = ""
+    skip_blank = False
     for i, line in enumerate(lines):
         stripped = line.strip()
+        if skip_blank:
+            # The blank line after a dropped fragment goes with it. The
+            # blank before it already separates its neighbors, and
+            # keeping both would leave a run of blank lines per drop.
+            skip_blank = False
+            if not stripped:
+                continue
+        if fenced[i]:
+            out.append(line)
+            continue
         follows_sentence = bool(
             prev_text
             and not prev_text.startswith("#")
             and _TERMINAL_PUNCT_RE.search(prev_text)
         )
-        if stripped:
-            prev_text = stripped
         # Short incomplete sentence between blank lines
         if (
             follows_sentence
-            and not fenced[i]
             and stripped
             and len(stripped) <= 25
             and not _TERMINAL_PUNCT_RE.search(stripped)
@@ -584,7 +594,10 @@ def strip_web_fragments(text: str, options: "PipelineOptions") -> str:
             and (i == 0 or not lines[i - 1].strip())
             and (i == n - 1 or not lines[i + 1].strip())
         ):
+            skip_blank = True
             continue
+        if stripped:
+            prev_text = stripped
         out.append(line)
     return "\n".join(out)
 
