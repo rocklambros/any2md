@@ -231,6 +231,34 @@ def test_token_export_matches_doclings_own_markdown(tmp_path):
     )
 
 
+def test_render_time_grows_linearly_with_slides(tmp_path):
+    """Eight times the slides may take about eight times as long to render,
+    not sixty-four. Exporting each slide by page filter walked the whole
+    deck once per slide (96 s for 600 slides, against 0.18 s now)."""
+    import time
+
+    from any2md._docling_cache import get_office_converter
+    from any2md.converters import office
+
+    def best_render(n):
+        slides = [
+            Slide(title=[f"T{i}"], body=f"Body {i}.", pictures=[Picture(alt=f"P{i}")])
+            for i in range(n)
+        ]
+        deck = build_pptx(tmp_path / f"d{n}.pptx", slides)
+        doc = get_office_converter("pptx").convert(deck).document
+        times = []
+        for _ in range(3):
+            start = time.perf_counter()
+            md = office._render_markdown(doc, "pptx", "Deck", {})
+            times.append(time.perf_counter() - start)
+        assert md.count("\n## ") == n
+        return min(times)
+
+    small, large = best_render(40), best_render(320)
+    assert large / small < 20
+
+
 def test_xlsx_sheets_render_as_tables_under_headings(tmp_path):
     book = build_xlsx(
         tmp_path / "budget.xlsx",

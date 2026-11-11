@@ -88,27 +88,26 @@ class _FakeDoc:
     """The slice of DoclingDocument that ``office`` reads.
 
     ``pages`` maps page number to Markdown, or to a list of items: a
-    ``(label, text)`` pair or a ``_picture`` object. A "title" item
-    renders as ``# text`` and a picture as the image placeholder, the
-    way Docling writes them. Every item carries a provenance entry for
-    its page unless listed in ``orphans``.
+    ``(label, text)`` pair or a ``_picture`` object. Each page's items
+    sit in one group directly under the body, the way Docling builds a
+    deck (a "chapter" group per slide) or a workbook (a "sheet" group per
+    sheet, named from ``sheet_names``). A "title" item renders as
+    ``# text`` and a picture as its token. Every item carries a
+    provenance entry for its page, except the ``orphans`` added to the
+    last group. ``loose`` adds a body child that is not a page group.
     """
 
-    def __init__(self, pages, sheet_names=(), orphans=0, page_filter=True):
-        self._pages = {
-            n: [("paragraph", spec)] if isinstance(spec, str) else list(spec)
-            for n, spec in dict(pages).items()
-        }
-        self.pages = {n: object() for n in self._pages}
-        self.groups = [
-            SimpleNamespace(name=n, label=_label("sheet")) for n in sheet_names
-        ]
-        self._items = []
-        for n, items in self._pages.items():
-            for spec in items:
+    def __init__(self, pages, sheet_names=(), orphans=0, loose=False):
+        label = "sheet" if sheet_names else "chapter"
+        self._groups = []
+        count = 0
+        for i, (n, spec) in enumerate(dict(pages).items()):
+            specs = [("paragraph", spec)] if isinstance(spec, str) else list(spec)
+            items = []
+            for spec in specs:
                 if isinstance(spec, tuple):
-                    label, text = spec
-                    spec = SimpleNamespace(label=_label(label), text=text, prov=[])
+                    kind, text = spec
+                    spec = SimpleNamespace(label=_label(kind), text=text, prov=[])
                 if not spec.prov:
                     box = getattr(spec, "box", None)
                     bbox = (
@@ -118,23 +117,44 @@ class _FakeDoc:
                     )
                     spec.prov = [SimpleNamespace(page_no=n, bbox=bbox)]
                 if not getattr(spec, "self_ref", None):
-                    spec.self_ref = f"#/items/{len(self._items)}"
-                self._items.append(spec)
-        self._items += [
-            SimpleNamespace(label=_label("paragraph"), text="", prov=[])
-        ] * orphans
-        self._page_filter = page_filter
+                    spec.self_ref = f"#/items/{count}"
+                count += 1
+                items.append(spec)
+            name = sheet_names[i] if i < len(sheet_names) else f"slide-{n - 1}"
+            self._groups.append(
+                SimpleNamespace(label=_label(label), name=name, items=items)
+            )
+        if self._groups:
+            self._groups[-1].items += [
+                SimpleNamespace(label=_label("paragraph"), text="", prov=[])
+                for _ in range(orphans)
+            ]
+        children = list(self._groups)
+        if loose:
+            loose_item = SimpleNamespace(
+                label=_label("text"),
+                text="Loose",
+                prov=[SimpleNamespace(page_no=1, bbox=_BBOX)],
+                self_ref="#/texts/loose",
+            )
+            children.append(
+                SimpleNamespace(label=_label("text"), name="", items=[loose_item])
+            )
+        self.body = SimpleNamespace(
+            children=[SimpleNamespace(resolve=lambda doc, g=g: g) for g in children]
+        )
 
     @property
     def pictures(self):
-        return [i for i in self._items if i.label.value == "picture"]
+        return [i for i, _ in self.iterate_items() if i.label.value == "picture"]
 
-    def iterate_items(self, page_no=None, **_kwargs):
-        for item in self._items:
-            if page_no is None or (item.prov and item.prov[0].page_no == page_no):
+    def iterate_items(self, root=None, **_kwargs):
+        groups = [root] if root is not None else self._groups
+        for group in groups:
+            for item in group.items:
                 yield item, 1
 
-    def _render(self, item, kwargs):
+    def _render(self, item):
         label = item.label.value
         if label == "title":
             return f"# {item.text}"
@@ -148,16 +168,12 @@ class _FakeDoc:
             )
         return item.text
 
-    def export_to_markdown(self, **kwargs):
-        page_no = kwargs.get("page_no")
-        if page_no is not None and not self._page_filter:
-            raise TypeError("unexpected keyword argument 'page_no'")
-        allowed = kwargs.get("labels")
-        wanted = None if allowed is None else {lab.value for lab in allowed}
+    def export_to_markdown(self, labels=None, item=None):
+        wanted = None if labels is None else {lab.value for lab in labels}
         parts = [
-            self._render(item, kwargs)
-            for item, _ in self.iterate_items(page_no=page_no)
-            if wanted is None or item.label.value in wanted
+            self._render(it)
+            for it, _ in self.iterate_items(root=item)
+            if wanted is None or it.label.value in wanted
         ]
         return "\n\n".join(p for p in parts if p)
 
@@ -393,15 +409,21 @@ def test_item_without_page_falls_back_to_whole_document():
     assert "# Two" in md
 
 
-def test_sheet_count_mismatch_falls_back():
-    doc = _FakeDoc({1: "t1", 2: "t2"}, sheet_names=["only one"])
-    assert office._page_sections(doc, "xlsx", {}) is None
+def test_body_child_that_is_not_a_page_group_falls_back():
+    doc = _FakeDoc({1: "t1"}, loose=True)
+    assert office._page_sections(doc, "pptx", {}) is None
 
 
-def test_docling_core_without_page_filter_falls_back():
-    doc = _FakeDoc({1: "t1"}, sheet_names=["S"], page_filter=False)
-    assert office._page_sections(doc, "xlsx", {}) is None
-    assert "t1" in office._render_markdown(doc, "xlsx", "Book")
+def test_empty_non_sheet_groups_do_not_stop_the_split():
+    """Docling adds a comment_section group under the body for cell
+    comments. It holds nothing Markdown shows, so the sheets still split."""
+    doc = _FakeDoc({1: "| a |", 2: "| b |"}, sheet_names=["One", "Two"])
+    comments = SimpleNamespace(label=_label("comment_section"), name="", items=[])
+    doc.body.children.insert(1, SimpleNamespace(resolve=lambda d: comments))
+
+    md = office._render_markdown(doc, "xlsx", "Book")
+
+    assert md == "# Book\n\n## One\n\n| a |\n\n## Two\n\n| b |\n"
 
 
 def test_demote_headings_skips_code_fences():

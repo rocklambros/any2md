@@ -33,6 +33,7 @@ from any2md._ooxml_guard import ArchiveRejected, check_ooxml_archive
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.converters._office_pictures import (
+    MarkdownExport,
     export_markdown,
     fill_pictures,
     has_picture_token,
@@ -83,17 +84,20 @@ def _label_value(label: Any) -> str:
 
 
 def _split_labels() -> tuple[set[Any], set[Any]]:
-    """Split Docling's default export labels into (title, everything else).
+    """Split Docling's Markdown export labels into (title, everything else).
 
-    A lazy import, so this module loads without Docling installed.
+    The set is the one ``export_to_markdown`` uses by default, so a
+    titled slide keeps the same items (captions, footnotes, forms) as an
+    untitled one. A lazy import, so this module loads without Docling.
     """
-    from docling_core.types.doc.document import DEFAULT_EXPORT_LABELS
+    from docling_core.types.doc.document import DOCUMENT_TOKENS_EXPORT_LABELS
 
-    title = {lab for lab in DEFAULT_EXPORT_LABELS if _label_value(lab) == "title"}
-    return title, set(DEFAULT_EXPORT_LABELS) - title
+    labels = set(DOCUMENT_TOKENS_EXPORT_LABELS)
+    title = {lab for lab in labels if _label_value(lab) == "title"}
+    return title, labels - title
 
 
-def _slide_title(doc: Any, page_no: int, title_labels: set[Any]) -> str:
+def _slide_title(export: MarkdownExport, slide: Any, title_labels: set[Any]) -> str:
     """Return the text of the slide's title placeholder, or "" without one.
 
     Docling labels every paragraph of a title or centered-title
@@ -103,66 +107,73 @@ def _slide_title(doc: Any, page_no: int, title_labels: set[Any]) -> str:
     Markdown escaping, and joins a title of several paragraphs into one
     heading line.
     """
-    md = export_markdown(doc, page_no=page_no, labels=title_labels)
+    md = export(labels=title_labels, item=slide)
     parts = (line.lstrip("#").strip() for line in md.splitlines())
     return _one_line(" ".join(p for p in parts if p))
+
+
+# The group Docling makes for each slide or sheet, directly under the body.
+_PAGE_GROUP_LABELS = {"pptx": "chapter", "xlsx": "sheet"}
 
 
 def _page_sections(
     doc: Any, fmt: OfficeFormat, figures: dict[str, str]
 ) -> list[tuple[str, str, bool]] | None:
-    """Split a converted deck or workbook into sections, one per page.
+    """Split a converted deck or workbook into sections, one per slide or sheet.
 
     Each section is (heading, markdown, keep when empty). A slide whose
     title placeholder holds text, and a slide or sheet with a picture,
     keep their section even when nothing in it survives the pipeline.
 
-    Docling gives each slide and each sheet its own page. Returns None
-    when the split cannot be trusted, and the caller then renders the
-    whole document in one piece. Page-filtered export leaves out any
-    item without page provenance, so one such item is enough to fall
-    back: a missing heading costs less than missing content.
+    Docling puts each slide and each sheet in its own group directly
+    under the body, and every item in it on that slide's or sheet's page.
+    Each group is exported on its own, so the work grows with the
+    document, not with pages times items. Returns None when the split
+    cannot be trusted, and the caller then renders the whole document in
+    one piece: an item without page provenance, a body child with content
+    that is not such a group, or a group whose items span pages. A missing
+    heading costs less than missing content.
     """
-    pages = sorted(getattr(doc, "pages", None) or {})
-    if not pages:
+    body = getattr(doc, "body", None)
+    groups = [ref.resolve(doc) for ref in getattr(body, "children", None) or []]
+    if not groups:
         return None
-    page_set = set(pages)
     for item, _level in doc.iterate_items():
-        prov = getattr(item, "prov", None)
-        if not prov or prov[0].page_no not in page_set:
+        if not getattr(item, "prov", None):
             return None
 
-    if fmt == "xlsx":
-        # The Excel backend adds one sheet group and one page together,
-        # in workbook order, so the two lists pair up by position.
-        names = [
-            g.name
-            for g in getattr(doc, "groups", [])
-            if _label_value(g.label) == "sheet"
-        ]
-        if len(names) != len(pages):
-            return None
-
+    export = MarkdownExport(doc)
     title_labels, body_labels = _split_labels() if fmt == "pptx" else (set(), set())
     sections: list[tuple[str, str, bool]] = []
-    for i, page_no in enumerate(pages):
-        title = ""
-        export: dict[str, Any] = {"page_no": page_no}
-        try:
-            if fmt == "xlsx":
-                heading = _one_line(names[i]) or f"Sheet {i + 1}"
-            else:
-                title = _slide_title(doc, page_no, title_labels)
-                heading = title or f"Slide {page_no}"
-                # The title is the section heading, so the body leaves it
-                # out. Without title text the body keeps every label, so
-                # a title item Docling could not give text loses nothing.
-                if title:
-                    export["labels"] = body_labels
-            md = export_markdown(doc, **export)
-        except TypeError:
-            # docling-core releases without page filtering.
+    position = 0  # the slide or sheet number, counting page groups only
+    for group in groups:
+        items = [item for item, _level in doc.iterate_items(root=group)]
+        if _label_value(getattr(group, "label", None)) != _PAGE_GROUP_LABELS[fmt]:
+            if items:
+                return None
+            # Docling adds a group such as a workbook's comment_section
+            # whose items the Markdown never shows. It adds nothing here.
+            continue
+        position += 1
+        pages = {item.prov[0].page_no for item in items if getattr(item, "prov", None)}
+        if len(pages) > 1:
             return None
+        title = ""
+        labels = None
+        if fmt == "xlsx":
+            heading = _one_line(group.name) or f"Sheet {position}"
+        else:
+            if not pages:
+                # A slide with nothing on it adds nothing to read.
+                continue
+            title = _slide_title(export, group, title_labels)
+            heading = title or f"Slide {pages.pop()}"
+            # The title is the section heading, so the body leaves it
+            # out. Without title text the body keeps every label, so a
+            # title item Docling could not give text loses nothing.
+            if title:
+                labels = body_labels
+        md = export(labels=labels, item=group)
         has_picture = has_picture_token(md)
         md = fill_pictures(md, figures).strip()
         sections.append((heading, md, bool(title) or has_picture))

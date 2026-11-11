@@ -684,42 +684,65 @@ def fill_pictures(md: str, figures: dict[str, str]) -> str:
     return _TOKEN_RE.sub(lambda m: figures.get(m.group(1), ""), md)
 
 
-def export_markdown(
-    doc: Any, *, labels: set[Any] | None = None, page_no: int | None = None
-) -> str:
-    """Docling's Markdown for ``doc``, with each picture as its token.
+class MarkdownExport:
+    """Docling's Markdown for a document or one of its subtrees.
 
-    The parameters match ``DoclingDocument.export_to_markdown``'s defaults,
-    with one change: a picture serializer that writes the picture's token
-    instead of the shared ``<!-- image -->`` placeholder. A document that
-    is not a DoclingDocument (a stand-in in the unit tests) exports
-    itself and writes the tokens on its own.
+    Each picture is written as its token. Otherwise the parameters match
+    ``DoclingDocument.export_to_markdown``'s defaults. One serializer is
+    kept per label set: docling-core builds its filter of excluded items
+    by walking the whole document once per serializer and parameter set,
+    so reusing it keeps a deck of N slides at one walk per label set
+    instead of one per slide, which was quadratic.
+
+    A document that is not a DoclingDocument (a stand-in in the unit
+    tests) exports itself and writes the tokens on its own.
     """
+
+    def __init__(self, doc: Any) -> None:
+        self._doc = doc
+        self._serializers: dict[frozenset[Any] | None, Any] = {}
+
+    def __call__(self, *, labels: set[Any] | None = None, item: Any = None) -> str:
+        if not _is_docling_document(self._doc):
+            kwargs = {"labels": labels, "item": item}
+            return self._doc.export_to_markdown(
+                **{k: v for k, v in kwargs.items() if v is not None}
+            )
+        key = frozenset(labels) if labels is not None else None
+        serializer = self._serializers.get(key)
+        if serializer is None:
+            serializer = _token_serializer(self._doc, labels)
+            self._serializers[key] = serializer
+        return serializer.serialize(item=item).text
+
+
+def export_markdown(doc: Any, *, labels: set[Any] | None = None) -> str:
+    """Docling's Markdown for the whole of ``doc``, with picture tokens."""
+    return MarkdownExport(doc)(labels=labels)
+
+
+def _is_docling_document(doc: Any) -> bool:
     try:
-        from docling_core.transforms.serializer.markdown import (
-            MarkdownDocSerializer,
-            MarkdownParams,
-        )
-        from docling_core.types.doc.document import (
-            DOCUMENT_TOKENS_EXPORT_LABELS,
-            DoclingDocument,
-        )
+        from docling_core.types.doc.document import DoclingDocument
     except ImportError:
-        DoclingDocument = None  # noqa: N806 -- mirrors the class name
-    if DoclingDocument is None or not isinstance(doc, DoclingDocument):
-        kwargs = {"labels": labels, "page_no": page_no}
-        return doc.export_to_markdown(
-            **{k: v for k, v in kwargs.items() if v is not None}
-        )
-    serializer = MarkdownDocSerializer(
+        return False
+    return isinstance(doc, DoclingDocument)
+
+
+def _token_serializer(doc: Any, labels: set[Any] | None) -> Any:
+    from docling_core.transforms.serializer.markdown import (
+        MarkdownDocSerializer,
+        MarkdownParams,
+    )
+    from docling_core.types.doc.document import DOCUMENT_TOKENS_EXPORT_LABELS
+
+    return MarkdownDocSerializer(
         doc=doc,
         picture_serializer=_token_picture_serializer(),
         params=MarkdownParams(
-            labels=labels if labels is not None else DOCUMENT_TOKENS_EXPORT_LABELS,
-            pages={page_no} if page_no is not None else None,
+            labels=labels if labels is not None else DOCUMENT_TOKENS_EXPORT_LABELS
         ),
     )
-    return serializer.serialize().text
 
 
 def _token_picture_serializer() -> Any:
