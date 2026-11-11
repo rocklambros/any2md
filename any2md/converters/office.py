@@ -219,7 +219,7 @@ def _prepare_figures(
     fmt: OfficeFormat,
     writer: ImageWriter | None,
     capture: DoclingWarningCapture,
-) -> dict[int, str]:
+) -> dict[str, str]:
     """Build each picture's Markdown, staging images under --save-images.
 
     Images go to ``<output>/images/<name>/imgN.png``, the layout every

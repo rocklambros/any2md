@@ -1177,3 +1177,12 @@ def test_alt_text_part_skipped_for_size_is_a_warning(tmp_path, monkeypatch, fmt)
 
     assert alt.warning is not None
     assert "alt text" in alt.warning and "larger than" in alt.warning
+
+
+def test_prepare_figures_is_annotated_like_prepare_pictures():
+    """Figures are keyed by the picture's self_ref, a string."""
+    import typing
+
+    returned = typing.get_type_hints(office._prepare_figures)["return"]
+    assert returned == dict[str, str]
+    assert returned == typing.get_type_hints(office_pictures.prepare_pictures)["return"]
