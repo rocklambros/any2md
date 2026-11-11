@@ -708,7 +708,7 @@ def test_public_api_reexported_from_any2md():
     assert "__version__" in any2md.__all__
 
 
-def test_version_bumped_to_1_2_1():
+def test_version_bumped_to_1_2_2():
     import any2md
 
-    assert any2md.__version__ == "1.2.1"
+    assert any2md.__version__ == "1.2.2"
