@@ -83,7 +83,7 @@ _QUOTE_TABLE = str.maketrans(
 
 
 def normalize_quotes_dashes(text: str, _options: "PipelineOptions") -> str:
-    """C4: Smart quotes → straight; ellipsis → "..."; en/em dashes preserved.
+    """C4: Smart quotes → straight, ellipsis → "...", en/em dashes preserved.
 
     Fenced code is left alone. Curly quotes and an ellipsis there are
     often string content, and straightening them changes what the
@@ -98,7 +98,7 @@ _INTERWORD_RUNS_RE = re.compile(r"(?<=\S)[ \t]{2,}(?=\S)")
 
 
 def collapse_whitespace(text: str, _options: "PipelineOptions") -> str:
-    """C5: Collapse inter-word whitespace; trim trailing per line; cap blanks at 2.
+    """C5: Collapse inter-word whitespace, trim trailing space, cap blank runs.
 
     Fenced code is left alone: alignment, trailing spaces, and blank
     runs can be significant there.

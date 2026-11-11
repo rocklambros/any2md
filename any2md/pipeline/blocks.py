@@ -24,7 +24,7 @@ def _blank_from(s: str, i: int) -> bool:
 
     CommonMark treats only spaces and tabs as blank, so other Unicode
     whitespace such as U+00A0 counts as content. A trailing ``\\r`` left
-    by CRLF input is allowed at the very end.
+    by CRLF input is allowed as the last character.
     """
     last = len(s) - 1
     for j in range(i, len(s)):
@@ -35,7 +35,7 @@ def _blank_from(s: str, i: int) -> bool:
 
 
 def _list_marker(line: str, pos: int, end: int) -> int | None:
-    """Return the index just past a list marker at ``line[pos]``, or None.
+    """Return the index past a list marker at ``line[pos]``, or None.
 
     Markers are ``-``, ``*``, ``+``, and one to nine digits followed by
     ``.`` or ``)``. A marker must be followed by a space or by the end of
