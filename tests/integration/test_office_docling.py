@@ -9,7 +9,13 @@ pytest.importorskip("docling")
 from any2md._safe_open import SourceFile  # noqa: E402
 from any2md.converters import convert_file  # noqa: E402
 from any2md.pipeline import PipelineOptions  # noqa: E402
-from tests._office_fixtures import build_pptx, build_xlsx  # noqa: E402
+from tests._office_fixtures import (  # noqa: E402
+    Picture,
+    SheetPicture,
+    Slide,
+    build_pptx,
+    build_xlsx,
+)
 
 
 def _split(md_text: str) -> tuple[str, str]:
@@ -47,6 +53,210 @@ def test_pptx_slides_become_sections(tmp_path):
     ]
     assert "Revenue grew 12 percent." in body
     assert "A slide with no title." in body
+
+
+def test_every_title_placeholder_names_its_slide(tmp_path):
+    """Titles below a picture or a text box, centered titles, and titles of
+    two paragraphs all become the slide's H2."""
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(title=["Cover"], pictures=[Picture(box=(457200, 0, 914400, 457200))]),
+            Slide(title=["Agenda"], title_y=3657600, body="Intro.", body_y=0),
+            Slide(title=["Two line", "title"], title_type="ctrTitle", body="B."),
+            Slide(body="No title placeholder."),
+        ],
+    )
+    out = tmp_path / "out"
+
+    assert convert_file(deck, out, options=PipelineOptions(), force=True)
+
+    _, body = _split((out / "deck.md").read_text(encoding="utf-8"))
+    assert _headings(body) == [
+        "# deck",
+        "## Cover",
+        "## Agenda",
+        "## Two line title",
+        "## Slide 4",
+    ]
+    assert "Intro." in body
+    assert "No title placeholder." in body
+
+
+def _picture_deck(tmp_path):
+    return build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(
+                title=["Cover"],
+                pictures=[Picture(alt="Team logo", box=(457200, 0, 914400, 457200))],
+            ),
+            Slide(pictures=[Picture(alt="Network map", grouped=True)]),
+            Slide(pictures=[Picture()]),
+        ],
+    )
+
+
+def test_pptx_picture_alt_text_becomes_figure_lines(tmp_path):
+    out = tmp_path / "out"
+
+    assert convert_file(_picture_deck(tmp_path), out, force=True)
+
+    _, body = _split((out / "deck.md").read_text(encoding="utf-8"))
+    assert _headings(body) == ["# deck", "## Cover", "## Slide 2", "## Slide 3"]
+    assert "## Cover\n\n*Figure: Team logo*" in body
+    assert "## Slide 2\n\n*Figure: Network map*" in body
+    # Without --save-images no link or placeholder remains.
+    assert "](" not in body
+    assert "<!--" not in body
+
+
+def test_xlsx_picture_alt_text_becomes_a_figure_line(tmp_path):
+    book = build_xlsx(
+        tmp_path / "book.xlsx",
+        {"Data": [["k"], ["v"]]},
+        pictures={"Data": [SheetPicture(alt="Quarterly trend")]},
+    )
+    out = tmp_path / "out"
+
+    assert convert_file(book, out, force=True)
+
+    _, body = _split((out / "book.md").read_text(encoding="utf-8"))
+    assert "*Figure: Quarterly trend*" in body
+
+
+def test_save_images_writes_office_pictures(tmp_path):
+    out = tmp_path / "out"
+
+    assert convert_file(
+        _picture_deck(tmp_path),
+        out,
+        options=PipelineOptions(save_images=True),
+        force=True,
+    )
+
+    images = sorted(p.name for p in (out / "images" / "deck").iterdir())
+    assert images == ["img1.png", "img2.png", "img3.png"]
+    assert (out / "images" / "deck" / "img1.png").read_bytes()[:4] == b"\x89PNG"
+    _, body = _split((out / "deck.md").read_text(encoding="utf-8"))
+    assert "*Figure: Team logo*\n\n![Team logo](images/deck/img1.png)" in body
+    assert "## Slide 3\n\n![](images/deck/img3.png)" in body
+
+
+def test_off_slide_picture_warning_is_counted_not_printed(tmp_path, capsys):
+    """docling-core warns with ``warnings.warn`` when it clamps a box that
+    lies outside the slide. The warning is counted, not printed."""
+    from any2md.converters import collected_warnings, reset_warnings
+
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [Slide(title=["Wide"], pictures=[Picture(box=(0, 12000000, 914400, 914400))])],
+    )
+    reset_warnings()
+
+    assert convert_file(deck, tmp_path / "out", force=True)
+
+    got = collected_warnings()
+    reset_warnings()
+    assert any("outside page bounds" in w for w in got)
+    captured = capsys.readouterr()
+    assert "UserWarning" not in captured.err
+    assert "warning(s)" in captured.out
+
+
+def test_identical_pictures_each_get_a_saved_and_linked_file(tmp_path):
+    """Invariant: the set of saved files equals the set of linked files.
+
+    Three pictures with the same image bytes, two on one slide and one
+    on the next, with brackets in the alt text, which Markdown escapes.
+    """
+    from any2md.pipeline.structured import _IMG_LINK_RE
+
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(
+                title=["One"],
+                pictures=[
+                    Picture(alt="Plan [v2]", box=(457200, 0, 914400, 914400)),
+                    Picture(alt="Plan [v2]", box=(4572000, 0, 914400, 914400)),
+                ],
+            ),
+            Slide(title=["Two"], pictures=[Picture(alt="Plan [v2]")]),
+        ],
+    )
+    out = tmp_path / "out"
+
+    assert convert_file(
+        deck, out, options=PipelineOptions(save_images=True), force=True
+    )
+
+    _, body = _split((out / "deck.md").read_text(encoding="utf-8"))
+    links = [m.group(2) for m in _IMG_LINK_RE.finditer(body)]
+    saved = {f"images/deck/{p.name}" for p in (out / "images" / "deck").iterdir()}
+    assert len(links) == len(set(links)) == 3
+    assert set(links) == saved
+    one, two = body.split("## Two")
+    assert [m.group(2) for m in _IMG_LINK_RE.finditer(one)] == [
+        "images/deck/img1.png",
+        "images/deck/img2.png",
+    ]
+    assert [m.group(2) for m in _IMG_LINK_RE.finditer(two)] == ["images/deck/img3.png"]
+
+
+def test_token_export_matches_doclings_own_markdown(tmp_path):
+    """export_markdown keeps every export_to_markdown default and changes
+    only the picture placeholder, so the rest of the Markdown is Docling's."""
+    import re
+
+    from any2md._docling_cache import get_office_converter
+    from any2md.converters._office_pictures import export_markdown
+
+    deck = build_pptx(
+        tmp_path / "deck.pptx",
+        [
+            Slide(
+                title=["Cover"], pictures=[Picture(alt="Logo")], body="Intro_text <b>."
+            ),
+            Slide(title=["Two"], body="Body."),
+        ],
+    )
+    doc = get_office_converter("pptx").convert(deck).document
+
+    ours = export_markdown(doc)
+    tokens = re.findall(r"<!-- any2md-picture (#/[^ ]+) -->", ours)
+    assert tokens == [p.self_ref for p in doc.pictures]
+    assert re.sub(r"<!-- any2md-picture #/[^ ]+ -->", "<!-- image -->", ours) == (
+        doc.export_to_markdown()
+    )
+
+
+def test_render_time_grows_linearly_with_slides(tmp_path):
+    """Eight times the slides may take about eight times as long to render,
+    not sixty-four. Exporting each slide by page filter walked the whole
+    deck once per slide (96 s for 600 slides, against 0.18 s now)."""
+    import time
+
+    from any2md._docling_cache import get_office_converter
+    from any2md.converters import office
+
+    def best_render(n):
+        slides = [
+            Slide(title=[f"T{i}"], body=f"Body {i}.", pictures=[Picture(alt=f"P{i}")])
+            for i in range(n)
+        ]
+        deck = build_pptx(tmp_path / f"d{n}.pptx", slides)
+        doc = get_office_converter("pptx").convert(deck).document
+        times = []
+        for _ in range(3):
+            start = time.perf_counter()
+            md = office._render_markdown(doc, "pptx", "Deck", {})
+            times.append(time.perf_counter() - start)
+        assert md.count("\n## ") == n
+        return min(times)
+
+    small, large = best_render(40), best_render(320)
+    assert large / small < 20
 
 
 def test_xlsx_sheets_render_as_tables_under_headings(tmp_path):

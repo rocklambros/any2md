@@ -136,7 +136,7 @@ def test_docx_fallback_line_is_sanitized(
     monkeypatch.setattr(
         docx_mod,
         "_extract_via_docling",
-        lambda _p: ("# Title\n\nBody.\n", "docling", ["dropped list item"]),
+        lambda _p, *_a: ("# Title\n\nBody.\n", "docling", ["dropped list item"]),
     )
 
     assert docx_mod.convert_docx(

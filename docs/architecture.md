@@ -105,7 +105,17 @@ the CLI surface that drives this code, see
 backend, so it always feeds the structured lane, and it fails the file with an
 install hint when Docling is absent. It asks `_docling_cache` for a converter
 that accepts only the one format, so a file whose content does not match its
-extension is rejected instead of reaching another Docling backend.
+extension is rejected instead of reaching another Docling backend. Docling
+keeps a picture's position but drops the alt text typed in PowerPoint or
+Excel, so `converters/_office_pictures.py` reads that text from the package
+and pairs it with the Docling picture at the same position (slide box or
+anchor cells). Each picture then becomes `![text](link)` for S1, with the link
+pointing at a file saved under `--save-images`. The PDF and DOCX Docling lanes
+use the same module. For DOCX it lists the drawings of `word/document.xml`
+with their alt text and any Caption paragraph that follows, and pairs them
+with Docling's pictures by document order when the counts agree. The DOCX
+mammoth lane gets the same lines from mammoth's `convert_image` and
+`transform_document` hooks.
 
 The diagram captures three invariants that the rest of this document unpacks:
 a converter produces raw markdown plus a `SourceMeta` and declares its lane;
@@ -194,7 +204,7 @@ shared cleanup, on Docling output.
 
 | ID | Name | Lane | Input shape | Output shape | No-op cases | Edge cases |
 |---|---|---|---|---|---|---|
-| S1 | `lift_figure_captions` | structured | Markdown with `![alt](url)` images and HTML `<figure>...<figcaption>` blocks | Markdown with italic `*Figure: caption*` lines; image references kept only when `--save-images` | No images or figures present | Empty `alt` text drops the caption line entirely |
+| S1 | `lift_figure_captions` | structured | Markdown with `![alt](url)` images and HTML `<figure>...<figcaption>` blocks | Markdown with italic `*Figure: caption*` lines, with image references kept only under `--save-images` | No images or figures present | Empty `alt` text drops the caption line entirely. A bare `<!-- image -->` placeholder is removed. The PDF, DOCX, PPTX, and XLSX converters write each picture as `![text](link)` before S1 runs, so its caption or alt text survives. The link `#` means no saved file, so S1 writes the figure line alone even under `--save-images`. The DOCX mammoth lane has no S1 and calls this function directly |
 | S2 | `compact_tables` | structured | GFM tables with inconsistent per-cell padding | GFM tables with single-space cell padding; alignment row preserved | No table rows | Cells containing pipe-escaped content; alignment row identified by `^\|[\s:|-]+\|$` |
 | S3 | `normalize_citations` | structured | Markdown with `[1] [2] [3]`-style spaced numeric citations | `[1][2][3]` (no spaces between adjacent numeric refs) | No spaced numeric citations | Non-numeric refs (`[Smith2020]`) are left alone |
 | S4 | `enforce_heading_hierarchy` | structured | Markdown with any heading shape | Single H1, no skipped levels | Document has zero headings | First H1 absent: first heading promoted; subsequent H1s demoted to H2; H2 → H4 jump flattened to H2 → H3 → H4. Emits a warning when changes were applied. |
@@ -325,7 +335,7 @@ class SourceMeta:
 | `date` | PDF `creationDate`, DOCX `dcterms:modified`, URL `Last-Modified` HEAD response, file mtime, today | Yes: derived to today if all sources fail |
 | `keywords` | PDF `/Keywords`, DOCX `cp:keywords`, HTML `<meta name="keywords">`, trafilatura `categories`, otherwise `[]` | No: emitted only when non-empty |
 | `pages` | PDF only (page count via `pymupdf.open`); other formats `None` | No: extension field |
-| `word_count` | DOCX, PPTX, XLSX, HTML, TXT (whitespace-split count); PDF `None` | No: extension field |
+| `word_count` | DOCX, PPTX, XLSX, HTML, TXT (whitespace-split count), PDF `None` | No: extension field |
 | `source_file` | All file inputs; URL inputs `None` | No: extension field |
 | `source_url` | URL inputs only; file inputs `None` | No: extension field |
 | `doc_type` | All converters | Yes: emitted as `type` in the YAML |

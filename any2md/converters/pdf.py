@@ -1,7 +1,7 @@
 """PDF to Markdown converter (v1.0).
 
 Phase 2: Docling primary backend with pymupdf4llm fallback. Backend
-selection is automatic — if `docling` is importable we use it; otherwise
+selection is automatic. If `docling` is importable we use it, otherwise
 we fall back to pymupdf4llm. The `--high-fidelity` flag forces Docling
 (enforced upstream in the CLI) but does not change the converter logic
 beyond surfacing the requested backend in extracted_via.
@@ -9,22 +9,23 @@ beyond surfacing the requested backend in extracted_via.
 
 from __future__ import annotations
 
-import errno
-import os
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pymupdf
 import pymupdf4llm
 
 from any2md import _logging, pipeline
-from any2md._docling import has_docling, install_hint
+from any2md._docling import DoclingWarningCapture, has_docling, install_hint
+from any2md._image_files import ImageWriter
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
-from any2md.utils import atomic_write_text, safe_dir_name, sanitize_filename
+from any2md.utils import atomic_write_text, sanitize_filename
 
 
 def _parse_pdf_authors(raw: str | None) -> list[str]:
@@ -64,27 +65,6 @@ def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
     }
 
 
-def _save_image_safely(img_path: Path, pil_image) -> None:
-    """Save ``pil_image`` to ``img_path`` refusing to follow symlinks.
-
-    Uses ``O_EXCL|O_NOFOLLOW`` to defuse a TOCTOU race between an
-    is_symlink() check and the actual write. On EEXIST we skip
-    (image already saved this run); on ELOOP we warn and skip.
-    """
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(img_path, flags, 0o600)
-    except FileExistsError:
-        return  # already exists — leave it
-    except OSError as e:
-        if getattr(e, "errno", None) in (errno.ELOOP, errno.EMLINK):
-            _logging.warn(f"refusing to write through symlink at {img_path}")
-            return
-        raise
-    with os.fdopen(fd, "wb") as fp:
-        pil_image.save(fp, format="PNG")
-
-
 def _open_pdf(src: SourceFile, data: bytes | None = None) -> "pymupdf.Document":
     """Open the PDF from its path, or from the bytes of an opened source.
 
@@ -107,7 +87,7 @@ def pdf_looks_complex(pdf_path: Path | SourceFile) -> bool:
     Docling would handle better:
       - Total pages > 5 AND
         (multi-column layout detected on any sampled page OR
-         average chars-per-page < 200 — suggests scanned PDF).
+         average chars-per-page < 200, which suggests a scanned PDF).
 
     Sampling: at most 5 pages, evenly distributed.
     """
@@ -135,7 +115,7 @@ def _doc_looks_complex(doc: "pymupdf.Document") -> bool:
             page = doc[idx]
             text = page.get_text("text") or ""
             total_chars += len(text)
-            # Multi-column heuristic: collect block x-positions; if there
+            # Multi-column heuristic: collect block x-positions. If there
             # are clusters around two distinct x ranges with > 100 px
             # separation, flag.
             blocks = page.get_text("blocks") or []
@@ -156,11 +136,27 @@ def _doc_looks_complex(doc: "pymupdf.Document") -> bool:
         return False
 
 
+def _load_pdf_models(converter: Any) -> None:
+    """Load the PDF pipeline's models now, outside any warning capture.
+
+    Docling loads them on the first convert otherwise. A converter
+    without ``initialize_pipeline`` (an older Docling) loads them there.
+    """
+    initialize = getattr(converter, "initialize_pipeline", None)
+    if initialize is None:
+        return
+    from docling.datamodel.base_models import InputFormat
+
+    initialize(InputFormat.PDF)
+
+
 def _extract_via_docling(
     pdf_path: Path | SourceFile,
     options: PipelineOptions,
     output_dir: Path,
     data: bytes | None = None,
+    force: bool = False,
+    capture: DoclingWarningCapture | None = None,
 ) -> tuple[str, str]:
     """Returns (markdown, 'docling'). Raises on Docling errors.
 
@@ -168,7 +164,13 @@ def _extract_via_docling(
     a descriptor-backed source is not read a second time.
 
     When ``options.save_images`` is True, extracted picture images are
-    written to ``<output_dir>/images/<pdf_stem>/imgN.png``.
+    written to ``<output_dir>/images/<pdf_stem>/imgN.png`` and linked
+    from the body. With ``force`` they are regenerated and stale ones
+    removed.
+
+    ``capture`` counts Python warnings from the conversion and export.
+    The converter is built and its models loaded before it starts, so
+    torch or transformers warnings from model loading never count.
 
     v1.1.0: uses the persistent ConverterCache rather than constructing
     a fresh DocumentConverter per call. On any convert exception the
@@ -190,29 +192,45 @@ def _extract_via_docling(
 
     src = as_source(pdf_path)
     converter = get_pdf_converter(pipeline_opts)
+    counted = capture if capture is not None else nullcontext()
     try:
-        # Never a str: see SourceFile.docling_input.
-        result = converter.convert(src.docling_input(data))
+        _load_pdf_models(converter)
+        with counted:
+            # Never a str: see SourceFile.docling_input.
+            result = converter.convert(src.docling_input(data))
     except Exception:
         evict_on_convert_failure("pdf", pipeline_opts)
         raise
 
-    if options.save_images:
-        pictures = getattr(result.document, "pictures", None) or []
-        if pictures:
-            images_dir = output_dir / "images" / safe_dir_name(src.stem)
-            images_dir.mkdir(parents=True, exist_ok=True)
-            for i, picture in enumerate(pictures):
-                try:
-                    pil_image = picture.get_image(result.document)
-                    if pil_image is None:
-                        continue
-                    img_path = images_dir / f"img{i + 1}.png"
-                    _save_image_safely(img_path, pil_image)
-                except Exception as e:  # noqa: BLE001
-                    _logging.warn(f"failed to save image {i}: {e}")
+    # The same picture handling as DOCX, PPTX, and XLSX: a caption Docling
+    # links to a picture becomes its figure line, and --save-images
+    # writes images/<stem>/imgN.png and links it. A PDF has no alt text.
+    from any2md.converters._office_pictures import (
+        export_markdown,
+        AltTexts,
+        fill_pictures,
+        prepare_pictures,
+    )
 
-    md = result.document.export_to_markdown()
+    doc = result.document
+    writer = (
+        ImageWriter(output_dir, src.name, overwrite=force)
+        if options.save_images
+        else None
+    )
+    try:
+        with capture if capture is not None else nullcontext():
+            figures: dict[str, str] = {}
+            if getattr(doc, "pictures", None):
+                figures = prepare_pictures(doc, "pdf", AltTexts(), writer)
+            md = fill_pictures(export_markdown(doc), figures)
+    except Exception:
+        # The caller falls back to pymupdf4llm, which links no images.
+        if writer is not None:
+            writer.discard()
+        raise
+    if writer is not None:
+        writer.commit(md)
     return md, "docling"
 
 
@@ -248,7 +266,7 @@ def convert_pdf(
     try:
         # Backend override (PipelineOptions.backend). When set, honor the
         # caller's choice instead of the auto-select. ``mammoth`` is
-        # invalid for PDFs — fail the file with a clear error.
+        # invalid for PDFs, so fail the file with a clear error.
         if options.backend == "mammoth":
             _logging.fail(
                 f"{src.name} -- backend 'mammoth' is not "
@@ -278,18 +296,23 @@ def convert_pdf(
             if not use_docling and options.backend is None and _doc_looks_complex(doc):
                 install_hint()
 
-            # Always extract metadata via PyMuPDF — independent of which
+            # Always extract metadata via PyMuPDF, independent of which
             # backend produces the markdown body.
             page_count = len(doc)
             props = _parse_pdf_metadata(doc)
 
+            # Python warnings from a Docling run that returned. A run that
+            # raised falls back to pymupdf4llm, and its warnings go with it.
+            py_warnings: list[str] = []
             if use_docling:
                 try:
+                    cap = DoclingWarningCapture()
                     md_text, extracted_via = _extract_via_docling(
-                        src, options, output_dir, data=data
+                        src, options, output_dir, data=data, force=force, capture=cap
                     )
+                    py_warnings = cap.messages
                     lane = "structured"
-                except Exception as e:  # noqa: BLE001 — fall back rather than fail
+                except Exception as e:  # noqa: BLE001 -- fall back rather than fail
                     _logging.warn(
                         f"Docling extraction failed for {src.name}: {e}; "
                         f"falling back to pymupdf4llm."
@@ -305,6 +328,7 @@ def convert_pdf(
         del data, doc
 
         md_text, warnings = pipeline.run(md_text, lane, options)
+        warnings = py_warnings + warnings
         add_warnings(warnings)
 
         meta = SourceMeta(

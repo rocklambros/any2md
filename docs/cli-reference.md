@@ -281,22 +281,60 @@ stderr regardless of network availability.
 
 ### `--save-images`
 
-Save images extracted from PDFs to `<output>/images/<source_stem>/imgN.png`
-and reference them from the body. Implies `--high-fidelity`.
+Keep the images of a document. Implies `--high-fidelity`, so it needs the
+`[high-fidelity]` install.
+
+PDF, DOCX (both lanes), PPTX, and XLSX follow one rule for pictures:
+
+- **Figure line, with or without the flag.** A picture with text gets a
+  `*Figure: text*` line where it sits. The text is the first of: a caption
+  Docling links to the picture (a PDF figure caption or a chart title), a
+  Word Caption-style paragraph right after the picture (which then leaves
+  the body), the description Docling recorded, the alt text typed in Word,
+  PowerPoint, or Excel. A Caption paragraph counts only when the picture
+  stands alone in its paragraph, and a Caption paragraph right above a
+  table stays as the table's caption. A picture with none of these leaves
+  no line.
+- **With `--save-images`.** Each picture is written to
+  `<output>/images/<name>/imgN.<ext>`, numbered in document order, and
+  linked below its figure line as `![text](images/<name>/imgN.<ext>)`,
+  or as `![](...)` alone when it has no text. `<name>` is the output file's
+  name without `.md`, so every output file has its own folder, and the link
+  percent-encodes it. Images are never inlined as data URIs. A picture with
+  no image data gets its figure line and no file.
+- With `--force`, a document's images are regenerated: each `imgN` file is
+  overwritten, and any `imgN.*` in its `images/<name>/` folder that
+  the run did not write is removed, so a document that lost a picture does
+  not keep its old file. Without `--force` a document whose `.md` exists is
+  skipped, and its images stay as they are.
+- Each file is written atomically (a temporary file in the same folder, then
+  a rename), a symlink is never written through, and nothing is written if
+  `images` or `images/<name>` is a symlink or leads outside the
+  output directory.
+
+Limits by format and lane:
+
+| Input | Figure text available | Saved files |
+|---|---|---|
+| PPTX, XLSX | Chart title, Docling description, alt text | PNG. A chart Docling cannot render has no image data, so no file |
+| PDF (Docling) | A caption Docling's layout model links to the picture. A caption it does not link stays a plain paragraph. A PDF has no alt text | PNG |
+| PDF (`--backend pymupdf4llm`) | None. This lane drops pictures | None |
+| DOCX (Docling) | Caption paragraph, alt text. Alt text pairs with Docling's pictures by document order, and is skipped for the file when the two picture counts disagree (for example a drawing Docling splits in two) | PNG. A linked (not embedded) image has no data, so no file |
+| DOCX (mammoth) | Caption paragraph, alt text. A picture in a table cell or a heading leaves its text in place, and its figure line follows the table or the heading | The image's own bytes and format: PNG, JPEG, GIF, BMP, TIFF, or WebP, at most 64 MiB. EMF, WMF, and SVG images get no file. A linked image is never read, so no file. With mammoth before 1.11 no image is read at all |
 
 **Use this when** the images are part of the document's content (architecture
 diagrams, figures referenced by ID in the prose) and downstream consumers can
 display them.
 
 **Don't use this when** images are decorative, or your retrieval pipeline
-doesn't render images — the default caption-only mode produces smaller output.
+doesn't render images. The default caption-only mode produces smaller output.
 
 ```bash
-any2md --save-images architecture.pdf
+any2md --save-images deck.pptx
 ```
 
-You'll see an `images/` subdirectory created under your output directory and
-`![figure](images/architecture/img1.png)`-style references in the body.
+You'll see an `images/deck/` subdirectory created under your output directory
+and `![...](images/deck/img1.png)` references in the body.
 
 ## Frontmatter overrides
 
@@ -464,7 +502,11 @@ any2md --strip-links paper.pdf
 
 Promote pipeline validation warnings to errors. The CLI exits with code 3
 when at least one warning was emitted (and no hard failure occurred).
-Warnings from Docling's DOCX, PowerPoint, and Excel backends count too.
+Warnings from Docling's DOCX, PowerPoint, and Excel backends count too, and
+so do Python warnings that Docling raises while it converts a PDF, DOCX,
+PPTX, or XLSX file (for example "Provenance bbox coordinate ... is outside
+page bounds"). any2md records those instead of letting Python print them to
+stderr, and the `OK:` line shows them in its warning count.
 
 **Use this when** you want a CI gate that fails on conversion problems —
 heading-hierarchy auto-fixes, missing H1, `content_hash` round-trip mismatches,

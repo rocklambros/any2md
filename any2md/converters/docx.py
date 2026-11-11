@@ -1,7 +1,7 @@
 """DOCX to Markdown converter (v1.0).
 
 Phase 2: Docling primary backend with mammoth+markdownify fallback.
-Backend selection is automatic — if `docling` is importable we use it;
+Backend selection is automatic. If `docling` is importable we use it,
 otherwise we fall back to mammoth+markdownify. Core property metadata
 is always read directly from the DOCX zip independent of which backend
 produces the markdown body.
@@ -15,6 +15,7 @@ import zipfile
 
 from defusedxml.ElementTree import ParseError as _XmlParseError
 from defusedxml.ElementTree import parse as _xml_parse
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
 
@@ -22,20 +23,34 @@ import mammoth
 import markdownify
 
 from any2md import _logging, pipeline
-from any2md._docling import DoclingLogCapture, has_docling
+from any2md._docling import DoclingLogCapture, DoclingWarningCapture, has_docling
+from any2md._image_files import ImageWriter
 from any2md._ooxml_guard import check_ooxml_archive
-from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x; remove in v1.2
+from any2md._logging import _sanitize_log_text  # noqa: F401  # re-export shim for v1.1.x, remove in v1.2
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
+from any2md.converters._office_pictures import (
+    export_markdown,
+    alt_markdown,
+    fill_pictures,
+    prepare_pictures,
+    read_alt_texts,
+)
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
+from any2md.pipeline.blocks import fenced_lines
+from any2md.pipeline.structured import (
+    _IMG_LINK_RE,
+    NO_IMAGE_LINK,
+    lift_figure_captions,
+)
 from any2md.utils import atomic_write_text, sanitize_filename
 
 
 _DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
 
-_MAX_DOCX_METADATA_SIZE = 1 * 1024 * 1024  # 1 MB; core.xml/app.xml are typically <10 KB
+_MAX_DOCX_METADATA_SIZE = 1 * 1024 * 1024  # 1 MB. core.xml/app.xml are typically <10 KB
 
 
 def _safe_zip_open(
@@ -62,7 +77,7 @@ class _DoclingMswordWarningCapture(DoclingLogCapture):
     Used as a context manager around a Docling DOCX conversion to detect
     upstream's silent list-item-drop guard (msword_backend.py:1377/1675).
     Any captured records signal that Docling's Markdown output is
-    incomplete; ``convert_docx`` consults this to decide whether to
+    incomplete, and ``convert_docx`` consults this to decide whether to
     auto-retry with the mammoth lane.
     """
 
@@ -116,7 +131,7 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
                 company = root.findtext("ext:Company", namespaces=_NS_APP)
                 application = root.findtext("ext:Application", namespaces=_NS_APP)
                 # v1.0.2: Company takes priority for `organization` (real
-                # legal entity); Application is software → goes to
+                # legal entity). Application is software → goes to
                 # `produced_by` via filter_organization. When Company is
                 # absent we route Application through filter_organization
                 # for both fields so a real-org Application name still
@@ -142,12 +157,25 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
 
 def _extract_via_docling(
     docx_path: Path | SourceFile,
+    options: PipelineOptions | None = None,
+    output_dir: Path | None = None,
+    force: bool = False,
+    capture: DoclingWarningCapture | None = None,
 ) -> tuple[str, str, list[str]]:
     """Returns (markdown, 'docling', captured_warnings).
 
     ``captured_warnings`` is the list of WARNING+ messages emitted by
     Docling's ``msword_backend`` logger during the conversion. It is
     empty for clean runs. Raises on Docling errors.
+
+    Each picture becomes ``![text](link)`` for S1, the same as for PPTX
+    and XLSX. Under ``--save-images`` (``options.save_images`` with an
+    ``output_dir``) each picture is written to
+    ``<output_dir>/images/<stem>/imgN.png`` and linked.
+
+    ``capture`` counts Python warnings from the conversion, export, and
+    fill. The converter is built before it starts, so construction and
+    model-loading warnings never count.
 
     v1.1.0: uses the persistent ConverterCache rather than constructing
     a fresh DocumentConverter per call. On any convert exception the
@@ -159,15 +187,44 @@ def _extract_via_docling(
         get_docx_converter,
     )
 
+    src = as_source(docx_path)
     converter = get_docx_converter()
-    with _DoclingMswordWarningCapture() as cap:
+    counted = capture if capture is not None else nullcontext()
+    with _DoclingMswordWarningCapture() as cap, counted:
         try:
             # Never a str: see SourceFile.docling_input.
-            result = converter.convert(as_source(docx_path).docling_input())
+            result = converter.convert(src.docling_input())
         except Exception:
             evict_on_convert_failure("docx", None)
             raise
-    return result.document.export_to_markdown(), "docling", list(cap.messages)
+    doc = result.document
+    messages = list(cap.messages)
+
+    writer = None
+    # A msword_backend warning makes convert_docx throw this output away
+    # for mammoth's, which then saves the images itself. Writing them here
+    # too would leave files the final Markdown never links.
+    discarded = bool(messages) and options is not None and options.docx_fallback_on_warn
+    if options is not None and options.save_images and output_dir is not None:
+        if not discarded:
+            writer = ImageWriter(output_dir, src.name, overwrite=force)
+    try:
+        with capture if capture is not None else nullcontext():
+            figures: dict[str, str] = {}
+            if getattr(doc, "pictures", None):
+                alt_texts = read_alt_texts(src, "docx")
+                if alt_texts.warning and capture is not None:
+                    capture.note(alt_texts.warning)
+                figures = prepare_pictures(doc, "docx", alt_texts, writer)
+            md = fill_pictures(export_markdown(doc), figures)
+    except Exception:
+        # The caller falls back to mammoth, which saves its own images.
+        if writer is not None:
+            writer.discard()
+        raise
+    if writer is not None:
+        writer.commit(md)
+    return md, "docling", messages
 
 
 # mammoth 1.11.0 added ``external_file_access`` and turned it off by
@@ -191,38 +248,250 @@ def _mammoth_blocks_external_files() -> bool:
     return (int(match.group(1)), int(match.group(2))) >= _MAMMOTH_SAFE_VERSION
 
 
-# Emits an <img> with alt text and no src, so mammoth never calls
-# ``image.open()``. markdownify strips the tag when images are not saved.
-_skip_image_bytes = mammoth.images.img_element(lambda image: {})
+# Formats a saved image keeps, by the content type mammoth reports. The
+# bytes are written as they are in the package, so only formats a
+# Markdown viewer can show are saved. EMF, WMF, and SVG keep their
+# figure line and get no file.
+_MAMMOTH_IMAGE_EXTENSIONS = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/bmp": "bmp",
+    "image/tiff": "tiff",
+    "image/webp": "webp",
+}
+
+# One image is read at most this large. The zip guard has already
+# capped what the package inflates to, and this keeps one picture from
+# costing more memory than any real photo needs.
+_MAX_MAMMOTH_IMAGE_BYTES = 64 * 1024 * 1024
 
 
-def _mammoth_kwargs(save_images: bool) -> dict:
-    if not _mammoth_blocks_external_files():
-        # mammoth's image object does not say whether bytes come from the
-        # DOCX zip or from a link, so on an unsafe release no image is read.
-        return {"convert_image": _skip_image_bytes}
-    kwargs: dict = {"external_file_access": False}
-    if not save_images:
-        # The image is stripped from the output anyway, so reading and
-        # base64-encoding its bytes is wasted work.
-        kwargs["convert_image"] = _skip_image_bytes
-    return kwargs
+class _MammothImages:
+    """mammoth's ``convert_image`` hook: one ``<img>`` per picture, no data URI.
+
+    Each picture becomes ``<img alt="text" src="link">``, which
+    markdownify writes as ``![text](link)`` for S1. Without
+    ``--save-images`` the link is a placeholder S1 drops, and the image
+    bytes are never opened, since alt text needs none. With it, the
+    bytes of an image embedded in the package go to
+    ``images/<stem>/imgN.<ext>``, numbered in document order. A linked
+    image fails to open while ``external_file_access`` is off, so it
+    keeps its figure line and gets no file.
+
+    ``writer`` is None when no image bytes may be read: without
+    ``--save-images``, and on a mammoth release before 1.11.
+    """
+
+    def __init__(self, writer: ImageWriter | None):
+        self._writer = writer
+        self._number = 0
+
+    def __call__(self, image) -> dict:
+        attrs = {"src": NO_IMAGE_LINK}
+        alt = " ".join((image.alt_text or "").split())
+        if alt:
+            attrs["alt"] = alt_markdown(alt)
+        if self._writer is None:
+            return attrs
+        self._number += 1
+        link = self._save(image, self._writer, self._number)
+        if link:
+            attrs["src"] = link
+        return attrs
+
+    @staticmethod
+    def _save(image, writer: ImageWriter, number: int) -> str | None:
+        ext = _MAMMOTH_IMAGE_EXTENSIONS.get(image.content_type or "")
+        if ext is None:
+            return None
+        try:
+            with image.open() as f:
+                data = f.read(_MAX_MAMMOTH_IMAGE_BYTES + 1)
+        except Exception:  # noqa: BLE001 -- a linked or unreadable image keeps no file
+            return None
+        if len(data) > _MAX_MAMMOTH_IMAGE_BYTES:
+            _logging.warn(f"image img{number}.{ext} is larger than 64 MiB, not saved")
+            return None
+        return writer.write_bytes(number, ext, data)
+
+
+def _is_caption(element) -> bool:
+    if not isinstance(element, mammoth.documents.Paragraph):
+        return False
+    name = (element.style_name or "").casefold()
+    return name == "caption" or element.style_id == "Caption"
+
+
+def _images_in(element) -> list:
+    if isinstance(element, mammoth.documents.Image):
+        return [element]
+    found = []
+    for child in getattr(element, "children", None) or []:
+        found += _images_in(child)
+    return found
+
+
+def _text_in(element) -> str:
+    if isinstance(element, mammoth.documents.Text):
+        return element.value
+    return "".join(_text_in(c) for c in getattr(element, "children", None) or [])
+
+
+def _with_alt(element, alt: str):
+    if isinstance(element, mammoth.documents.Image):
+        return element.copy(alt_text=alt)
+    children = getattr(element, "children", None)
+    if children is None:
+        return element
+    return element.copy(children=[_with_alt(c, alt) for c in children])
+
+
+def _lift_captions(element):
+    """mammoth ``transform_document``: a Caption paragraph names its picture.
+
+    The rule matches the Docling lane: a Caption-style paragraph right
+    after a paragraph holding exactly one picture and no text becomes
+    that picture's figure text, ahead of its alt text, and leaves the
+    body. A Caption paragraph right above a table is the table's own and
+    stays where it is.
+    """
+    children = getattr(element, "children", None)
+    if children is None:
+        return element
+    kids = [_lift_captions(c) for c in children]
+    out = []
+    i = 0
+    while i < len(kids):
+        kid = kids[i]
+        after = kids[i + 2] if i + 2 < len(kids) else None
+        if (
+            isinstance(kid, mammoth.documents.Paragraph)
+            and i + 1 < len(kids)
+            and _is_caption(kids[i + 1])
+            and len(_images_in(kid)) == 1
+            and not _text_in(kid).strip()
+            and not isinstance(after, mammoth.documents.Table)
+        ):
+            caption = " ".join(_text_in(kids[i + 1]).split())
+            if caption:
+                out.append(_with_alt(kid, caption))
+                i += 2
+                continue
+        out.append(kid)
+        i += 1
+    return element.copy(children=out)
+
+
+# The parents of a picture in mammoth's HTML for a table cell
+# (<td><p><img>) and for a heading (<h1><img>). markdownify only keeps
+# an image there when its parent is listed.
+_INLINE_IMAGE_PARENTS = ["p", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"]
+
+_TABLE_ROW_RE = re.compile(r"^\s*\|")
+_HEADING_RE = re.compile(r"^#{1,6}\s")
+_ESCAPE_RE = re.compile(r"\\(.)")
+
+
+def _move_images_out_of_cells_and_headings(md: str) -> str:
+    """Move each picture in a table row or a heading out to its own line.
+
+    S1 turns a picture into a figure line plus, under --save-images, a
+    link on the next line, which would break a table row or a heading.
+    So the picture's text stays where it was, unescaped (with "|"
+    escaped in a cell), and the picture itself follows the heading or
+    the end of the table as its own paragraph, where S1 handles it like
+    any other. Each saved image is then linked once, from that
+    paragraph. Lines inside code fences are left alone.
+    """
+    lines = md.split("\n")
+    fenced = fenced_lines(md)
+    out: list[str] = []
+    pending: list[str] = []  # pictures waiting for their table to end
+
+    def flush() -> None:
+        for picture in pending:
+            out.extend(["", picture])
+        if pending:
+            out.append("")
+        pending.clear()
+
+    for i, line in enumerate(lines):
+        in_table = not fenced[i] and _TABLE_ROW_RE.match(line) is not None
+        if pending and not in_table:
+            flush()
+        heading = not fenced[i] and _HEADING_RE.match(line) is not None
+        if not (in_table or heading) or not _IMG_LINK_RE.search(line):
+            out.append(line)
+            continue
+        pictures = [m.group(0) for m in _IMG_LINK_RE.finditer(line)]
+
+        def as_text(match: re.Match[str]) -> str:
+            text = _ESCAPE_RE.sub(r"\1", match.group(1))
+            return text.replace("|", "\\|") if in_table else text
+
+        line = _IMG_LINK_RE.sub(as_text, line)
+        if in_table:
+            out.append(line)
+            pending.extend(pictures)
+            continue
+        if line.lstrip("#").strip():
+            out.append(line)
+        out.extend(part for picture in pictures for part in ("", picture))
+        out.append("")
+    flush()
+    return "\n".join(out)
 
 
 def _extract_via_mammoth(
-    docx_path: Path | SourceFile, options: PipelineOptions
+    docx_path: Path | SourceFile,
+    options: PipelineOptions,
+    output_dir: Path | None = None,
+    force: bool = False,
 ) -> tuple[str, str]:
-    with as_source(docx_path).open_binary() as f:
-        html_result = mammoth.convert_to_html(f, **_mammoth_kwargs(options.save_images))
-    md = markdownify.markdownify(
-        html_result.value,
-        heading_style="ATX",
-        strip=["img"] if not options.save_images else [],
-        bullets="-",
-        # mammoth never emits <thead>; without inference markdownify 1.x
-        # writes an empty header row and demotes the real header.
-        table_infer_header=True,
+    src = as_source(docx_path)
+    safe = _mammoth_blocks_external_files()
+    writer = (
+        ImageWriter(output_dir, src.name, overwrite=force)
+        if options.save_images and output_dir is not None
+        else None
     )
+    kwargs: dict = {
+        # mammoth before 1.11 cannot refuse a linked file, and its image
+        # object does not say where the bytes come from, so no image is
+        # read at all on such a release.
+        "convert_image": mammoth.images.img_element(
+            _MammothImages(writer if safe else None)
+        ),
+        "transform_document": _lift_captions,
+    }
+    if safe:
+        kwargs["external_file_access"] = False
+    try:
+        with src.open_binary() as f:
+            html_result = mammoth.convert_to_html(f, **kwargs)
+        md = markdownify.markdownify(
+            html_result.value,
+            heading_style="ATX",
+            bullets="-",
+            # mammoth never emits <thead>. Without inference markdownify 1.x
+            # writes an empty header row and demotes the real header.
+            table_infer_header=True,
+            # Inside a table cell or a heading markdownify writes a picture
+            # as its bare alt text. Keeping the image lets the step below
+            # move it out to its own figure.
+            keep_inline_images_in=_INLINE_IMAGE_PARENTS,
+        )
+        md = _move_images_out_of_cells_and_headings(md)
+        # The text lane has no S1, so the figure lines come from S1's own
+        # function here, giving the same lines as every other lane.
+        md = lift_figure_captions(md, options)
+    except Exception:
+        if writer is not None:
+            writer.discard()
+        raise
+    if writer is not None:
+        writer.commit(md)
     return md, "mammoth+markdownify"
 
 
@@ -252,7 +521,7 @@ def convert_docx(
 
         # Backend override (PipelineOptions.backend). When set, honor the
         # caller's choice instead of the auto-select. ``pymupdf4llm`` is
-        # invalid for DOCX — fail the file with a clear error.
+        # invalid for DOCX, so fail the file with a clear error.
         if options.backend == "pymupdf4llm":
             _logging.fail(
                 f"{src.name} -- backend 'pymupdf4llm' is not "
@@ -261,26 +530,43 @@ def convert_docx(
             return False
 
         docling_warnings: list[str] = []
+        # Python warnings from a Docling run that returned. A run that
+        # raised falls back to mammoth, and its warnings go with it.
+        py_warnings: list[str] = []
         if options.backend == "mammoth":
-            md_text, extracted_via = _extract_via_mammoth(src, options)
+            md_text, extracted_via = _extract_via_mammoth(
+                src, options, output_dir, force
+            )
             lane = "text"
         elif options.backend == "docling":
-            md_text, extracted_via, docling_warnings = _extract_via_docling(src)
+            cap = DoclingWarningCapture()
+            md_text, extracted_via, docling_warnings = _extract_via_docling(
+                src, options, output_dir, force, cap
+            )
+            py_warnings = cap.messages
             lane = "structured"
         elif has_docling():
             try:
-                md_text, extracted_via, docling_warnings = _extract_via_docling(src)
+                cap = DoclingWarningCapture()
+                md_text, extracted_via, docling_warnings = _extract_via_docling(
+                    src, options, output_dir, force, cap
+                )
+                py_warnings = cap.messages
                 lane = "structured"
-            except Exception as e:  # noqa: BLE001 — fall back rather than fail
+            except Exception as e:  # noqa: BLE001 -- fall back rather than fail
                 _logging.warn(
                     f"Docling extraction failed for {src.name}: {e}; "
                     f"falling back to mammoth."
                 )
-                md_text, extracted_via = _extract_via_mammoth(src, options)
+                md_text, extracted_via = _extract_via_mammoth(
+                    src, options, output_dir, force
+                )
                 lane = "text"
                 docling_warnings = []
         else:
-            md_text, extracted_via = _extract_via_mammoth(src, options)
+            md_text, extracted_via = _extract_via_mammoth(
+                src, options, output_dir, force
+            )
             lane = "text"
 
         # v1.0.5: Docling's DOCX backend silently drops list items in a
@@ -301,7 +587,7 @@ def convert_docx(
                 f"by Docling).",
                 prefix="FALLBACK",
             )
-            md_text, _ = _extract_via_mammoth(src, options)
+            md_text, _ = _extract_via_mammoth(src, options, output_dir, force)
             extracted_via = "docling→mammoth (warning fallback)"
             lane = "text"
             add_warnings(
@@ -312,6 +598,7 @@ def convert_docx(
             )
 
         md_text, warnings = pipeline.run(md_text, lane, options)
+        warnings = py_warnings + warnings
         add_warnings(warnings)
 
         props = _read_docx_metadata(src)

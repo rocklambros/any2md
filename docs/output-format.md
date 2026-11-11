@@ -194,7 +194,7 @@ array. Use the comma-array syntax: `--meta authors="Alice, Bob"` or, in
 
 **auto** | type: `string`
 
-**Derivation:** PDF/DOCX/PPTX/XLSX `Company` field; HTML `og:site_name` via trafilatura;
+**Derivation:** PDF/DOCX/PPTX/XLSX `Company` field, HTML `og:site_name` via trafilatura,
 otherwise empty. User overrides commonly set this for corpus-wide attribution.
 
 **Example empty:** `""`
@@ -428,9 +428,13 @@ chunkers and titlers work reliably. How it is enforced depends on the lane:
 - **Structured lane (Docling):** the S4 stage promotes the first heading to H1
   if no H1 was present in the source, and demotes any subsequent H1s to H2.
 - **PPTX / XLSX (Docling):** the converter writes the deck or workbook title
-  as the H1, then one H2 per slide (its title placeholder, else `Slide N`) or
-  per sheet (the sheet name), with each section's own headings nested below.
-  S4 then runs as for any structured-lane input.
+  as the H1, then one H2 per slide or per sheet, with each section's own
+  headings nested below. A slide's H2 is the text of its title or centered
+  title placeholder, wherever the placeholder sits on the slide, with a title
+  of several paragraphs joined into one line. A slide whose title placeholder
+  is missing or empty gets `Slide N`. A slide with no text and no pictures
+  adds no section. A sheet's H2 is the sheet name. S4 then runs as for any
+  structured-lane input.
 - **HTML / URL:** the converter restores the page title as the H1 when
   trafilatura drops it (a page `<h1>` outside the article container is not
   extracted). If the first body line already repeats the title as plain or

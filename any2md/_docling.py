@@ -3,7 +3,7 @@
 Docling is an optional dependency installed via:
     pip install "any2md[high-fidelity]"
 
-This module never imports docling at module load — it does so inside
+This module never imports docling at module load. It does so inside
 function bodies so that `import any2md` stays cheap when docling is
 absent.
 """
@@ -13,7 +13,11 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import warnings
 from importlib.util import find_spec
+from pathlib import Path
+
+from any2md._logging import safe_oneline
 
 # One spelling of the install command, shared by every message that
 # tells the user how to get Docling.
@@ -72,13 +76,107 @@ class DoclingLogCapture:
         return [r.getMessage() for r in self._records]
 
 
+# The categories that describe a document problem. Deprecations and
+# resource or import warnings describe the library, so they are left to
+# the caller's normal handling.
+_COUNTED_WARNINGS: tuple[type[Warning], ...] = (
+    UserWarning,
+    RuntimeWarning,
+    SyntaxWarning,
+    UnicodeWarning,
+    BytesWarning,
+)
+
+
+# Only warnings raised from Docling's own packages describe the document.
+# torch, transformers, numpy, or PIL warnings during model loading or
+# conversion go to the caller's normal handling. The filter's module
+# pattern matches the warning's module name, and the display hook checks
+# the file the warning names.
+_DOCLING_MODULE_RE = r"docling(_core)?(\.|$)"
+_DOCLING_PACKAGES = frozenset({"docling", "docling_core"})
+
+
+def _from_docling(filename: str) -> bool:
+    """True when ``filename`` lies inside the docling or docling_core package."""
+    return not _DOCLING_PACKAGES.isdisjoint(Path(filename).parts)
+
+
+class DoclingWarningCapture:
+    """Record the Python warnings raised during one Docling conversion.
+
+    docling-core reports some document problems with ``warnings.warn``
+    rather than logging (for example "Provenance bbox coordinate ... is
+    outside page bounds"). Python prints those raw to stderr. Inside
+    this context manager a warning of a counted category raised from
+    Docling's own packages (docling, docling_core) is collected
+    instead, and ``messages`` returns each one sanitized to one line,
+    for the run's warning bucket. They count toward ``--strict`` like
+    Docling's logged warnings.
+
+    Only those warnings are touched. An "always" filter for each counted
+    category, limited to Docling's modules, goes first, so a repeat
+    counts every time and a caller's "error" or "ignore" filter cannot
+    raise or hide it mid-conversion. Every other warning (deprecations,
+    and anything torch, transformers, numpy, or PIL raise while models
+    load) meets the caller's own filters and display hook as it is
+    raised, with its own module and line, and nothing is recorded or
+    replayed afterward. Converters also build their Docling converter
+    outside the capture, so it covers the conversion and export only.
+
+    ``warnings.catch_warnings`` saves the process-wide filters and
+    display hook on entry and restores them on exit, so a library
+    caller's setup holds everywhere outside the conversion. It is not
+    thread-safe, which suits the CLI's one-file-at-a-time loop. The
+    capture may be entered more than once, for example around the
+    conversion and then around the export, and its messages add up.
+    """
+
+    def __init__(self) -> None:
+        self._context: warnings.catch_warnings | None = None
+        self._messages: list[str] = []
+
+    def __enter__(self) -> DoclingWarningCapture:
+        self._context = warnings.catch_warnings()
+        self._context.__enter__()
+        for category in _COUNTED_WARNINGS:
+            warnings.filterwarnings(
+                "always", category=category, module=_DOCLING_MODULE_RE
+            )
+        shown = warnings.showwarning
+
+        def collect(message, category, filename, lineno, file=None, line=None):
+            if issubclass(category, _COUNTED_WARNINGS) and _from_docling(filename):
+                self._messages.append(
+                    f"{category.__name__}: {safe_oneline(str(message))}"
+                )
+            else:
+                shown(message, category, filename, lineno, file, line)
+
+        warnings.showwarning = collect
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        if self._context is not None:
+            self._context.__exit__(*exc)
+            self._context = None
+
+    def note(self, message: str) -> None:
+        """Count a problem found outside Docling, such as unreadable alt text."""
+        self._messages.append(message)
+
+    @property
+    def messages(self) -> list[str]:
+        return list(self._messages)
+
+
 def has_docling() -> bool:
     """Return True if the docling package can be imported."""
     return find_spec("docling") is not None
 
 
 def install_hint() -> None:
-    """Print the install hint to stderr — at most once per process."""
+    """Print the install hint to stderr, at most once per process."""
     if _hint_emitted.is_set():
         return
     print(f"  WARN: {INSTALL_HINT_MSG}", file=sys.stderr)  # log-safe: literal

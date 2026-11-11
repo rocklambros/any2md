@@ -84,6 +84,11 @@ def _replace_figures(text: str, repl) -> str:
 
 _IMAGE_PLACEHOLDER_RE = re.compile(r"<!--\s*image\s*-->", re.IGNORECASE)
 
+# The link of a Markdown image that stands for a picture with no file
+# behind it. S1 turns it into the figure line alone, even under
+# --save-images.
+NO_IMAGE_LINK = "#"
+
 
 def lift_figure_captions(text: str, options: "PipelineOptions") -> str:
     """S1: Convert image markdown / <figure> blocks to italic *Figure: caption* lines.
@@ -95,7 +100,9 @@ def lift_figure_captions(text: str, options: "PipelineOptions") -> str:
         alt = match.group(1).strip()
         url = match.group(2).strip()
         caption_line = f"*Figure: {alt}*" if alt else ""
-        if options.save_images:
+        # A converter writes NO_IMAGE_LINK for a picture with no saved
+        # file, so --save-images never keeps a link that points nowhere.
+        if options.save_images and url != NO_IMAGE_LINK:
             # Keep the link below the caption
             return (
                 f"{caption_line}\n\n![{alt}]({url})"

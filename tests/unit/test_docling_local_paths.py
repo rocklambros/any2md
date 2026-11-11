@@ -27,7 +27,7 @@ class _FakeResult:
         pictures: list = []
 
         @staticmethod
-        def export_to_markdown() -> str:
+        def export_to_markdown(**_kwargs) -> str:
             return "# Title\n\nBody.\n"
 
 

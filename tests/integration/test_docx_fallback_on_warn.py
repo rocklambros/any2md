@@ -117,7 +117,7 @@ def _stub_docling_with_warning(
     """Make `_extract_via_docling` emit a docling msword warning and return stub MD."""
     log = logging.getLogger("docling.backend.msword_backend")
 
-    def _fake(docx_path):
+    def _fake(docx_path, *_args):
         # Use the real capture machinery: emit through the same logger
         # the capture is attached to.
         log.warning(message)
@@ -129,7 +129,7 @@ def _stub_docling_with_warning(
 def test_fallback_fires_by_default(tmp_path, tmp_output_dir, monkeypatch, capsys):
     monkeypatch.setattr(docx_mod, "has_docling", lambda: True)
 
-    def _fake(docx_path):
+    def _fake(docx_path, *_args):
         return (
             "# Docling output\n",
             "docling",
@@ -171,7 +171,7 @@ def test_fallback_fires_by_default(tmp_path, tmp_output_dir, monkeypatch, capsys
 def test_fallback_disabled_keeps_docling(tmp_path, tmp_output_dir, monkeypatch):
     monkeypatch.setattr(docx_mod, "has_docling", lambda: True)
 
-    def _fake(docx_path):
+    def _fake(docx_path, *_args):
         return (
             "# Docling output\n",
             "docling",
@@ -200,7 +200,7 @@ def test_fallback_disabled_keeps_docling(tmp_path, tmp_output_dir, monkeypatch):
 def test_no_warnings_no_fallback(tmp_path, tmp_output_dir, monkeypatch):
     monkeypatch.setattr(docx_mod, "has_docling", lambda: True)
 
-    def _fake(docx_path):
+    def _fake(docx_path, *_args):
         return "# Clean Docling output\n", "docling", []
 
     monkeypatch.setattr(docx_mod, "_extract_via_docling", _fake)
@@ -232,7 +232,7 @@ def test_explicit_docling_backend_still_falls_back(
     """
     monkeypatch.setattr(docx_mod, "has_docling", lambda: True)
 
-    def _fake(docx_path):
+    def _fake(docx_path, *_args):
         return (
             "# Docling output\n",
             "docling",
