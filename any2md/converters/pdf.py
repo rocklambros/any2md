@@ -85,11 +85,19 @@ def _save_image_safely(img_path: Path, pil_image) -> None:
         pil_image.save(fp, format="PNG")
 
 
-def _open_pdf(src: SourceFile) -> "pymupdf.Document":
-    """Open a PDF from its path, or from bytes the CLI already read."""
+def _open_pdf(src: SourceFile, data: bytes | None = None) -> "pymupdf.Document":
+    """Open the PDF from its path, or from the bytes of an opened source.
+
+    pymupdf opens only a file name or bytes, not a file object. A
+    descriptor-backed source is therefore read into memory once, and the
+    caller passes those bytes here so the same buffer serves pymupdf and
+    Docling.
+    """
     if src.path is not None:
         return pymupdf.open(str(src.path))
-    return pymupdf.open(stream=src.data, filetype="pdf")
+    if data is None:
+        data = src.read_bytes()
+    return pymupdf.open(stream=data, filetype="pdf")
 
 
 def pdf_looks_complex(pdf_path: Path | SourceFile) -> bool:
@@ -105,45 +113,59 @@ def pdf_looks_complex(pdf_path: Path | SourceFile) -> bool:
     """
     try:
         with _open_pdf(as_source(pdf_path)) as doc:
-            page_count = len(doc)
-            if page_count <= 5:
-                return False
+            return _doc_looks_complex(doc)
+    except (OSError, ValueError, RuntimeError):
+        return False
 
-            # The early return above guarantees page_count > 5, so five
-            # evenly spaced pages are always a strict subset of the doc.
-            sample_idxs = [int(i * page_count / 5) for i in range(5)]
 
-            total_chars = 0
-            multi_column_seen = False
-            for idx in sample_idxs:
-                page = doc[idx]
-                text = page.get_text("text") or ""
-                total_chars += len(text)
-                # Multi-column heuristic: collect block x-positions; if there
-                # are clusters around two distinct x ranges with > 100 px
-                # separation, flag.
-                blocks = page.get_text("blocks") or []
-                xs = sorted({round(b[0], 0) for b in blocks if len(b) >= 4})
-                if len(xs) >= 4:
-                    # Check if there's a gap > page_width * 0.2 between
-                    # consecutive x-starts.
-                    pw = page.rect.width or 612
-                    for a, b in zip(xs, xs[1:]):
-                        if b - a > pw * 0.2:
-                            multi_column_seen = True
-                            break
+def _doc_looks_complex(doc: "pymupdf.Document") -> bool:
+    """``pdf_looks_complex`` for a document the caller already opened."""
+    try:
+        page_count = len(doc)
+        if page_count <= 5:
+            return False
 
-            avg_chars = total_chars / max(len(sample_idxs), 1)
-            scanned_signal = avg_chars < 200
-            return multi_column_seen or scanned_signal
+        # The early return above guarantees page_count > 5, so five
+        # evenly spaced pages are always a strict subset of the doc.
+        sample_idxs = [int(i * page_count / 5) for i in range(5)]
+
+        total_chars = 0
+        multi_column_seen = False
+        for idx in sample_idxs:
+            page = doc[idx]
+            text = page.get_text("text") or ""
+            total_chars += len(text)
+            # Multi-column heuristic: collect block x-positions; if there
+            # are clusters around two distinct x ranges with > 100 px
+            # separation, flag.
+            blocks = page.get_text("blocks") or []
+            xs = sorted({round(b[0], 0) for b in blocks if len(b) >= 4})
+            if len(xs) >= 4:
+                # Check if there's a gap > page_width * 0.2 between
+                # consecutive x-starts.
+                pw = page.rect.width or 612
+                for a, b in zip(xs, xs[1:]):
+                    if b - a > pw * 0.2:
+                        multi_column_seen = True
+                        break
+
+        avg_chars = total_chars / max(len(sample_idxs), 1)
+        scanned_signal = avg_chars < 200
+        return multi_column_seen or scanned_signal
     except (OSError, ValueError, RuntimeError):
         return False
 
 
 def _extract_via_docling(
-    pdf_path: Path | SourceFile, options: PipelineOptions, output_dir: Path
+    pdf_path: Path | SourceFile,
+    options: PipelineOptions,
+    output_dir: Path,
+    data: bytes | None = None,
 ) -> tuple[str, str]:
     """Returns (markdown, 'docling'). Raises on Docling errors.
+
+    ``data`` is the file's bytes when the caller already read them, so
+    a descriptor-backed source is not read a second time.
 
     When ``options.save_images`` is True, extracted picture images are
     written to ``<output_dir>/images/<pdf_stem>/imgN.png``.
@@ -170,7 +192,7 @@ def _extract_via_docling(
     converter = get_pdf_converter(pipeline_opts)
     try:
         # Never a str: see SourceFile.docling_input.
-        result = converter.convert(src.docling_input())
+        result = converter.convert(src.docling_input(data))
     except Exception:
         evict_on_convert_failure("pdf", pipeline_opts)
         raise
@@ -247,33 +269,40 @@ def convert_pdf(
         else:
             use_docling = has_docling()
 
-        if not use_docling and options.backend is None and pdf_looks_complex(src):
-            install_hint()
+        # One parse per conversion: the complexity check, the metadata,
+        # the pymupdf4llm body, and the fallback after a Docling failure
+        # all share this Document. A path-backed source stays on disk.
+        # Any other source is read once, and Docling gets the same bytes.
+        data = None if src.path is not None else src.read_bytes()
+        with _open_pdf(src, data) as doc:
+            if not use_docling and options.backend is None and _doc_looks_complex(doc):
+                install_hint()
 
-        # Always extract metadata via PyMuPDF — independent of which
-        # backend produces the markdown body.
-        with _open_pdf(src) as doc:
+            # Always extract metadata via PyMuPDF — independent of which
+            # backend produces the markdown body.
             page_count = len(doc)
             props = _parse_pdf_metadata(doc)
-            fallback_md = None
-            if not use_docling:
-                fallback_md, extracted_via = _extract_via_pymupdf4llm(doc)
-                lane = "text"
 
-        if use_docling:
-            try:
-                md_text, extracted_via = _extract_via_docling(src, options, output_dir)
-                lane = "structured"
-            except Exception as e:  # noqa: BLE001 — fall back rather than fail
-                _logging.warn(
-                    f"Docling extraction failed for {src.name}: {e}; "
-                    f"falling back to pymupdf4llm."
-                )
-                with _open_pdf(src) as doc:
+            if use_docling:
+                try:
+                    md_text, extracted_via = _extract_via_docling(
+                        src, options, output_dir, data=data
+                    )
+                    lane = "structured"
+                except Exception as e:  # noqa: BLE001 — fall back rather than fail
+                    _logging.warn(
+                        f"Docling extraction failed for {src.name}: {e}; "
+                        f"falling back to pymupdf4llm."
+                    )
                     md_text, extracted_via = _extract_via_pymupdf4llm(doc)
+                    lane = "text"
+            else:
+                md_text, extracted_via = _extract_via_pymupdf4llm(doc)
                 lane = "text"
-        else:
-            md_text = fallback_md
+        # A closed pymupdf Document still references the bytes it was
+        # opened from. Drop both so they can be freed before the text
+        # pipeline runs.
+        del data, doc
 
         md_text, warnings = pipeline.run(md_text, lane, options)
         add_warnings(warnings)

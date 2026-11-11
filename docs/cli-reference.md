@@ -90,6 +90,17 @@ line is still converted. On Windows the open follows links and a check after
 the open rejects a swapped file, which leaves a narrow race on parent
 directories.
 
+Directory scans also skip any file with more than one hard link and print a
+`SKIP (hard link)` line. A hard link is a second name for an existing file,
+so on a file system without hard-link protection (macOS, or Linux with
+`fs.protected_hardlinks=0`) anyone who can write to the scanned tree could
+link in a file they cannot read, such as another user's `~/.netrc`, and your
+scan would copy it into the output. If you trust a hard-linked file, name it
+on the command line and it converts as usual. Every read of a scanned file
+goes through the descriptor that passed these checks and stops at
+`--max-file-size` bytes, so a file that grows past the limit while it is
+converted fails instead of being read in full.
+
 **Use this when** your corpus is organized into subdirectories (`./corpus/2024/`,
 `./corpus/2025/`) and you want one invocation to walk the whole tree.
 

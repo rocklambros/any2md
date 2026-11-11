@@ -510,8 +510,9 @@ def main():
         source: Path | SourceFile
         if scan_root is not None:
             # The tree may have changed since the scan. open_scanned binds
-            # the file to a no-follow descriptor, checks type and size on
-            # that descriptor, and reads at most --max-file-size bytes.
+            # the file to a no-follow descriptor, checks type, link count,
+            # and size on that descriptor, and every later read goes
+            # through it and stops at --max-file-size bytes.
             try:
                 source = open_scanned(
                     scan_root, file_path.relative_to(scan_root), args.max_file_size
@@ -542,12 +543,19 @@ def main():
                 continue
             source = file_path
 
-        result = convert_file(
-            source,
-            args.output_dir,
-            options=options,
-            force=args.force,
-        )
+        try:
+            result = convert_file(
+                source,
+                args.output_dir,
+                options=options,
+                force=args.force,
+            )
+        finally:
+            # A scanned source holds its checked descriptor open for the
+            # converter. Close it now, even when the converter raised,
+            # so a large batch cannot run out of descriptors.
+            if isinstance(source, SourceFile):
+                source.close()
         if result:
             ok += 1
         else:

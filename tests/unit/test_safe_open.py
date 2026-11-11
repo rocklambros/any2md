@@ -45,13 +45,21 @@ def tree(tmp_path):
     return root, outside
 
 
+def _open_fds() -> int:
+    return len(os.listdir("/dev/fd"))
+
+
 def test_reads_regular_file(tree):
     root, _ = tree
-    src = so.open_scanned(root, Path("sub/doc.txt"), CAP)
-    assert src.name == "doc.txt"
-    assert src.path is None
-    assert src.read_text() == "Nested document body.\n"
-    assert src.mtime() == (root / "sub" / "doc.txt").stat().st_mtime
+    with so.open_scanned(root, Path("sub/doc.txt"), CAP) as src:
+        assert src.name == "doc.txt"
+        assert src.path is None
+        assert src.data is None
+        assert not src.closed
+        assert src.read_text() == "Nested document body.\n"
+        assert src.mtime() == (root / "sub" / "doc.txt").stat().st_mtime
+        assert src.size() == len("Nested document body.\n")
+    assert src.closed
 
 
 @posix_only
@@ -110,9 +118,7 @@ def test_file_over_cap_is_skipped(tree):
     assert "2048 bytes, max 1024" in exc.value.detail
 
 
-def test_file_grown_past_cap_after_fstat_is_skipped(tree, monkeypatch):
-    root, _ = tree
-    (root / "grow.txt").write_bytes(b"x" * 2048)
+def _report_small_size(monkeypatch):
     real_fstat = os.fstat
 
     def small_fstat(fd):
@@ -123,9 +129,42 @@ def test_file_grown_past_cap_after_fstat_is_skipped(tree, monkeypatch):
         return os.stat_result(fields)
 
     monkeypatch.setattr(so.os, "fstat", small_fstat)
-    with pytest.raises(so.SkipSource) as exc:
-        so.open_scanned(root, Path("grow.txt"), 1024)
-    assert exc.value.prefix == "SKIP (too large)"
+
+
+def test_full_read_of_file_grown_past_cap_fails(tree, monkeypatch):
+    root, _ = tree
+    (root / "grow.txt").write_bytes(b"x" * 2048)
+    _report_small_size(monkeypatch)
+
+    with so.open_scanned(root, Path("grow.txt"), 1024) as src:
+        with pytest.raises(ValueError, match="grew past 1024 bytes"):
+            src.read_text()
+        with pytest.raises(ValueError, match="grew past 1024 bytes"):
+            src.read_bytes()
+
+
+def test_stream_read_of_file_grown_past_cap_fails(tree, monkeypatch):
+    root, _ = tree
+    (root / "grow.txt").write_bytes(b"x" * 2048)
+    _report_small_size(monkeypatch)
+
+    with so.open_scanned(root, Path("grow.txt"), 1024) as src:
+        with src.open_binary() as fh, pytest.raises(ValueError, match="grew past"):
+            fh.read()
+        # A reader that seeks past the cap and reads there fails too.
+        with src.open_binary() as fh, pytest.raises(ValueError, match="grew past"):
+            fh.seek(1500)
+            fh.read(10)
+
+
+def test_stream_reads_up_to_the_cap(tree):
+    root, _ = tree
+    (root / "exact.txt").write_bytes(b"y" * 1024)
+    with so.open_scanned(root, Path("exact.txt"), 1024) as src:
+        with src.open_binary() as fh:
+            assert fh.read() == b"y" * 1024
+            fh.seek(0, os.SEEK_END)
+            assert fh.tell() == 1024
 
 
 def test_missing_file_raises_oserror(tree):
@@ -146,8 +185,8 @@ def test_text_matches_path_read_for_crlf_and_latin1(tree):
     (root / "crlf.txt").write_bytes(b"one\r\ntwo\rthree\n")
     (root / "latin.txt").write_bytes("caf\xe9\n".encode("latin-1"))
     for name in ("crlf.txt", "latin.txt"):
-        opened = so.open_scanned(root, Path(name), CAP).read_text()
-        assert opened == so.as_source(root / name).read_text()
+        with so.open_scanned(root, Path(name), CAP) as src:
+            assert src.read_text() == so.as_source(root / name).read_text()
 
 
 @posix_only
@@ -165,8 +204,8 @@ def test_fallback_without_dir_fd_rejects_symlink(tree, monkeypatch):
 def test_fallback_without_dir_fd_reads_regular_file(tree, monkeypatch):
     root, _ = tree
     monkeypatch.setattr(so, "_supports_nofollow_walk", lambda: False)
-    src = so.open_scanned(root, Path("sub/doc.txt"), CAP)
-    assert src.read_text() == "Nested document body.\n"
+    with so.open_scanned(root, Path("sub/doc.txt"), CAP) as src:
+        assert src.read_text() == "Nested document body.\n"
 
 
 def test_fallback_rejects_file_swapped_after_open(tree, monkeypatch):
@@ -183,6 +222,104 @@ def test_fallback_rejects_file_swapped_after_open(tree, monkeypatch):
         so.open_scanned(root, Path("top.txt"), CAP)
 
 
+@posix_only
+def test_hard_linked_file_is_skipped(tree):
+    root, outside = tree
+    os.link(outside / "id_rsa", root / "notes.txt")
+    before = _open_fds()
+
+    with pytest.raises(so.SkipSource) as exc:
+        so.open_scanned(root, Path("notes.txt"), CAP)
+    assert exc.value.prefix == "SKIP (hard link)"
+    assert "notes.txt" in exc.value.detail
+    assert "command line" in exc.value.detail
+    assert _open_fds() == before
+
+
+@posix_only
+def test_hard_link_check_runs_in_the_fallback_too(tree, monkeypatch):
+    root, outside = tree
+    monkeypatch.setattr(so, "_supports_nofollow_walk", lambda: False)
+    os.link(outside / "id_rsa", root / "notes.txt")
+
+    with pytest.raises(so.SkipSource) as exc:
+        so.open_scanned(root, Path("notes.txt"), CAP)
+    assert exc.value.prefix == "SKIP (hard link)"
+
+
+@posix_only
+def test_swap_after_open_cannot_redirect_the_read(tree):
+    root, outside = tree
+    with so.open_scanned(root, Path("top.txt"), CAP) as src:
+        (root / "top.txt").unlink()
+        os.symlink(outside / "id_rsa", root / "top.txt")
+        assert src.read_text() == "Top document body.\n"
+        with src.open_binary() as fh:
+            assert fh.read() == b"Top document body.\n"
+
+
+def test_each_stream_starts_at_zero_and_keeps_its_own_position(tree):
+    root, _ = tree
+    with so.open_scanned(root, Path("top.txt"), CAP) as src:
+        first = src.open_binary()
+        assert first.read(4) == b"Top "
+        second = src.open_binary()
+        assert second.read(3) == b"Top"
+        assert first.read(8) == b"document"
+        first.close()
+        second.close()
+        # Closing a stream leaves the source open for the next reader.
+        assert not src.closed
+        assert src.read_bytes() == b"Top document body.\n"
+
+
+@posix_only
+def test_close_is_idempotent_and_blocks_later_reads(tree):
+    root, _ = tree
+    before = _open_fds()
+    src = so.open_scanned(root, Path("top.txt"), CAP)
+    assert _open_fds() == before + 1
+    src.close()
+    src.close()
+    assert _open_fds() == before
+    with pytest.raises(ValueError, match="closed"):
+        src.read_bytes()
+    with pytest.raises(ValueError, match="closed"):
+        src.open_binary()
+
+
+@posix_only
+def test_skip_after_open_closes_the_descriptor(tree):
+    root, _ = tree
+    (root / "big.txt").write_bytes(b"x" * 2048)
+    before = _open_fds()
+    with pytest.raises(so.SkipSource):
+        so.open_scanned(root, Path("big.txt"), 1024)
+    assert _open_fds() == before
+
+
+def test_short_file_reads_as_not_a_zip_through_a_descriptor(tree):
+    from any2md._ooxml_guard import ArchiveRejected, check_ooxml_archive
+
+    root, _ = tree
+    (root / "tiny.docx").write_bytes(b"PK")
+    with so.open_scanned(root, Path("tiny.docx"), CAP) as src:
+        with pytest.raises(ArchiveRejected, match="not a valid OOXML"):
+            check_ooxml_archive(src)
+
+
+def test_path_backed_source_is_unchanged(tree):
+    root, _ = tree
+    src = so.as_source(root / "top.txt")
+    assert src.path == root / "top.txt"
+    assert src.read_bytes() == b"Top document body.\n"
+    with src.open_binary() as fh:
+        assert fh.read() == b"Top document body.\n"
+    # Closing a path-backed source is allowed and changes nothing.
+    src.close()
+    assert src.read_text() == "Top document body.\n"
+
+
 def test_source_file_needs_exactly_one_backing():
     with pytest.raises(ValueError):
         so.SourceFile("a.txt")
@@ -193,10 +330,9 @@ def test_source_file_needs_exactly_one_backing():
 # Converters accept an opened source as well as a Path.
 
 
-def _opened(fixture_dir: Path, name: str, as_name: str | None = None) -> so.SourceFile:
-    """Build a bytes-backed source the way open_scanned does."""
-    data = (fixture_dir / name).read_bytes()
-    return so.SourceFile(as_name or name, data=data, mtime=0.0)
+def _opened(fixture_dir: Path, name: str) -> so.SourceFile:
+    """Open a fixture the way the CLI opens a scanned file."""
+    return so.open_scanned(fixture_dir, Path(name), CAP)
 
 
 def test_convert_txt_from_opened_source(tmp_path):
@@ -208,25 +344,25 @@ def test_convert_txt_from_opened_source(tmp_path):
 
 
 def test_convert_html_from_opened_source(fixture_dir, tmp_path):
-    src = _opened(fixture_dir, "web_page.html")
-    assert html_mod.convert_html(src, tmp_path, options=PipelineOptions())
+    with _opened(fixture_dir, "web_page.html") as src:
+        assert html_mod.convert_html(src, tmp_path, options=PipelineOptions())
     out = (tmp_path / "web_page.md").read_text()
     assert 'source_file: "web_page.html"' in out
 
 
 def test_convert_pdf_from_opened_source(fixture_dir, tmp_path):
-    src = _opened(fixture_dir, "multi_column.pdf")
     opts = PipelineOptions(backend="pymupdf4llm")
-    assert pdf_mod.convert_pdf(src, tmp_path, options=opts)
+    with _opened(fixture_dir, "multi_column.pdf") as src:
+        assert pdf_mod.convert_pdf(src, tmp_path, options=opts)
     out = (tmp_path / "multi_column.md").read_text()
     assert 'source_file: "multi_column.pdf"' in out
     assert "pages: 2" in out
 
 
 def test_convert_docx_from_opened_source(fixture_dir, tmp_path):
-    src = _opened(fixture_dir, "table_heavy.docx")
     opts = PipelineOptions(backend="mammoth")
-    assert docx_mod.convert_docx(src, tmp_path, options=opts)
+    with _opened(fixture_dir, "table_heavy.docx") as src:
+        assert docx_mod.convert_docx(src, tmp_path, options=opts)
     from_bytes = (tmp_path / "table_heavy.md").read_text()
     assert 'source_file: "table_heavy.docx"' in from_bytes
 
@@ -276,3 +412,68 @@ def test_docling_receives_document_stream_for_opened_source(monkeypatch):
 
     assert isinstance(conv.sources[0], DocumentStream)
     assert conv.sources[0].stream.read() == b"PK bytes"
+
+
+def test_docling_receives_document_stream_for_descriptor_source(
+    fixture_dir, monkeypatch
+):
+    pytest.importorskip("docling")
+    from docling.datamodel.base_models import DocumentStream
+
+    conv = _RecordingConverter()
+    monkeypatch.setattr(cache_mod, "get_docx_converter", lambda: conv)
+    with _opened(fixture_dir, "table_heavy.docx") as src:
+        docx_mod._extract_via_docling(src)
+
+    expected = (fixture_dir / "table_heavy.docx").read_bytes()
+    assert isinstance(conv.sources[0], DocumentStream)
+    assert conv.sources[0].stream.read() == expected
+
+
+class _CountingOpen:
+    """Wrap pymupdf.open and count how many documents get parsed."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._real = pdf_mod.pymupdf.open
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        return self._real(*args, **kwargs)
+
+
+@pytest.mark.parametrize("from_descriptor", [True, False])
+def test_pdf_is_parsed_once_per_conversion(
+    fixture_dir, tmp_path, monkeypatch, from_descriptor
+):
+    counter = _CountingOpen()
+    monkeypatch.setattr(pdf_mod.pymupdf, "open", counter)
+    # No Docling and no backend override: the complexity check, the
+    # metadata read, and the pymupdf4llm body all run.
+    monkeypatch.setattr(pdf_mod, "has_docling", lambda: False)
+    if from_descriptor:
+        with _opened(fixture_dir, "multi_column.pdf") as src:
+            assert pdf_mod.convert_pdf(src, tmp_path, options=PipelineOptions())
+    else:
+        path = fixture_dir / "multi_column.pdf"
+        assert pdf_mod.convert_pdf(path, tmp_path, options=PipelineOptions())
+    assert counter.calls == 1
+
+
+def test_pdf_docling_fallback_reuses_the_document(fixture_dir, tmp_path, monkeypatch):
+    counter = _CountingOpen()
+    monkeypatch.setattr(pdf_mod.pymupdf, "open", counter)
+    monkeypatch.setattr(pdf_mod, "has_docling", lambda: True)
+    seen = []
+
+    def failing_docling(src, options, output_dir, data=None):
+        seen.append(data)
+        raise RuntimeError("docling broke")
+
+    monkeypatch.setattr(pdf_mod, "_extract_via_docling", failing_docling)
+    with _opened(fixture_dir, "multi_column.pdf") as src:
+        assert pdf_mod.convert_pdf(src, tmp_path, options=PipelineOptions())
+    assert counter.calls == 1
+    # Docling got the same bytes the document was parsed from.
+    assert seen == [(fixture_dir / "multi_column.pdf").read_bytes()]
+    assert 'extracted_via: "pymupdf4llm"' in (tmp_path / "multi_column.md").read_text()

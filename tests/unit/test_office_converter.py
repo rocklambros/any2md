@@ -333,7 +333,7 @@ def _run_cli(monkeypatch, argv):
     return exc.value.code
 
 
-def test_scanned_files_reach_docling_as_bytes(monkeypatch, tmp_path):
+def test_scanned_files_reach_docling_through_descriptors(monkeypatch, tmp_path):
     corpus = tmp_path / "corpus"
     corpus.mkdir()
     build_pptx(corpus / "deck.pptx", [("Title", "Body")])
@@ -344,9 +344,10 @@ def test_scanned_files_reach_docling_as_bytes(monkeypatch, tmp_path):
 
     assert code == 0
     assert sorted(s.name for s in seen) == ["book.xlsx", "deck.pptx"]
-    # Bytes-backed: read once through a no-follow descriptor, never
-    # reopened by name.
-    assert all(s.path is None and s.data for s in seen)
+    # Descriptor-backed: opened once with no link followed, never
+    # reopened by name, and closed by the CLI after the conversion.
+    assert all(s.path is None and s.data is None for s in seen)
+    assert all(s.closed for s in seen)
 
 
 def test_named_file_reaches_docling_as_path(monkeypatch, tmp_path):

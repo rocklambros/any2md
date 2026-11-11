@@ -189,3 +189,52 @@ def test_fifo_swapped_in_after_scan_does_not_hang(tree, tmp_path):
     assert "SKIP (not a regular file)" in r.stderr
     assert (out / "real.md").exists()
     assert not (out / "report.md").exists()
+
+
+def _open_fds() -> int:
+    return len(os.listdir("/dev/fd"))
+
+
+def test_batch_closes_every_scanned_descriptor(tmp_path, monkeypatch, capsys):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    for i in range(5):
+        (corpus / f"doc{i}.txt").write_text(f"Document {i} body.\n")
+    (corpus / "page.html").write_text("<html><body><p>Page body.</p></body></html>")
+    # Each conversion below fails after its descriptor is open.
+    (corpus / "bad.pdf").write_bytes(b"%PDF-1.4 not a real document")
+    (corpus / "broken.docx").write_bytes(b"PK not a real archive")
+    # A skip after the open must close the descriptor too.
+    (corpus / "base.txt").write_text("Linked body.\n")
+    os.link(corpus / "base.txt", corpus / "alias.txt")
+    out = tmp_path / "out"
+
+    opened = []
+    real_open_scanned = cli.open_scanned
+
+    def recording_open_scanned(*args, **kwargs):
+        src = real_open_scanned(*args, **kwargs)
+        # Holding a reference keeps garbage collection from closing a
+        # descriptor the CLI forgot, so a leak shows up as an open source.
+        opened.append(src)
+        return src
+
+    monkeypatch.setattr(cli, "open_scanned", recording_open_scanned)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["any2md", "-o", str(out), "--backend", "pymupdf4llm", str(corpus)],
+    )
+    before = _open_fds()
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    after = _open_fds()
+    err = capsys.readouterr().err
+
+    assert exc.value.code == 2, err
+    assert "FAIL: bad.pdf" in err
+    assert "FAIL: broken.docx -- not a valid OOXML" in err
+    # base.txt and alias.txt are both skipped as hard links.
+    assert len(opened) == 8, err
+    assert all(src.closed for src in opened)
+    assert after == before
