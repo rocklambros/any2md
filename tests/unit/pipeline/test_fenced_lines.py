@@ -615,3 +615,21 @@ def test_scan_runs_once_per_distinct_text(monkeypatch):
 
 def test_cached_flags_are_immutable():
     assert isinstance(fenced_lines("```\nx\n```"), tuple)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "# a\n```\n# b\n```\n> # c\n<div>\n# d\n\n# e",
+        "> a\n# b\n\n<pre>\n# c\n</pre>\n## d",
+        "- > # a\n# b\n~~~\n# c",
+    ],
+)
+def test_find_headings_uses_protected_lines_as_its_rule(text):
+    # Every column-0 ATX line outside protected lines is a heading, and
+    # no protected line is.
+    protected = protected_lines(text)
+    found = {first for first, _, _ in find_headings(text)}
+    for i, line in enumerate(text.split("\n")):
+        is_atx = line.startswith("#")
+        assert (i in found) == (is_atx and not protected[i])

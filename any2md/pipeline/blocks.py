@@ -309,8 +309,9 @@ def protected_lines(text: str) -> list[bool]:
 
     That is every line of a fenced code block, a raw HTML block, or a
     block quote. A heading inside a quote belongs to the quoted text,
-    not to the document outline. Both heading passes (S4 and the HTML
-    converter) skip these lines.
+    not to the document outline. find_headings skips these lines, so
+    both heading passes (S4 and the HTML converter) follow this one
+    rule.
     """
     return [kind != _TEXT for kind in _scan_text(text).kinds]
 
@@ -329,7 +330,8 @@ def find_headings(text: str) -> list[Heading]:
     a block quote are left alone, the same rule the ATX pattern applies
     by requiring column 0.
     """
-    kinds, setext, _ = _scan_text(text)
+    setext = _scan_text(text).setext
+    protected = protected_lines(text)
     lines = text.split("\n")
     headings: list[Heading] = []
     nxt = 0  # the next setext heading not yet passed
@@ -340,7 +342,7 @@ def find_headings(text: str) -> list[Heading]:
             i = setext[nxt][1] + 1
             nxt += 1
             continue
-        if kinds[i] == _TEXT:
+        if not protected[i]:
             m = _ATX_LINE_RE.match(lines[i])
             if m:
                 headings.append((i, i, len(m.group(1))))
