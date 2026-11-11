@@ -6,6 +6,98 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.2] — 2026-11-11
+
+Adds PowerPoint and Excel input through Docling, closes the remaining
+symlink and hard-link gaps in directory scans, and fixes content loss in
+the text lane, picture handling across formats, and several metadata and
+CLI edge cases found in review.
+
+### Added
+
+- **PowerPoint (.pptx) and Excel (.xlsx) input** (#59, #63, issue #25).
+  Both convert through Docling, so they need the high-fidelity extra:
+  `pip install "any2md[high-fidelity]"`. The deck or workbook title is
+  the H1, each slide or sheet is an H2 section, sheets render as Markdown
+  tables, and hidden sheets and empty slides add no section. A slide's
+  title comes from its title placeholder wherever it sits on the slide.
+  Without Docling, each file fails with an install hint and the batch
+  continues. Legacy binary `.ppt` and `.xls` files are reported with a
+  hint to save them in the newer format.
+- **Pictures follow one rule in every format** (#63, #65). A picture with
+  a caption, Word caption paragraph, Docling description, or alt text gets
+  a `*Figure: text*` line. With `--save-images`, each picture is written
+  to `images/<output stem>/imgN.<ext>` and linked below its figure line,
+  for PDF, DOCX (Docling and mammoth lanes), PPTX, and XLSX. The mammoth
+  lane no longer inlines base64 images. Images are published only after
+  the Markdown is written, and `--force` regenerates them and removes
+  stale ones.
+
+### Security
+
+- **Scanned files are bound to no-follow opens** (#57, #62). A file found
+  by a directory scan is opened relative to the scan root without
+  following a symlink at any path component, checked as a regular file on
+  the open descriptor, and read through that descriptor. A file or parent
+  directory swapped for a symlink after the scan can no longer redirect
+  the read. Hard-linked files found by a scan are skipped with a
+  `SKIP (hard link)` line. Files named on the command line still convert.
+- **OOXML archive guard** (#59, #64, #65). DOCX, PPTX, and XLSX archives
+  are checked before any parser reads them: total unpacked size, per-part
+  compression ratio, and member count. XLSX workbooks also have per-part
+  and total limits on the XML that openpyxl parses, applied by format and
+  relationship type so renamed parts cannot slip past them.
+- **Docling and library warnings stay off the terminal** (#59, #63, #65).
+  Warnings raised by Docling during a conversion are counted toward
+  `--strict` and the warning total instead of printing raw text. Warnings
+  from other libraries keep their normal handling.
+
+### Fixed
+
+- **Content loss in the text lane** (#55, #61). Stage T10 dropped short
+  lines that did not follow a finished sentence, including the opening
+  title line of a TXT file. It now follows the documented rule, keeps
+  short lines after code blocks, and never drops figure or image lines. A
+  standalone title-case or ALL-CAPS first line of a TXT file becomes the
+  H1 and the title, and a TXT document gets one H1.
+- **Fenced code is left alone** (#55). Text-lane stages and the shared
+  cleanup stages (whitespace, quotes, footnotes, entity decoding, link
+  stripping, validation) no longer rewrite or drop lines inside fenced
+  code. A `~~~` fence counts the same as a backtick fence.
+- **Block structure is read the way CommonMark reads it** (#49, #52, #58,
+  #61). Heading ranking and fence detection share one scanner that models
+  fences, indentation and tabs, list items, block quotes, lazy
+  continuation, setext headings, thematic breaks, and raw HTML blocks.
+  Headings inside code, quotes, or HTML blocks are never re-ranked, and a
+  form feed before a block marker no longer hides it. The scan runs once
+  per distinct text, which roughly halves text-lane time on large bodies.
+- **TOML dates and times in `--meta-file` and `.any2md.toml`** (#54) are
+  written as quoted ISO 8601 strings at any depth instead of failing the
+  file. A list of tables now fails the file with a clear message instead
+  of writing Python-style text.
+- **Conflicting `--meta` keys** (#40) such as `organization=X` plus
+  `organization.name=Y` now fail with a clear error instead of silently
+  dropping one value. Thanks to @Qrytics for the fix.
+- **Output name collisions** (#60, #64). Two inputs in one run that map to
+  the same `.md` name, such as `a/x.pdf` and `b/x.pdf` under `-r`, no
+  longer overwrite or silently skip each other: the later one fails with
+  an `output name collision` line. A name is claimed only when a file is
+  converted, and the same file named twice converts once.
+- **Text-lane setext artifacts** (#64). A `===` or `---` line under text
+  in pymupdf4llm or mammoth output is kept as a rule or plain text rather
+  than read as an extra heading by the validator.
+- **Large scanned files on macOS** (#64, #65) are read in bounded pieces,
+  so a file over 2 GB with a raised `--max-file-size` no longer fails.
+- **Legacy-format skips are counted** in the run summary (#64).
+
+### Changed
+
+- **CI dependencies** (#11, #12, #32, #33): actions/checkout 7.0.0,
+  actions/upload-artifact 7.0.1, actions/download-artifact 8.0.1, and
+  github/codeql-action 4.36.2, each pinned by commit SHA.
+- **Code-scanning cleanup** (#56): empty `except` blocks, unused globals,
+  dead comparisons, and test import style, with no behavior change.
+
 ## [1.2.1] — 2026-11-10
 
 Security fixes from a full-repository scan (ReDoS, SSRF, symlink
