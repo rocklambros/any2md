@@ -161,7 +161,7 @@ def test_a_directory_named_docling_is_not_the_package():
 def test_a_file_inside_the_installed_package_counts(tmp_path, monkeypatch):
     """A file under the real package directory counts, whatever module
     name its frame carries."""
-    import any2md._docling as docling_mod
+    from any2md import _docling as docling_mod
 
     package = tmp_path / "site-packages" / "docling_core"
     package.mkdir(parents=True)
@@ -189,3 +189,22 @@ def test_docling_module_names_count_and_lookalikes_do_not():
         "UserWarning: two",
         "UserWarning: three",
     ]
+
+
+def test_an_attribution_error_passes_the_warning_through(monkeypatch):
+    """Deciding whether a warning is Docling's must never raise. A lookup
+    error counts the warning as someone else's, so a successful
+    conversion is never turned into a failure or a fallback."""
+    from any2md import _docling as docling_mod
+
+    def broken(_filename):
+        raise KeyError("__builtins__")
+
+    monkeypatch.setattr(docling_mod, "_from_docling", broken)
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        with DoclingWarningCapture() as cap:
+            warn_from(_DOCLING_FILE, "docling_core.types", "bbox")
+
+    assert cap.messages == []
+    assert [str(w.message) for w in seen] == ["bbox"]

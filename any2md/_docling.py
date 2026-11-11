@@ -207,7 +207,17 @@ class DoclingWarningCapture:
         shown = warnings.showwarning
 
         def collect(message, category, filename, lineno, file=None, line=None):
-            if issubclass(category, _COUNTED_WARNINGS) and _from_docling(filename):
+            try:
+                ours = issubclass(category, _COUNTED_WARNINGS) and _from_docling(
+                    filename
+                )
+            except Exception:  # noqa: BLE001 -- attribution must never raise
+                # An error here would surface inside Docling's conversion
+                # and turn a good result into a failure or a fallback. A
+                # warning that cannot be attributed is not counted, and it
+                # goes to the caller's own handling below.
+                ours = False
+            if ours:
                 self._messages.append(
                     f"{category.__name__}: {safe_oneline(str(message))}"
                 )

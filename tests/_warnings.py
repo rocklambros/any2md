@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import types
 import warnings
 
@@ -16,7 +17,11 @@ def warn_from(
 ) -> None:
     """Raise ``message`` from code in ``filename`` whose module is ``module``."""
     code = compile(_SOURCE, filename, "exec")
+    # Python 3.13 reads ``__builtins__`` from the globals of the frame that
+    # raises a warning and raises KeyError when it is missing. Every real
+    # module has it, so the fake frame carries it too.
     namespace = {
+        "__builtins__": builtins,
         "__name__": module,
         "warnings": warnings,
         "message": message,
