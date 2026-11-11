@@ -34,8 +34,8 @@ for supported files (`.pdf`, `.docx`, `.pptx`, `.xlsx`, `.html`, `.htm`,
 each such file fails with an install hint and the rest of the batch converts.
 Legacy binary `.ppt` and `.xls` files are not supported. A named one prints
 `UNSUPPORTED FORMAT` with a hint to re-save it as `.pptx` or `.xlsx`. A
-directory scan prints one `SKIP (legacy format)` line for each and keeps
-going. Other unsupported files in a scan are ignored without a message.
+directory scan prints one `SKIP (legacy format)` line for each, counts it as
+a skip in the summary, and keeps going. Other unsupported files in a scan are ignored without a message.
 
 **Use this when** you have specific inputs to convert, or you want to mix
 local files with URLs in a single batch.
@@ -122,7 +122,10 @@ Output names come from the source file name, so two inputs in one run can map
 to the same file, for example `a/report.pdf` and `b/report.pdf` under `-r`, or
 `deck.pptx` next to `deck.docx`. The first one converts and each later one fails
 with `output name collision`, with or without `--force`, so no output from the
-same run is overwritten. Names compare without regard to case.
+same run is overwritten. Names compare without regard to case. A file that is
+skipped (too large, a hard link, output exists) or fails to open does not
+hold its name, and a file named twice, or named next to a directory that
+holds it, converts once.
 
 **Use this when** you've upgraded any2md or changed flags and want to
 regenerate a corpus that's already been converted.
