@@ -42,6 +42,17 @@ that carries its own date.
 - The documented frontmatter JSON Schema in `docs/output-format.md` now
   uses the SAGE `document_id` pattern.
 
+### Security
+
+- **soupsieve 4.0 in the lockfiles** (GHSA-mmhr-3c5m-f64f,
+  GHSA-6655-6qjp-jx7x, GHSA-7g44-g9rc-x53w). `requirements.txt` and
+  `.devcontainer/requirements.lock` pinned soupsieve 2.10, which has
+  denial-of-service bugs in CSS selector compilation and matching. any2md
+  never compiles a selector, so document input cannot reach them, and
+  `pip install any2md` already resolved a newer soupsieve. Only installs
+  from the lockfiles were pinned to the vulnerable release. soupsieve 4.0
+  requires Python 3.11.5 or later.
+
 ### Documentation
 
 - The README explains how any publisher sets its own prefix (`OWASP`,
