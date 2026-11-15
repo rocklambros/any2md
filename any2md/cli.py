@@ -26,7 +26,7 @@ from any2md.converters import (
     set_output_mode,
 )
 from any2md.converters.html import convert_url
-from any2md.frontmatter import filter_reserved_overrides
+from any2md.frontmatter import filter_reserved_overrides, has_explicit_document_id
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename, url_to_filename
 
@@ -387,15 +387,6 @@ def main():
             if "type_code" in id_section:
                 auto_id_type_code = id_section["type_code"]
 
-    # Fail fast as a usage error, before any file is read. Only --auto-id
-    # reads these values, so a bad unused setting does not block a run.
-    if args.auto_id:
-        try:
-            validate_document_id_settings(auto_id_prefix, auto_id_type_code)
-        except ValueError as e:
-            sys.stderr.write(f"Error: {_logging.safe_oneline(str(e))}\n")
-            sys.exit(1)
-
     try:
         cli_meta = parse_meta_args(args.meta)
     except ValueError as e:
@@ -405,6 +396,16 @@ def main():
     overrides = filter_reserved_overrides(
         overrides, source_label="--meta/--meta-file/.any2md.toml"
     )
+
+    # Fail fast as a usage error, before any file is read. The settings are
+    # read only when an id is generated: --auto-id is on and no override
+    # sets document_id. A bad unused setting does not block a run.
+    if args.auto_id and not has_explicit_document_id(overrides):
+        try:
+            validate_document_id_settings(auto_id_prefix, auto_id_type_code)
+        except ValueError as e:
+            sys.stderr.write(f"Error: {_logging.safe_oneline(str(e))}\n")
+            sys.exit(1)
 
     if (
         args.high_fidelity

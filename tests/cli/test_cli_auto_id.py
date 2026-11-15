@@ -144,3 +144,21 @@ def test_invalid_id_settings_ignored_without_auto_id(fixture_dir, tmp_path):
     out = tmp_path / "out"
     r = _run("-o", str(out), str(fixture_dir / _FIXTURE), cwd=proj)
     assert r.returncode == 0, r.stderr
+
+
+def test_invalid_id_settings_ignored_when_meta_document_id_wins(fixture_dir, tmp_path):
+    """No id is generated, so a bad unused prefix must not exit 1."""
+    proj = _project(tmp_path, '[document_id]\npublisher_prefix = "CoSAI"\n')
+    out = tmp_path / "out"
+    r = _run(
+        "-o",
+        str(out),
+        "--auto-id",
+        "--meta",
+        "document_id=COSAI-2025-GD-001",
+        str(fixture_dir / _FIXTURE),
+        cwd=proj,
+    )
+    assert r.returncode == 0, r.stderr
+    fm = _frontmatter(out / "ligatures_and_softhyphens.md")
+    assert fm["document_id"] == "COSAI-2025-GD-001"

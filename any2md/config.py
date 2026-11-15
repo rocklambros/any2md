@@ -114,11 +114,13 @@ def validate_document_id_settings(prefix: object, type_code: object) -> None:
     """
     if not isinstance(prefix, str) or not _PREFIX_RE.fullmatch(prefix):
         raise ValueError(
-            f"invalid [document_id] publisher_prefix {prefix!r}: must match "
+            f"invalid document_id prefix {prefix!r} ([document_id] "
+            f"publisher_prefix / auto_id_prefix): must match "
             f"{PREFIX_RULE} (uppercase ASCII letters and digits, at least one)"
         )
     if not isinstance(type_code, str) or not _TYPE_CODE_RE.fullmatch(type_code):
         raise ValueError(
-            f"invalid [document_id] type_code {type_code!r}: must match "
+            f"invalid document_id type code {type_code!r} ([document_id] "
+            f"type_code / auto_id_type_code): must match "
             f"{TYPE_CODE_RULE} (2 to 4 uppercase ASCII letters)"
         )

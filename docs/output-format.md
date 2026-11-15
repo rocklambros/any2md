@@ -101,25 +101,30 @@ SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
 - `SEQ` is the first 8 hex characters of `content_hash` read as a 32-bit
   integer and zero-padded to 10 decimal digits.
 - `YYYY` is the year of the emitted `date` field, after `--meta`,
-  `--meta-file`, and `.any2md.toml` overrides apply. It never comes from the
-  clock, so the same body and `date` always give the same ID. If `date` does
-  not start with a four-digit year, the file fails with a `FAIL:` line.
+  `--meta-file`, and `.any2md.toml` overrides apply. The same body and
+  `date` always give the same ID. A source with no date of its own gets
+  `date` from the file's modification time or today (see
+  [`date`](#date)), so its year can drift between runs. Set
+  `--meta date=YYYY-MM-DD` when that matters. If `date` does not start with
+  a four-digit year, the file fails with a `FAIL:` line.
 - `PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override them via
   `[document_id]` in `.any2md.toml` or `--meta-file`. `publisher_prefix`
   must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`.
   Anything else exits 1 before any file is read.
 
-An explicit `document_id` from `--meta`, `--meta-file`, or `.any2md.toml`
-wins over `--auto-id` and is emitted as given.
+A non-empty `document_id` from `--meta`, `--meta-file`, or `.any2md.toml`
+wins over `--auto-id` and is emitted as given. The prefix and type code are
+not checked in that case, because no ID is generated. An empty
+`document_id = ""` counts as unset.
 
 **`--auto-id` IDs are content-derived.** Two bodies with the same
 `content_hash` share an ID, and the ID changes whenever the body changes,
 including a re-conversion with a newer any2md release that cleans the body
 differently. Publishers who need an ID that stays stable across versions of
 a document should set `document_id` explicitly through `--meta` or
-`.any2md.toml`. `SEQ` carries 32 bits of the hash, so in a very large corpus
-two different bodies can share an ID by chance. Treat it as a label, not a
-unique key.
+`.any2md.toml`. `SEQ` carries 32 bits of the hash, so in a corpus of many
+thousands of documents two different bodies can share an ID by chance.
+Treat it as a label, not a unique key.
 
 **Example empty:** `""`
 **Example with `--auto-id`:** `"LOCAL-2025-DOC-0422528348"`

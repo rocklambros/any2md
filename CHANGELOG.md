@@ -9,7 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.3.0] — 2026-11-15
 
 Makes `--auto-id` emit `document_id` values that conform to SAGE v1.0-RC1
-and stay the same no matter when the conversion runs.
+and that no longer depend on the year the conversion runs, for any document
+that carries its own date.
 
 ### Changed
 
@@ -25,14 +26,19 @@ and stay the same no matter when the conversion runs.
 - **`--auto-id` year comes from the document's `date`.** It used the
   clock, so the same input converted in a different year got a different
   ID. The year now follows the emitted `date` field after `--meta`,
-  `--meta-file`, and `.any2md.toml` overrides apply. A `date` that does not
-  start with a four-digit year fails that file with a `FAIL:` line. An
-  explicit `document_id` override still wins over `--auto-id`.
+  `--meta-file`, and `.any2md.toml` overrides apply. A source with no date
+  of its own still gets its `date`, and so its year, from the file's
+  modification time or today, so set `--meta date=...` when the year must
+  not drift. A `date` that does not start with a four-digit year fails that
+  file with a `FAIL:` line. A non-empty `document_id` override still wins
+  over `--auto-id`. An empty one no longer turns `--auto-id` off.
 - **`[document_id]` settings are validated.** With `--auto-id`, a
   `publisher_prefix` outside `^[A-Z0-9]+$` or a `type_code` outside
   `^[A-Z]{2,4}$` exits 1 before any file is read, with a message that names
-  the value and the rule. `generate_document_id()` applies the same check,
-  and now takes the year as an argument.
+  the value and the rule. The check is skipped when `--meta document_id=...`
+  means no ID is generated. `generate_document_id()` applies the same
+  check and takes a keyword-only `year`, so a 1.2.x positional call fails
+  with `TypeError`.
 - The documented frontmatter JSON Schema in `docs/output-format.md` now
   uses the SAGE `document_id` pattern.
 
