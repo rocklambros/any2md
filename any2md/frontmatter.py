@@ -174,7 +174,10 @@ _ISO_TIME_RE = re.compile(
     r"(?:Z|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?"
 )
 # The accepted forms, named in errors and docs so "ISO time" is not a guess.
-AUTO_ID_TIME_FORMS = "HH:MM[:SS[.fraction]] with an optional Z, +HH:MM, +HHMM, or +HH"
+AUTO_ID_TIME_FORMS = (
+    "HH:MM, optional :SS and a fraction of 1 to 9 digits, and an optional "
+    "Z or a +/- offset as HH:MM, HHMM, or HH"
+)
 
 
 def normalize_auto_id_date(value: Any) -> str:
@@ -207,7 +210,8 @@ def normalize_auto_id_date(value: Any) -> str:
                 return head
     raise ValueError(
         "--auto-id needs date as an ASCII calendar date YYYY-MM-DD, "
-        f"optionally followed by T and {AUTO_ID_TIME_FORMS}, got date {value!r}"
+        f"optionally followed by T or a space and a time ({AUTO_ID_TIME_FORMS}), "
+        f"got date {value!r}"
     )
 
 

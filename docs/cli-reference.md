@@ -355,8 +355,8 @@ Override via `[document_id]` in `.any2md.toml` or `--meta-file`
 read, and so does a `date` override (`--meta date=...` or `[meta] date`)
 that is not a TOML date or an ASCII calendar date `YYYY-MM-DD`. The date
 may be followed by `T` or a space and a time: `HH:MM`, optional `:SS` and a
-fraction of up to 9 digits, and an optional `Z`, `+HH:MM`, `+HHMM`, or
-`+HH` offset. `2025-03-01`, `2025-03-01T10:00:00Z`, and the output of
+fraction of up to 9 digits, and an optional `Z` or a `+` or `-` offset
+written `HH:MM`, `HHMM`, or `HH`. `2025-03-01`, `2025-03-01T10:00:00Z`, and the output of
 `date +%FT%T%z` pass and are emitted as `2025-03-01`, while `2025`,
 `2025-3`, `2025-13-99`, `2025/03/01`, `20250301`, and `2025-03-01T10` exit 1. An explicit non-blank
 `--meta document_id=...` wins over the generated value, and then none of

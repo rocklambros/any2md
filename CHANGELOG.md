@@ -31,7 +31,8 @@ that carries its own date.
   modification time or today, so set `--meta date=...` when the year must
   not drift. With `--auto-id`, a `date` override must be an ASCII calendar
   date `YYYY-MM-DD` or a TOML date. A time may follow the date (`HH:MM`,
-  optional `:SS` and fraction, optional `Z`, `+HH:MM`, `+HHMM`, or `+HH`).
+  optional `:SS` and a fraction of up to 9 digits, optional `Z` or a `+`
+  or `-` offset written `HH:MM`, `HHMM`, or `HH`).
   The date is emitted as `YYYY-MM-DD`. Anything else, such as `2025`, `2025-13-99`, or
   `2025/03/01`, exits 1 before any file is read. A non-blank `document_id` override still
   wins over `--auto-id`. A blank one (empty, whitespace, or

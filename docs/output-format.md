@@ -111,7 +111,8 @@ SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
   A `date` override from `--meta`, `--meta-file`, or `.any2md.toml` may be
   a TOML date or datetime, or a `YYYY-MM-DD` string optionally followed by
   `T` or a space and a time (`HH:MM`, optional `:SS` and a fraction of up
-  to 9 digits, and an optional `Z`, `+HH:MM`, `+HHMM`, or `+HH` offset), as
+  to 9 digits, and an optional `Z` or a `+` or `-` offset written `HH:MM`,
+  `HHMM`, or `HH`), as
   in `2025-03-01T10:00:00Z`. Surrounding whitespace and the time are
   dropped. An override that breaks the rule, such as `2025`, `2025-3`,
   `2025-13-99`, or `2025/03/01`, exits 1 before any file is read. A date read
@@ -123,7 +124,8 @@ SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
   `WARN:` is not counted by `--strict`, and it is not printed when a
   non-blank `date` override replaces the document's date. A blank `date`
   override is still merged, so without `--auto-id` the notice says `date`
-  is left blank and the output gets `date: ""`.
+  is left blank and the blank value is emitted as given: `date: ""` from
+  `--meta date=`, or the exact whitespace string from a TOML file.
 - `PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override them via
   `[document_id]` in `.any2md.toml` or `--meta-file`. `publisher_prefix`
   must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`.
