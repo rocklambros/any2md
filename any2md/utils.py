@@ -200,21 +200,25 @@ def warn_dropped_document_date(
     Called by each converter after its metadata reader returns, because only
     the converter knows whether a ``date`` override replaces the document's
     date. With a non-blank override the dropped value is unused, so nothing
-    is printed. The value is truncated, then ``repr()``-escaped, and
+    is printed. With a blank one the notice says ``date`` is left blank. The value is truncated, then ``repr()``-escaped, and
     ``_logging.warn`` keeps the whole message on one line, so hostile
     metadata cannot forge or flood terminal output. This is informational
     and is not counted toward ``--strict``.
     """
     if rejected is None:
         return
-    # Only a real override replaces the document's date. A blank one
-    # supplies nothing, so the notice still applies.
-    if overrides:
-        override = overrides.get("date")
+    # A non-blank override replaces the document's date, so the dropped
+    # value is unused and nothing is printed. A blank or null override is
+    # still merged, so ``date`` ends up blank rather than the mtime, and the
+    # notice says so.
+    outcome = "using the file modification time"
+    if overrides and "date" in overrides:
+        override = overrides["date"]
         if override is not None and not (
             isinstance(override, str) and not override.strip()
         ):
             return
+        outcome = "and the blank date override leaves date blank"
     # Truncate first and put the length note outside the quotes, so it
     # cannot be mistaken for part of the document's value.
     shown = repr(rejected[:_MAX_LOGGED_DATE_CHARS])
@@ -222,5 +226,5 @@ def warn_dropped_document_date(
         shown += f"... ({len(rejected)} chars)"
     _logging.warn(
         f"{source_name}: ignoring document date {shown} (not a full "
-        "YYYY-MM-DD calendar date), using the file modification time"
+        f"YYYY-MM-DD calendar date), {outcome}"
     )

@@ -47,7 +47,18 @@ def test_hostile_value_stays_on_one_escaped_line(capsys):
     assert "‮" not in err
 
 
-@pytest.mark.parametrize("blank", ["", "   ", None])
-def test_blank_date_override_does_not_silence_the_warning(capsys, blank):
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_date_override_warning_says_date_is_left_blank(capsys, blank):
+    """A blank override is still merged, so date ends up blank, not mtime."""
     warn_dropped_document_date("a.pdf", "D:00000000000000", {"date": blank})
-    assert "ignoring document date" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "ignoring document date" in err
+    assert "blank" in err
+    assert "modification time" not in err
+
+
+def test_null_date_override_warning_says_date_is_left_blank(capsys):
+    warn_dropped_document_date("a.pdf", "D:00000000000000", {"date": None})
+    err = capsys.readouterr().err
+    assert "blank" in err
+    assert "modification time" not in err

@@ -321,3 +321,33 @@ def test_date_override_left_as_given_without_auto_id():
 def test_malformed_iso_datetime_override_raises(bad):
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
         _compose_id(_meta(), {"date": bad})
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        "2025-03-01T10:00",
+        "2025-03-01 10:00:00",
+        "2025-03-01T10:00:00.123456",
+        "2025-03-01T23:59:59-05:30",
+    ],
+)
+def test_iso_time_forms_accepted(override):
+    assert _compose_id(_meta(), {"date": override}).split("-")[1] == "2025"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "2025-12-31T24:00:00",  # Python 3.15 fromisoformat accepts this
+        "2025-03-01T10,5",  # 3.12/3.13 fromisoformat accept this
+        "2025-03-01T25:00",
+        "2025-03-01T10:60",
+        "2025-03-01T10",
+        "2025-03-01T10:00:00+2",
+        "2025-03-01T10:00:00.1234567",
+    ],
+)
+def test_iso_time_rule_does_not_depend_on_python_version(bad):
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        _compose_id(_meta(), {"date": bad})
