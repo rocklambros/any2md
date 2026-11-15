@@ -106,7 +106,7 @@ def generate_document_id(
     Used by ``--auto-id``. ``SEQ`` is the first 8 hex chars of the NFC + LF
     body's SHA-256 (``compute_content_hash(body)[:8]``) read as a 32-bit
     integer and zero-padded to 10 decimal digits, so two bodies that share
-    a ``content_hash`` share an ``id``.
+    a ``content_hash`` and a ``date`` year share an ``id``.
 
     Args:
         body: Post-pipeline body.
@@ -128,39 +128,55 @@ def generate_document_id(
     validate_document_id_settings(prefix, type_code)
     if isinstance(year, bool) or not isinstance(year, int) or not 0 <= year <= 9999:
         raise ValueError(f"document_id year must be 0-9999, got {year!r}")
-    full_hash = content_hash if content_hash is not None else compute_content_hash(body)
+    if content_hash is None:
+        content_hash = compute_content_hash(body)
+    elif not _CONTENT_HASH_RE.fullmatch(content_hash):
+        raise ValueError(
+            f"content_hash must be 64 lowercase hex characters, got {content_hash!r}"
+        )
+    full_hash = content_hash
     seq = int(full_hash[:8], 16)
     # 2**32 - 1 has 10 digits, so a fixed width keeps every id the same length.
     return f"{prefix}-{year:04d}-{type_code}-{seq:010d}"
 
 
+_CONTENT_HASH_RE = re.compile(r"[0-9a-f]{64}")
+
 # ``date`` must start with a four-digit year: ``YYYY-MM-DD`` or bare
-# ``YYYY``. ``\d`` is deliberate here: the PDF extractor accepts any
-# Unicode decimal digit via ``str.isdigit()``, and ``int()`` turns those
-# into an ASCII year, so the id stays ASCII either way.
+# ``YYYY``. ``\d`` matches Unicode decimal digits (a ``--meta`` or TOML
+# date may use them) and ``int()`` turns them into an ASCII year, so the
+# id stays ASCII. The extractors themselves emit ASCII dates only.
 _DATE_YEAR_RE = re.compile(r"(\d{4})(?:-|\Z)")
 
 
 def has_explicit_document_id(overrides: Mapping[str, Any] | None) -> bool:
-    """True when an override layer sets a non-empty ``document_id``.
+    """True when an override layer sets a non-blank ``document_id``.
 
-    An explicit id wins over ``--auto-id``. An empty string counts as unset,
+    An explicit id wins over ``--auto-id``. A blank value counts as unset,
     so a template that keeps ``document_id = ""`` as a placeholder does not
-    silently turn ``--auto-id`` off.
+    silently turn ``--auto-id`` off. Blank means ``None``, a whitespace-only
+    string, or an empty list or table (``--meta document_id=,`` parses to
+    ``[]``).
     """
     if not overrides or "document_id" not in overrides:
         return False
-    return overrides["document_id"] != ""
+    value = overrides["document_id"]
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return True
 
 
-def _year_of_date(value: Any) -> int:
+def year_of_date(value: Any) -> int:
     """Return the year of an emitted ``date`` value for ``--auto-id``.
 
-    Accepts a ``date``/``datetime`` (TOML date from a meta file), an integer
-    year (TOML ``date = 2025``), or a string starting with a four-digit year
-    after surrounding whitespace is stripped. The DOCX extractor keeps
-    ``dcterms:modified[:10]`` unstripped, so a pretty-printed ``core.xml``
-    yields a date with leading whitespace.
+    Accepts a ``date``/``datetime`` (TOML date from a meta file), a
+    four-digit integer year (TOML ``date = 2025``), or a string starting with a four-digit year
+    after surrounding whitespace is stripped, so a ``--meta`` or TOML date
+    with stray spaces still works.
 
     Raises:
         ValueError: when no year can be read. Falling back to the clock
@@ -168,7 +184,9 @@ def _year_of_date(value: Any) -> int:
     """
     if isinstance(value, _date_cls):
         return value.year
-    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 9999:
+    # Four digits, matching the string rule: ``date = 24`` is a typo, not
+    # the year 0024.
+    if isinstance(value, int) and not isinstance(value, bool) and 1000 <= value <= 9999:
         return value
     if isinstance(value, str):
         m = _DATE_YEAR_RE.match(value.strip())
@@ -539,7 +557,7 @@ def compose(
             body,
             prefix=options.auto_id_prefix,
             type_code=options.auto_id_type_code,
-            year=_year_of_date(fields["date"]),
+            year=year_of_date(fields["date"]),
             content_hash=fields["content_hash"],
         )
     return _emit_yaml_with_body(fields, body)

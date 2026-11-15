@@ -42,6 +42,18 @@ that carries its own date.
 - The documented frontmatter JSON Schema in `docs/output-format.md` now
   uses the SAGE `document_id` pattern.
 
+### Fixed
+
+- **DOCX dates from a pretty-printed `core.xml`.** The modified date was
+  sliced before whitespace was stripped, so an indented
+  `dcterms:modified` emitted a broken `date` such as `"\n    2026-"`. It is
+  now stripped first.
+- **PDF dates with non-ASCII digits.** `str.isdigit()` accepted superscript
+  and other Unicode digits and emitted them as `date`. Those dates are now
+  dropped, and `date` falls back to the file's modification time.
+- **A bad `--meta date=` with `--auto-id` exits 1 up front.** It used to
+  fail every file only after conversion.
+
 ### Security
 
 - **soupsieve 4.0 in the lockfiles** (GHSA-mmhr-3c5m-f64f,
@@ -50,8 +62,9 @@ that carries its own date.
   denial-of-service bugs in CSS selector compilation and matching. any2md
   never compiles a selector, so document input cannot reach them, and
   `pip install any2md` already resolved a newer soupsieve. Only installs
-  from the lockfiles were pinned to the vulnerable release. soupsieve 4.0
-  requires Python 3.11.5 or later.
+  from the lockfiles were pinned to the vulnerable release. Every patched
+  soupsieve release requires Python 3.11.5 or later, so the lockfiles now
+  do too. The package itself still supports Python 3.11 and later.
 
 ### Documentation
 

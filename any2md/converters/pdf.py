@@ -44,7 +44,9 @@ def _parse_pdf_date(raw: str | None) -> str | None:
     if not raw:
         return None
     s = raw.lstrip("D:").strip()
-    if len(s) >= 8 and s[:8].isdigit():
+    # ASCII only: ``str.isdigit()`` alone accepts superscript and other
+    # Unicode digits, which would emit a non-conforming ``date``.
+    if len(s) >= 8 and s[:8].isascii() and s[:8].isdigit():
         return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
     return None
 

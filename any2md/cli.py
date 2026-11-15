@@ -26,7 +26,11 @@ from any2md.converters import (
     set_output_mode,
 )
 from any2md.converters.html import convert_url
-from any2md.frontmatter import filter_reserved_overrides, has_explicit_document_id
+from any2md.frontmatter import (
+    filter_reserved_overrides,
+    has_explicit_document_id,
+    year_of_date,
+)
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename, url_to_filename
 
@@ -399,10 +403,13 @@ def main():
 
     # Fail fast as a usage error, before any file is read. The settings are
     # read only when an id is generated: --auto-id is on and no override
-    # sets document_id. A bad unused setting does not block a run.
+    # sets document_id. A bad unused setting does not block a run. A date
+    # override applies to every file, so a bad one is also known up front.
     if args.auto_id and not has_explicit_document_id(overrides):
         try:
             validate_document_id_settings(auto_id_prefix, auto_id_type_code)
+            if overrides and "date" in overrides:
+                year_of_date(overrides["date"])
         except ValueError as e:
             sys.stderr.write(f"Error: {_logging.safe_oneline(str(e))}\n")
             sys.exit(1)

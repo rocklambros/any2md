@@ -124,7 +124,9 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
                 out["keywords"] = [k.strip() for k in kw.split(",") if k.strip()]
                 modified = root.findtext("dcterms:modified", namespaces=_NS_CORE)
                 if modified:
-                    out["date"] = modified[:10]
+                    # Strip before slicing: a pretty-printed core.xml puts
+                    # the timestamp on its own indented line.
+                    out["date"] = modified.strip()[:10]
             if "docProps/app.xml" in members:
                 with _safe_zip_open(z, "docProps/app.xml") as f:
                     root = _xml_parse(f).getroot()

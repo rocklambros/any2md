@@ -137,6 +137,10 @@ Dependencies are declared in `pyproject.toml` and locked into both:
 - `.devcontainer/requirements.lock` — hash-locked, used by Codespace `postCreateCommand` (`pip install --require-hashes`).
 - `requirements.txt` — non-hash form, kept for backwards compatibility with `pip install -r requirements.txt` consumers.
 
+Both lockfiles need Python 3.11.5 or later, because every patched soupsieve
+release (3.0.2 and up) requires it. `pyproject.toml` keeps `>=3.11`, so a
+plain `pip install any2md` still works on 3.11.0 through 3.11.4.
+
 To add or update a dep:
 
 1. Edit `pyproject.toml` `[project] dependencies` (or the relevant `[project.optional-dependencies]` group).

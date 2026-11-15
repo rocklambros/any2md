@@ -50,3 +50,19 @@ def test_malformed_core_xml_yields_defaults(tmp_path):
     docx = tmp_path / "broken_core.docx"
     _write_docx(docx, {"docProps/core.xml": "<cp:coreProperties"})
     assert _read_docx_metadata(docx) == _DEFAULTS
+
+
+def test_pretty_printed_modified_date_is_stripped_before_slicing(tmp_path):
+    """Indented dcterms:modified text must still yield YYYY-MM-DD."""
+    core = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties
+    xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+    xmlns:dcterms="http://purl.org/dc/terms/">
+  <dcterms:modified>
+        2025-03-01T10:00:00Z
+  </dcterms:modified>
+</cp:coreProperties>
+"""
+    docx = tmp_path / "pretty.docx"
+    _write_docx(docx, {"docProps/core.xml": core})
+    assert _read_docx_metadata(docx)["date"] == "2025-03-01"

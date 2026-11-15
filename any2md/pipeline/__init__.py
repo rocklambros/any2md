@@ -31,9 +31,11 @@ class PipelineOptions:
     # on a DOCX).
     backend: Literal["docling", "pymupdf4llm", "mammoth"] | None = None
     # --auto-id wiring. When ``auto_id`` is True, ``frontmatter.compose``
-    # emits a generated ``document_id``. The prefix and type_code are
-    # used as-is; Phase 4 hardcodes "LOCAL"/"DOC" and Task 5 wires
-    # config-driven overrides via .any2md.toml [document_id].
+    # emits a generated SAGE ``document_id``. The prefix must match
+    # ^[A-Z0-9]+$ and the type code ^[A-Z]{2,4}$, or every compose() call
+    # raises ValueError and the converter fails the file. The CLI fills
+    # both from .any2md.toml / --meta-file [document_id] and checks them
+    # before reading any file.
     auto_id: bool = False
     auto_id_prefix: str = "LOCAL"
     auto_id_type_code: str = "DOC"

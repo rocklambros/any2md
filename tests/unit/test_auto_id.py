@@ -181,7 +181,9 @@ def test_compose_explicit_document_id_override_wins():
     assert _compose_id(_meta(), {"document_id": "my-own-id"}) == "my-own-id"
 
 
-@pytest.mark.parametrize("bad", ["March 2024", "24-01-01", "", ["2024"], True, 99999])
+@pytest.mark.parametrize(
+    "bad", ["March 2024", "24-01-01", "", ["2024"], True, 99999, 24, 999]
+)
 def test_compose_unparseable_date_raises(bad):
     with pytest.raises(ValueError, match="date"):
         _compose_id(_meta(), {"date": bad})
@@ -252,3 +254,23 @@ def test_library_error_names_the_option_not_only_the_toml_table():
     opts = PipelineOptions(auto_id=True, auto_id_prefix="csa")
     with pytest.raises(ValueError, match="auto_id_prefix"):
         compose("# T\n\nb\n", _meta(), opts)
+
+
+@pytest.mark.parametrize("blank", [" ", "\t", [], None])
+def test_compose_blank_document_id_override_does_not_suppress_auto_id(blank):
+    doc_id = _compose_id(_meta(), {"document_id": blank})
+    assert SAGE_ID_RE.match(doc_id), doc_id
+
+
+@pytest.mark.parametrize("bad_hash", ["-1234567abc", "12", "G" * 64, "A" * 64])
+def test_generate_rejects_malformed_content_hash(bad_hash):
+    with pytest.raises(ValueError, match="content_hash"):
+        generate_document_id("x", year=2025, content_hash=bad_hash)
+
+
+def test_same_body_different_date_years_get_different_ids():
+    """IDs are shared only by the same content_hash and the same date year."""
+    a = _compose_id(_meta(date="2025-01-01"))
+    b = _compose_id(_meta(date="2026-01-01"))
+    assert a.rsplit("-", 1)[1] == b.rsplit("-", 1)[1]
+    assert a != b

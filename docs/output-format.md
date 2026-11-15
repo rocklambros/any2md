@@ -115,10 +115,13 @@ SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
 A non-empty `document_id` from `--meta`, `--meta-file`, or `.any2md.toml`
 wins over `--auto-id` and is emitted as given. The prefix and type code are
 not checked in that case, because no ID is generated. An empty
-`document_id = ""` counts as unset.
+`document_id` that is empty, whitespace, or an empty list (`--meta
+document_id=,`) counts as unset.
 
 **`--auto-id` IDs are content-derived.** Two bodies with the same
-`content_hash` share an ID, and the ID changes whenever the body changes,
+`content_hash` and the same `date` year share an ID. The same body with a
+different year gets the same `SEQ` under a different `YYYY`. The ID changes
+whenever the body changes,
 including a re-conversion with a newer any2md release that cleans the body
 differently. Publishers who need an ID that stays stable across versions of
 a document should set `document_id` explicitly through `--meta` or

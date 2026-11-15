@@ -162,3 +162,36 @@ def test_invalid_id_settings_ignored_when_meta_document_id_wins(fixture_dir, tmp
     assert r.returncode == 0, r.stderr
     fm = _frontmatter(out / "ligatures_and_softhyphens.md")
     assert fm["document_id"] == "COSAI-2025-GD-001"
+
+
+def test_bad_date_override_exits_1_before_conversion(fixture_dir, tmp_path):
+    out = tmp_path / "out"
+    r = _run(
+        "-o",
+        str(out),
+        "--no-config",
+        "--auto-id",
+        "--meta",
+        "date=2025/03/01",
+        str(fixture_dir / _FIXTURE),
+    )
+    assert r.returncode == 1, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "'2025/03/01'" in r.stderr
+    assert not out.exists() or not any(out.iterdir())
+
+
+def test_blank_meta_document_id_still_validates_settings(fixture_dir, tmp_path):
+    """document_id=, parses to [] and must not count as an explicit id."""
+    proj = _project(tmp_path, '[document_id]\npublisher_prefix = "CoSAI"\n')
+    out = tmp_path / "out"
+    r = _run(
+        "-o",
+        str(out),
+        "--auto-id",
+        "--meta",
+        "document_id=,",
+        str(fixture_dir / _FIXTURE),
+        cwd=proj,
+    )
+    assert r.returncode == 1, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "'CoSAI'" in r.stderr
