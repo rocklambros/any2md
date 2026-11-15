@@ -617,9 +617,7 @@ def convert_docx(
         add_warnings(warnings)
 
         props = _read_docx_metadata(src)
-        warn_dropped_document_date(
-            src.name, props["date_rejected"], options.frontmatter_overrides
-        )
+        warn_dropped_document_date(src.name, props["date_rejected"], options)
         meta = SourceMeta(
             title_hint=props["title_hint"],
             authors=props["authors"],

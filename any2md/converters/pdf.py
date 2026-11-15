@@ -317,9 +317,7 @@ def convert_pdf(
             # backend produces the markdown body.
             page_count = len(doc)
             props = _parse_pdf_metadata(doc)
-            warn_dropped_document_date(
-                src.name, props["date_rejected"], options.frontmatter_overrides
-            )
+            warn_dropped_document_date(src.name, props["date_rejected"], options)
 
             # Python warnings from a Docling run that returned. A run that
             # raised falls back to pymupdf4llm, and its warnings go with it.

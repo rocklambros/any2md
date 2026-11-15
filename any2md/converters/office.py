@@ -310,9 +310,7 @@ def convert_office(
     )
     try:
         props = _read_docx_metadata(src)
-        warn_dropped_document_date(
-            src.name, props["date_rejected"], options.frontmatter_overrides
-        )
+        warn_dropped_document_date(src.name, props["date_rejected"], options)
         title = _document_title(props["title_hint"], src.name)
         # The outer capture on the whole "docling" tree gives every Docling
         # record a handler. Without one, Python prints an unhandled WARNING

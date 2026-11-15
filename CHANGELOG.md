@@ -30,8 +30,9 @@ that carries its own date.
   of its own still gets its `date`, and so its year, from the file's
   modification time or today, so set `--meta date=...` when the year must
   not drift. With `--auto-id`, a `date` override must be an ASCII calendar
-  date `YYYY-MM-DD`, optionally with an ISO time, or a TOML date. It is
-  emitted as `YYYY-MM-DD`. Anything else, such as `2025`, `2025-13-99`, or
+  date `YYYY-MM-DD` or a TOML date. A time may follow the date (`HH:MM`,
+  optional `:SS` and fraction, optional `Z`, `+HH:MM`, `+HHMM`, or `+HH`).
+  The date is emitted as `YYYY-MM-DD`. Anything else, such as `2025`, `2025-13-99`, or
   `2025/03/01`, exits 1 before any file is read. A non-blank `document_id` override still
   wins over `--auto-id`. A blank one (empty, whitespace, or
   `--meta document_id=,`) no longer turns `--auto-id` off.
@@ -58,7 +59,8 @@ that carries its own date.
   back to the file's modification time. Partial dates such as a W3CDTF
   `2019-06` or a PDF `D:2025` are dropped the same way rather than given an
   invented month or day. The `WARN:` is not counted by `--strict` and is not
-  printed when a non-blank `date` override replaces the document's date. The PDF reader also accepts ISO-form CreationDates and
+  printed when a non-blank `date` override replaces the document's date.
+  With a blank override and no `--auto-id`, it says `date` is left blank. The PDF reader also accepts ISO-form CreationDates and
   leading whitespace, and treats a bare `D:` as no date.
 
 ### Security

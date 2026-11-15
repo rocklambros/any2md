@@ -330,6 +330,9 @@ def test_malformed_iso_datetime_override_raises(bad):
         "2025-03-01 10:00:00",
         "2025-03-01T10:00:00.123456",
         "2025-03-01T23:59:59-05:30",
+        "2025-03-01T10:00:00+0000",  # date +%FT%T%z
+        "2025-03-01T10:00:00+05",
+        "2025-03-01T10:00:00.123456789Z",
     ],
 )
 def test_iso_time_forms_accepted(override):
@@ -345,9 +348,16 @@ def test_iso_time_forms_accepted(override):
         "2025-03-01T10:60",
         "2025-03-01T10",
         "2025-03-01T10:00:00+2",
-        "2025-03-01T10:00:00.1234567",
+        "2025-03-01T10:00:00.1234567891",
+        "2025-03-01T10:00:00+05:3",
     ],
 )
 def test_iso_time_rule_does_not_depend_on_python_version(bad):
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
         _compose_id(_meta(), {"date": bad})
+
+
+def test_date_error_names_the_accepted_time_forms():
+    with pytest.raises(ValueError) as exc:
+        _compose_id(_meta(), {"date": "2025-03-01T10"})
+    assert "HH:MM" in str(exc.value)

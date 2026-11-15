@@ -353,10 +353,12 @@ Override via `[document_id]` in `.any2md.toml` or `--meta-file`
 (`publisher_prefix` must match `^[A-Z0-9]+$`, `type_code` must match
 `^[A-Z]{2,4}$`). A value that breaks either rule exits 1 before any file is
 read, and so does a `date` override (`--meta date=...` or `[meta] date`)
-that is not an ASCII calendar date `YYYY-MM-DD` (optionally followed by an
-ISO time) or a TOML date. `2025-03-01` and `2025-03-01T10:00:00Z` pass and
-are emitted as `2025-03-01`, while `2025`, `2025-3`, `2025-13-99`,
-`2025/03/01`, and `20250301` exit 1. An explicit non-blank
+that is not a TOML date or an ASCII calendar date `YYYY-MM-DD`. The date
+may be followed by `T` or a space and a time: `HH:MM`, optional `:SS` and a
+fraction of up to 9 digits, and an optional `Z`, `+HH:MM`, `+HHMM`, or
+`+HH` offset. `2025-03-01`, `2025-03-01T10:00:00Z`, and the output of
+`date +%FT%T%z` pass and are emitted as `2025-03-01`, while `2025`,
+`2025-3`, `2025-13-99`, `2025/03/01`, `20250301`, and `2025-03-01T10` exit 1. An explicit non-blank
 `--meta document_id=...` wins over the generated value, and then none of
 these checks run.
 
@@ -528,7 +530,11 @@ to pymupdf4llm, an image too large to save, and the notice that a
 document's own date was dropped (`ignoring document date ...`) in favor of
 the file's modification time. The date notice affects only the `date` field
 and the `--auto-id` year. Set `--meta date=YYYY-MM-DD` to pin both, which
-also silences it.
+also silences it. A blank `date` override (`--meta date=`) still replaces
+the document's date, so without `--auto-id` the notice says the date is left
+blank and the output gets `date: ""`. With `--auto-id` a blank override
+exits 1 before any file is read, unless a non-blank `document_id` override
+means no ID is generated.
 
 **Use this when** you want a CI gate that fails on conversion problems —
 heading-hierarchy auto-fixes, missing H1, `content_hash` round-trip mismatches,

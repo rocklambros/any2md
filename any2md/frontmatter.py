@@ -170,9 +170,11 @@ def has_explicit_document_id(overrides: Mapping[str, Any] | None) -> bool:
 # releases (3.15 accepts ``T24:00``, 3.12 accepts ``T10,5``).
 _ISO_TIME_RE = re.compile(
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]"
-    r"(?::[0-5][0-9](?:\.[0-9]{1,6})?)?"
-    r"(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])?"
+    r"(?::[0-5][0-9](?:\.[0-9]{1,9})?)?"
+    r"(?:Z|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?"
 )
+# The accepted forms, named in errors and docs so "ISO time" is not a guess.
+AUTO_ID_TIME_FORMS = "HH:MM[:SS[.fraction]] with an optional Z, +HH:MM, +HHMM, or +HH"
 
 
 def normalize_auto_id_date(value: Any) -> str:
@@ -181,9 +183,10 @@ def normalize_auto_id_date(value: Any) -> str:
     One rule for every source, matching what the document readers keep: a
     ``date``/``datetime`` (TOML date or datetime from a meta file) reduced to
     its calendar date, or a string that is an ASCII ``YYYY-MM-DD`` calendar
-    date, optionally followed by an ISO-8601 time (``T`` or a space, then
-    ``HH:MM``, optional ``:SS`` and fraction, optional ``Z`` or ``+HH:MM``),
-    after surrounding whitespace is stripped. ``compose()`` emits the result, so ``date`` is always a full
+    date, optionally followed by ``T`` or a space and a time in one of the
+    ``AUTO_ID_TIME_FORMS`` (``HH:MM``, optional ``:SS`` and a fraction of up
+    to 9 digits, optional ``Z`` or a ``+HH:MM``, ``+HHMM``, or ``+HH``
+    offset), after surrounding whitespace is stripped. ``compose()`` emits the result, so ``date`` is always a full
     calendar date when ``--auto-id`` generates an id.
 
     Raises:
@@ -203,8 +206,8 @@ def normalize_auto_id_date(value: Any) -> str:
             if text[10] in "T " and _ISO_TIME_RE.fullmatch(text[11:]):
                 return head
     raise ValueError(
-        "--auto-id needs date as an ASCII calendar date YYYY-MM-DD "
-        f"(an ISO time after it is allowed), got date {value!r}"
+        "--auto-id needs date as an ASCII calendar date YYYY-MM-DD, "
+        f"optionally followed by T and {AUTO_ID_TIME_FORMS}, got date {value!r}"
     )
 
 

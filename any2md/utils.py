@@ -12,6 +12,7 @@ import tempfile
 import urllib.parse
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from any2md import _logging
 
@@ -193,12 +194,12 @@ _MAX_LOGGED_DATE_CHARS = 80
 
 
 def warn_dropped_document_date(
-    source_name: str, rejected: str | None, overrides: dict | None
+    source_name: str, rejected: str | None, options: Any
 ) -> None:
     """Warn that a document's own date was dropped for the mtime fallback.
 
     Called by each converter after its metadata reader returns, because only
-    the converter knows whether a ``date`` override replaces the document's
+    the converter knows, from ``options``, whether a ``date`` override replaces the document's
     date. With a non-blank override the dropped value is unused, so nothing
     is printed. With a blank one the notice says ``date`` is left blank. The value is truncated, then ``repr()``-escaped, and
     ``_logging.warn`` keeps the whole message on one line, so hostile
@@ -207,16 +208,23 @@ def warn_dropped_document_date(
     """
     if rejected is None:
         return
+    # Lazy import: frontmatter imports this module.
+    from any2md.frontmatter import has_explicit_document_id
+
+    overrides = options.frontmatter_overrides
     # A non-blank override replaces the document's date, so the dropped
     # value is unused and nothing is printed. A blank or null override is
     # still merged, so ``date`` ends up blank rather than the mtime, and the
-    # notice says so.
+    # notice says so. When --auto-id generates an id, compose() fails the
+    # file on that blank date, and its FAIL line is the explanation.
     outcome = "using the file modification time"
     if overrides and "date" in overrides:
         override = overrides["date"]
         if override is not None and not (
             isinstance(override, str) and not override.strip()
         ):
+            return
+        if options.auto_id and not has_explicit_document_id(overrides):
             return
         outcome = "and the blank date override leaves date blank"
     # Truncate first and put the length note outside the quotes, so it
