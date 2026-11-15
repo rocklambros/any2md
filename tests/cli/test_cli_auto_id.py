@@ -282,3 +282,20 @@ def test_non_calendar_date_override_exits_1(fixture_dir, tmp_path, bad):
     assert r.returncode == 1, f"stdout={r.stdout!r} stderr={r.stderr!r}"
     assert f"'{bad}'" in r.stderr
     assert "YYYY-MM-DD" in r.stderr
+
+
+def test_iso_datetime_override_is_accepted_and_normalized(fixture_dir, tmp_path):
+    out = tmp_path / "out"
+    r = _run(
+        "-o",
+        str(out),
+        "--no-config",
+        "--auto-id",
+        "--meta",
+        "date=2025-03-01T10:00:00Z",
+        str(fixture_dir / _FIXTURE),
+    )
+    assert r.returncode == 0, r.stderr
+    fm = _frontmatter(out / "ligatures_and_softhyphens.md")
+    assert fm["date"] == "2025-03-01"
+    assert fm["document_id"].split("-")[1] == "2025"

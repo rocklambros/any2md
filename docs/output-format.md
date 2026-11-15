@@ -107,15 +107,19 @@ SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
   [`date`](#date)), so its year can drift between runs. Set
   `--meta date=YYYY-MM-DD` when that matters.
 - With `--auto-id`, every `date` must be an ASCII calendar date
-  `YYYY-MM-DD`, whatever its source. A `date` override from `--meta`,
-  `--meta-file`, or `.any2md.toml` (a TOML date also works) that breaks the
-  rule, such as `2025`, `2025-3`, `2025-13-99`, or `2025/03/01`, exits 1
-  before any file is read. A date read from the document itself that breaks
-  the rule, including a partial date such as `2019-06`, is dropped with an
+  `YYYY-MM-DD`, whatever its source, and is emitted in exactly that form.
+  A `date` override from `--meta`, `--meta-file`, or `.any2md.toml` may be
+  a TOML date or datetime, or a `YYYY-MM-DD` string optionally followed by
+  an ISO time (`2025-03-01T10:00:00Z`). Surrounding whitespace and the time
+  are dropped. An override that breaks the rule, such as `2025`, `2025-3`,
+  `2025-13-99`, or `2025/03/01`, exits 1 before any file is read. A date read
+  from the document itself that breaks the rule is dropped with an
   informational `WARN:` line naming the file and the ignored value, and
-  `date` falls back to the file's modification time. That `WARN:` is not
-  counted by `--strict`, and it is not printed when a `date` override
-  replaces the document's date.
+  `date` falls back to the file's modification time. That includes partial
+  dates the source formats allow, such as a W3CDTF `2019-06` in a DOCX or a
+  PDF `D:2025`, because filling in a month or day would invent one. The
+  `WARN:` is not counted by `--strict`, and it is not printed when a
+  non-blank `date` override replaces the document's date.
 - `PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override them via
   `[document_id]` in `.any2md.toml` or `--meta-file`. `publisher_prefix`
   must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`.

@@ -11,7 +11,7 @@ field, never the clock.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 import yaml
@@ -289,3 +289,35 @@ def test_same_body_different_date_years_get_different_ids():
     b = _compose_id(_meta(date="2026-01-01"))
     assert a.rsplit("-", 1)[1] == b.rsplit("-", 1)[1]
     assert a != b
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        datetime(2025, 3, 1, 10, 0),
+        " 2025-03-01 ",
+        "2025-03-01\n",
+        "2025-03-01T10:00:00Z",
+        "2025-03-01T10:00:00+02:00",
+    ],
+)
+def test_auto_id_emits_normalized_calendar_date(override):
+    out = compose(
+        "# T\n\nb\n", _meta(), PipelineOptions(auto_id=True), {"date": override}
+    )
+    fm = _frontmatter(out)
+    assert fm["date"] == "2025-03-01"
+    assert fm["document_id"].split("-")[1] == "2025"
+
+
+def test_date_override_left_as_given_without_auto_id():
+    out = compose("# T\n\nb\n", _meta(), PipelineOptions(), {"date": " 2025-03-01 "})
+    assert _frontmatter(out)["date"] == " 2025-03-01 "
+
+
+@pytest.mark.parametrize(
+    "bad", ["2025-03-01Tgarbage", "2025-03-01 nope", "2025-02-30T00:00"]
+)
+def test_malformed_iso_datetime_override_raises(bad):
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        _compose_id(_meta(), {"date": bad})

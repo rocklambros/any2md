@@ -7,6 +7,8 @@ replaces the document's own date.
 
 from __future__ import annotations
 
+import pytest
+
 from any2md.utils import warn_dropped_document_date
 
 
@@ -14,7 +16,7 @@ def test_warns_with_file_value_and_fallback(capsys):
     warn_dropped_document_date("a.pdf", "D:00000000000000", None)
     err = capsys.readouterr().err
     assert err.startswith("  WARN: a.pdf: ignoring document date 'D:00000000000000'")
-    assert "YYYY-MM-DD" in err
+    assert "not a full YYYY-MM-DD calendar date" in err
     assert "modification time" in err
     assert err.count("\n") == 1
 
@@ -29,11 +31,12 @@ def test_silent_when_nothing_was_rejected(capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_long_values_are_truncated(capsys):
-    warn_dropped_document_date("a.docx", "2019-06" + "x" * 900_000, None)
+def test_long_values_are_truncated_outside_the_quotes(capsys):
+    value = "2019-06" + "x" * 900_000
+    warn_dropped_document_date("a.docx", value, None)
     err = capsys.readouterr().err
     assert len(err) < 300
-    assert "900007 chars" in err
+    assert f"{value[:80]!r}... (900007 chars)" in err
 
 
 def test_hostile_value_stays_on_one_escaped_line(capsys):
@@ -42,3 +45,9 @@ def test_hostile_value_stays_on_one_escaped_line(capsys):
     assert err.count("\n") == 1
     assert "\x1b" not in err
     assert "‮" not in err
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None])
+def test_blank_date_override_does_not_silence_the_warning(capsys, blank):
+    warn_dropped_document_date("a.pdf", "D:00000000000000", {"date": blank})
+    assert "ignoring document date" in capsys.readouterr().err

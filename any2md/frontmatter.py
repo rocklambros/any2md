@@ -15,6 +15,7 @@ import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date as _date_cls
+from datetime import datetime as _datetime_cls
 from datetime import time as _time_cls
 from typing import Any, Literal
 
@@ -165,29 +166,51 @@ def has_explicit_document_id(overrides: Mapping[str, Any] | None) -> bool:
     return True
 
 
-def year_of_date(value: Any) -> int:
-    """Return the year of an emitted ``date`` value for ``--auto-id``.
+def normalize_auto_id_date(value: Any) -> str:
+    """Return the ``YYYY-MM-DD`` that ``--auto-id`` emits for a ``date`` value.
 
-    One rule for every source: a ``date``/``datetime`` (TOML date from a
-    meta file), or a string that is an ASCII ``YYYY-MM-DD`` calendar date
-    after surrounding whitespace is stripped. Document dates already pass
-    ``utils.clean_iso_date``, and overrides are held to the same check, so
-    ``date`` is always a full calendar date when ``--auto-id`` is on.
+    One rule for every source, matching what the document readers keep: a
+    ``date``/``datetime`` (TOML date or datetime from a meta file) reduced to
+    its calendar date, or a string that is an ASCII ``YYYY-MM-DD`` calendar
+    date, optionally followed by an ISO-8601 time (``T`` or a space, then a
+    time ``datetime.fromisoformat`` accepts), after surrounding whitespace is
+    stripped. ``compose()`` emits the result, so ``date`` is always a full
+    calendar date when ``--auto-id`` generates an id.
 
     Raises:
-        ValueError: for anything else, including a bare year, ``2025-3``, or
-            ``2025-13-99``. Falling back to the clock would make the id
-            depend on when the conversion ran.
+        ValueError: for anything else, including a bare year, ``2025-3``,
+            ``2025-13-99``, or a malformed time. Falling back to the clock
+            would make the id depend on when the conversion ran.
     """
     if isinstance(value, _date_cls):
-        return value.year
+        # ``datetime`` subclasses ``date``, so this covers both.
+        return value.isoformat()[:10]
     if isinstance(value, str):
-        cleaned = clean_iso_date(value)
-        if cleaned is not None:
-            return int(cleaned[:4])
+        text = value.strip()
+        head = clean_iso_date(text[:10])
+        if head is not None:
+            if len(text) == 10:
+                return head
+            if text[10] in "T ":
+                try:
+                    _datetime_cls.fromisoformat(text)
+                except ValueError:
+                    pass
+                else:
+                    return head
     raise ValueError(
-        f"--auto-id needs date as an ASCII calendar date YYYY-MM-DD, got date {value!r}"
+        "--auto-id needs date as an ASCII calendar date YYYY-MM-DD "
+        f"(an ISO time after it is allowed), got date {value!r}"
     )
+
+
+def year_of_date(value: Any) -> int:
+    """Return the year of a ``date`` value under the ``--auto-id`` rule.
+
+    Raises:
+        ValueError: see ``normalize_auto_id_date``.
+    """
+    return int(normalize_auto_id_date(value)[:4])
 
 
 @dataclass
@@ -545,11 +568,14 @@ def compose(
     # unvalidated. content_hash is reserved, so fields still holds the
     # derived value.
     if options.auto_id and not has_explicit_document_id(overrides):
+        # Emit the normalized date so the id's year and ``date`` agree and
+        # ``date`` is always YYYY-MM-DD, whatever form the override took.
+        fields["date"] = normalize_auto_id_date(fields["date"])
         fields["document_id"] = generate_document_id(
             body,
             prefix=options.auto_id_prefix,
             type_code=options.auto_id_type_code,
-            year=year_of_date(fields["date"]),
+            year=int(fields["date"][:4]),
             content_hash=fields["content_hash"],
         )
     return _emit_yaml_with_body(fields, body)

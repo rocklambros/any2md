@@ -353,9 +353,10 @@ Override via `[document_id]` in `.any2md.toml` or `--meta-file`
 (`publisher_prefix` must match `^[A-Z0-9]+$`, `type_code` must match
 `^[A-Z]{2,4}$`). A value that breaks either rule exits 1 before any file is
 read, and so does a `date` override (`--meta date=...` or `[meta] date`)
-that is not an ASCII calendar date `YYYY-MM-DD` or a TOML date.
-`2025-03-01` passes, and `2025`, `2025-3`, `2025-13-99`, `2025/03/01`, and
-`20250301` exit 1. An explicit non-blank
+that is not an ASCII calendar date `YYYY-MM-DD` (optionally followed by an
+ISO time) or a TOML date. `2025-03-01` and `2025-03-01T10:00:00Z` pass and
+are emitted as `2025-03-01`, while `2025`, `2025-3`, `2025-13-99`,
+`2025/03/01`, and `20250301` exit 1. An explicit non-blank
 `--meta document_id=...` wins over the generated value, and then none of
 these checks run.
 
@@ -520,11 +521,14 @@ PPTX, or XLSX file (for example "Provenance bbox coordinate ... is outside
 page bounds"). any2md records those instead of letting Python print them to
 stderr, and the `OK:` line shows them in its warning count.
 
-One `WARN:` line is informational and does not count: the notice that a
-document's own date was dropped (`ignoring document date ...`) and replaced
-by the file's modification time. It affects only the `date` field and the
-`--auto-id` year. Set `--meta date=YYYY-MM-DD` to pin both, which also
-silences the notice.
+Only the warnings in that count trip exit code 3. Lines printed to stderr
+with a `WARN:` or `SKIP` prefix are status messages and never change the
+exit code on their own. Examples are a Docling extraction that fell back
+to pymupdf4llm, an image too large to save, and the notice that a
+document's own date was dropped (`ignoring document date ...`) in favor of
+the file's modification time. The date notice affects only the `date` field
+and the `--auto-id` year. Set `--meta date=YYYY-MM-DD` to pin both, which
+also silences it.
 
 **Use this when** you want a CI gate that fails on conversion problems —
 heading-hierarchy auto-fixes, missing H1, `content_hash` round-trip mismatches,
