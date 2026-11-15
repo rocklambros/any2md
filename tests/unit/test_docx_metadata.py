@@ -15,6 +15,7 @@ _DEFAULTS = {
     "produced_by": None,
     "date": None,
     "keywords": [],
+    "date_rejected": None,
 }
 
 _CORE = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -96,22 +97,19 @@ def test_malformed_modified_date_yields_no_date(tmp_path, modified):
     assert _read_docx_metadata(docx)["date"] is None
 
 
-def test_dropped_modified_date_warns_with_file_and_value(tmp_path, capsys):
+def test_rejected_modified_date_is_returned_not_printed(tmp_path, capsys):
     docx = tmp_path / "bad_date.docx"
     _write_docx(docx, {"docProps/core.xml": _core_with_modified("2019-06")})
-    assert _read_docx_metadata(docx)["date"] is None
-    err = capsys.readouterr().err
-    assert "WARN" in err
-    assert "bad_date.docx" in err
-    assert "'2019-06'" in err
-    assert "modification time" in err
+    meta = _read_docx_metadata(docx)
+    assert meta["date"] is None
+    assert meta["date_rejected"] == "2019-06"
+    assert capsys.readouterr().err == ""
 
 
-def test_valid_or_absent_modified_date_does_not_warn(tmp_path, capsys):
+def test_valid_or_absent_modified_date_rejects_nothing(tmp_path):
     ok = tmp_path / "ok.docx"
     _write_docx(ok, {"docProps/core.xml": _core_with_modified("2025-03-01T00:00:00Z")})
     bare = tmp_path / "bare.docx"
     _write_docx(bare, {})
-    _read_docx_metadata(ok)
-    _read_docx_metadata(bare)
-    assert capsys.readouterr().err == ""
+    assert _read_docx_metadata(ok)["date_rejected"] is None
+    assert _read_docx_metadata(bare)["date_rejected"] is None

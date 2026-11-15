@@ -13,6 +13,8 @@ import urllib.parse
 from datetime import date
 from pathlib import Path
 
+from any2md import _logging
+
 _CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 _SPECIAL_CHARS_RE = re.compile(r"[,;:'\"—–]")
 _COLLAPSE_UNDERSCORES_RE = re.compile(r"_+")
@@ -185,3 +187,30 @@ def clean_iso_date(text: str | None) -> str | None:
     except ValueError:
         return None
     return candidate
+
+
+_MAX_LOGGED_DATE_CHARS = 80
+
+
+def warn_dropped_document_date(
+    source_name: str, rejected: str | None, overrides: dict | None
+) -> None:
+    """Warn that a document's own date was dropped for the mtime fallback.
+
+    Called by each converter after its metadata reader returns, because only
+    the converter knows whether a ``date`` override replaces the document's
+    date. With an override the dropped value is unused, so nothing is
+    printed. The value is truncated, then ``repr()``-escaped, and
+    ``_logging.warn`` keeps the whole message on one line, so hostile
+    metadata cannot forge or flood terminal output. This is informational
+    and is not counted toward ``--strict``.
+    """
+    if rejected is None or (overrides and "date" in overrides):
+        return
+    shown = rejected
+    if len(shown) > _MAX_LOGGED_DATE_CHARS:
+        shown = f"{shown[:_MAX_LOGGED_DATE_CHARS]}... ({len(rejected)} chars)"
+    _logging.warn(
+        f"{source_name}: ignoring document date {shown!r} (not an ASCII "
+        f"YYYY-MM-DD calendar date), using the file modification time"
+    )

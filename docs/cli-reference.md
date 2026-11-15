@@ -353,9 +353,9 @@ Override via `[document_id]` in `.any2md.toml` or `--meta-file`
 (`publisher_prefix` must match `^[A-Z0-9]+$`, `type_code` must match
 `^[A-Z]{2,4}$`). A value that breaks either rule exits 1 before any file is
 read, and so does a `date` override (`--meta date=...` or `[meta] date`)
-that does not begin with a four-digit year followed by `-` or the end of
-the value. `2025-03-01` and `2025` pass, and `2025/03/01` and `20250301`
-exit 1. An explicit non-blank
+that is not an ASCII calendar date `YYYY-MM-DD` or a TOML date.
+`2025-03-01` passes, and `2025`, `2025-3`, `2025-13-99`, `2025/03/01`, and
+`20250301` exit 1. An explicit non-blank
 `--meta document_id=...` wins over the generated value, and then none of
 these checks run.
 
@@ -519,6 +519,12 @@ so do Python warnings that Docling raises while it converts a PDF, DOCX,
 PPTX, or XLSX file (for example "Provenance bbox coordinate ... is outside
 page bounds"). any2md records those instead of letting Python print them to
 stderr, and the `OK:` line shows them in its warning count.
+
+One `WARN:` line is informational and does not count: the notice that a
+document's own date was dropped (`ignoring document date ...`) and replaced
+by the file's modification time. It affects only the `date` field and the
+`--auto-id` year. Set `--meta date=YYYY-MM-DD` to pin both, which also
+silences the notice.
 
 **Use this when** you want a CI gate that fails on conversion problems —
 heading-hierarchy auto-fixes, missing H1, `content_hash` round-trip mismatches,

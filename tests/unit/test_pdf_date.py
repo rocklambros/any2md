@@ -37,21 +37,29 @@ class _FakeDoc:
         self.metadata = {"creationDate": creation_date}
 
 
-def test_dropped_creation_date_warns_with_file_and_value(capsys):
+def test_rejected_creation_date_is_returned_not_printed(capsys):
     from any2md.converters.pdf import _parse_pdf_metadata
 
-    props = _parse_pdf_metadata(_FakeDoc("D:00000000000000"), source_name="zeroed.pdf")
+    props = _parse_pdf_metadata(_FakeDoc("D:00000000000000"))
     assert props["date"] is None
-    err = capsys.readouterr().err
-    assert "WARN" in err
-    assert "zeroed.pdf" in err
-    assert "D:00000000000000" in err
-    assert "modification time" in err
+    assert props["date_rejected"] == "D:00000000000000"
+    assert capsys.readouterr().err == ""
 
 
-@pytest.mark.parametrize("raw", ["D:20250315120000+01'00'", "", None])
-def test_valid_or_absent_creation_date_does_not_warn(raw, capsys):
+@pytest.mark.parametrize("raw", ["D:20250315120000+01'00'", "", None, "D:", "  D:  "])
+def test_valid_or_absent_creation_date_rejects_nothing(raw):
     from any2md.converters.pdf import _parse_pdf_metadata
 
-    _parse_pdf_metadata(_FakeDoc(raw), source_name="ok.pdf")
-    assert capsys.readouterr().err == ""
+    assert _parse_pdf_metadata(_FakeDoc(raw))["date_rejected"] is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (" D:20250315120000Z", "2025-03-15"),  # leading whitespace
+        ("2019-06-05T12:00:00Z", "2019-06-05"),  # ISO form some producers write
+        ("D:2019-06-05", "2019-06-05"),
+    ],
+)
+def test_parses_whitespace_and_iso_forms(raw, expected):
+    assert _parse_pdf_date(raw) == expected

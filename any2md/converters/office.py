@@ -44,7 +44,11 @@ from any2md.converters.docx import _read_docx_metadata
 from any2md.frontmatter import SourceMeta, compose
 from any2md.pipeline import PipelineOptions
 from any2md.pipeline.structured import _render_heading, find_headings
-from any2md.utils import atomic_write_text, sanitize_filename
+from any2md.utils import (
+    atomic_write_text,
+    sanitize_filename,
+    warn_dropped_document_date,
+)
 
 OfficeFormat = Literal["pptx", "xlsx"]
 
@@ -306,6 +310,9 @@ def convert_office(
     )
     try:
         props = _read_docx_metadata(src)
+        warn_dropped_document_date(
+            src.name, props["date_rejected"], options.frontmatter_overrides
+        )
         title = _document_title(props["title_hint"], src.name)
         # The outer capture on the whole "docling" tree gives every Docling
         # record a handler. Without one, Python prints an unhandled WARNING

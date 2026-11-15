@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 from any2md import heuristics
 from any2md.config import validate_document_id_settings
+from any2md.utils import clean_iso_date
 from any2md.pipeline import Lane, PipelineOptions
 
 
@@ -142,12 +143,6 @@ def generate_document_id(
 
 _CONTENT_HASH_RE = re.compile(r"[0-9a-f]{64}")
 
-# ``date`` must start with a four-digit year: ``YYYY-MM-DD`` or bare
-# ``YYYY``. ``\d`` matches Unicode decimal digits (a ``--meta`` or TOML
-# date may use them) and ``int()`` turns them into an ASCII year, so the
-# id stays ASCII. The extractors themselves emit ASCII dates only.
-_DATE_YEAR_RE = re.compile(r"(\d{4})(?:-|\Z)")
-
 
 def has_explicit_document_id(overrides: Mapping[str, Any] | None) -> bool:
     """True when an override layer sets a non-blank ``document_id``.
@@ -173,28 +168,25 @@ def has_explicit_document_id(overrides: Mapping[str, Any] | None) -> bool:
 def year_of_date(value: Any) -> int:
     """Return the year of an emitted ``date`` value for ``--auto-id``.
 
-    Accepts a ``date``/``datetime`` (TOML date from a meta file), a
-    four-digit integer year (TOML ``date = 2025``), or a string starting with a four-digit year
-    after surrounding whitespace is stripped, so a ``--meta`` or TOML date
-    with stray spaces still works.
+    One rule for every source: a ``date``/``datetime`` (TOML date from a
+    meta file), or a string that is an ASCII ``YYYY-MM-DD`` calendar date
+    after surrounding whitespace is stripped. Document dates already pass
+    ``utils.clean_iso_date``, and overrides are held to the same check, so
+    ``date`` is always a full calendar date when ``--auto-id`` is on.
 
     Raises:
-        ValueError: when no year can be read. Falling back to the clock
-            would make the id depend on when the conversion ran.
+        ValueError: for anything else, including a bare year, ``2025-3``, or
+            ``2025-13-99``. Falling back to the clock would make the id
+            depend on when the conversion ran.
     """
     if isinstance(value, _date_cls):
         return value.year
-    # Four digits, matching the string rule: ``date = 24`` is a typo, not
-    # the year 0024.
-    if isinstance(value, int) and not isinstance(value, bool) and 1000 <= value <= 9999:
-        return value
     if isinstance(value, str):
-        m = _DATE_YEAR_RE.match(value.strip())
-        if m:
-            return int(m.group(1))
+        cleaned = clean_iso_date(value)
+        if cleaned is not None:
+            return int(cleaned[:4])
     raise ValueError(
-        f"--auto-id needs a date that starts with a four-digit year "
-        f"(YYYY-MM-DD), got date {value!r}"
+        f"--auto-id needs date as an ASCII calendar date YYYY-MM-DD, got date {value!r}"
     )
 
 

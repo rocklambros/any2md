@@ -105,16 +105,17 @@ SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
   `date` always give the same ID. A source with no date of its own gets
   `date` from the file's modification time or today (see
   [`date`](#date)), so its year can drift between runs. Set
-  `--meta date=YYYY-MM-DD` when that matters. A `date` override from
-  `--meta`, `--meta-file`, or `.any2md.toml` must begin with a four-digit
-  year followed by `-` or the end of the value (`2025-03-01`, `2025`).
-  Anything else, such as `2025/03/01` or `20250301`, exits 1 before any
-  file is read. Dates read from the
-  document itself are checked as ASCII `YYYY-MM-DD` calendar dates. One
-  that fails the check is dropped with a `WARN:` line naming the file and
-  the ignored value, and `date` falls back to the file's modification time.
-  Partial dates such as `2019-06` count as failing, because `date` is
-  always a full `YYYY-MM-DD`.
+  `--meta date=YYYY-MM-DD` when that matters.
+- With `--auto-id`, every `date` must be an ASCII calendar date
+  `YYYY-MM-DD`, whatever its source. A `date` override from `--meta`,
+  `--meta-file`, or `.any2md.toml` (a TOML date also works) that breaks the
+  rule, such as `2025`, `2025-3`, `2025-13-99`, or `2025/03/01`, exits 1
+  before any file is read. A date read from the document itself that breaks
+  the rule, including a partial date such as `2019-06`, is dropped with an
+  informational `WARN:` line naming the file and the ignored value, and
+  `date` falls back to the file's modification time. That `WARN:` is not
+  counted by `--strict`, and it is not printed when a `date` override
+  replaces the document's date.
 - `PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override them via
   `[document_id]` in `.any2md.toml` or `--meta-file`. `publisher_prefix`
   must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`.

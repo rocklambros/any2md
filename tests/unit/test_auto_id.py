@@ -182,7 +182,23 @@ def test_compose_explicit_document_id_override_wins():
 
 
 @pytest.mark.parametrize(
-    "bad", ["March 2024", "24-01-01", "", ["2024"], True, 99999, 24, 999]
+    "bad",
+    [
+        "March 2024",
+        "24-01-01",
+        "",
+        ["2024"],
+        True,
+        99999,
+        24,
+        2025,  # a bare year is not a calendar date
+        "2025",
+        "2025-3",
+        "2025-13-99",
+        "2023-02-29",
+        "2025-foo",
+        "\u0662\u0660\u0662\u0665-01-01",  # non-ASCII digits
+    ],
 )
 def test_compose_unparseable_date_raises(bad):
     with pytest.raises(ValueError, match="date"):
@@ -235,13 +251,12 @@ def test_precomputed_content_hash_gives_same_id():
 @pytest.mark.parametrize(
     ("value", "year"),
     [
-        ("\n    2025-03-01", 2025),  # unstripped DOCX dcterms:modified
-        ("\u0662\u0660\u0662\u0665-01-01", 2025),  # non-ASCII digits via isdigit()
-        (2025, 2025),  # TOML integer
-        ("2025", 2025),
+        ("\n    2025-03-01", 2025),  # stray whitespace around a full date
+        ("2024-02-29", 2024),
+        (date(2019, 1, 2), 2019),  # TOML date from a meta file
     ],
 )
-def test_compose_reads_year_from_extractor_and_toml_dates(value, year):
+def test_compose_reads_year_from_calendar_dates(value, year):
     assert _compose_id(_meta(), {"date": value}).split("-")[1] == str(year)
 
 
