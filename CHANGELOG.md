@@ -36,6 +36,17 @@ and stay the same no matter when the conversion runs.
 - The documented frontmatter JSON Schema in `docs/output-format.md` now
   uses the SAGE `document_id` pattern.
 
+### Documentation
+
+- The README explains how any publisher sets its own prefix (`OWASP`,
+  `COSAI`), which values are rejected, and that prefixes are not
+  registered, so organizations sharing an index should agree on them.
+- `docs/output-format.md` states that `--auto-id` IDs are content-derived
+  and change with the body. Publishers who need an ID that stays stable
+  across versions should set `document_id` explicitly.
+- `docs/cli-reference.md` no longer says auto-discovery cannot be turned
+  off. `--no-config` skips it for one run.
+
 ## [1.2.2] — 2026-11-11
 
 Adds PowerPoint and Excel input through Docling, closes the remaining

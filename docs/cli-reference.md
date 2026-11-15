@@ -445,8 +445,8 @@ type_code = "GD"
 ```
 
 With this file at `./corpus/.any2md.toml` and the cwd inside `./corpus/`, every
-conversion picks up the defaults automatically. There's no flag to enable or
-disable auto-discovery — drop the file and it's active.
+conversion picks up the defaults automatically. Pass `--no-config` to skip
+auto-discovery for one run.
 
 ## Body-level transformations
 
