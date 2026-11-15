@@ -353,7 +353,9 @@ Override via `[document_id]` in `.any2md.toml` or `--meta-file`
 (`publisher_prefix` must match `^[A-Z0-9]+$`, `type_code` must match
 `^[A-Z]{2,4}$`). A value that breaks either rule exits 1 before any file is
 read, and so does a `date` override (`--meta date=...` or `[meta] date`)
-that does not start with a four-digit year. An explicit non-blank
+that does not begin with a four-digit year followed by `-` or the end of
+the value. `2025-03-01` and `2025` pass, and `2025/03/01` and `20250301`
+exit 1. An explicit non-blank
 `--meta document_id=...` wins over the generated value, and then none of
 these checks run.
 

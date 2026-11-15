@@ -52,8 +52,18 @@ def _parse_pdf_date(raw: str | None) -> str | None:
     return None
 
 
-def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
+def _parse_pdf_metadata(
+    doc: "pymupdf.Document", *, source_name: str | None = None
+) -> dict[str, object]:
     meta = doc.metadata or {}
+    raw_date = meta.get("creationDate")
+    parsed_date = _parse_pdf_date(raw_date)
+    if parsed_date is None and raw_date and raw_date.strip():
+        # --auto-id takes its year from ``date``, so say why it fell back.
+        _logging.warn(
+            f"{source_name or 'PDF'}: ignoring document date {raw_date!r} "
+            f"(not a calendar date); using the file modification time"
+        )
     creator_raw = (meta.get("creator") or "").strip() or None
     org_result = filter_organization(creator_raw)
     return {
@@ -61,7 +71,7 @@ def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
         "authors": _parse_pdf_authors(meta.get("author")),
         "organization": org_result.organization,
         "produced_by": org_result.produced_by,
-        "date": _parse_pdf_date(meta.get("creationDate")),
+        "date": parsed_date,
         "keywords": [
             k.strip() for k in (meta.get("keywords") or "").split(",") if k.strip()
         ],
@@ -297,7 +307,7 @@ def convert_pdf(
             # Always extract metadata via PyMuPDF, independent of which
             # backend produces the markdown body.
             page_count = len(doc)
-            props = _parse_pdf_metadata(doc)
+            props = _parse_pdf_metadata(doc, source_name=src.name)
 
             # Python warnings from a Docling run that returned. A run that
             # raised falls back to pymupdf4llm, and its warnings go with it.

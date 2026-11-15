@@ -106,11 +106,15 @@ SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
   `date` from the file's modification time or today (see
   [`date`](#date)), so its year can drift between runs. Set
   `--meta date=YYYY-MM-DD` when that matters. A `date` override from
-  `--meta`, `--meta-file`, or `.any2md.toml` that does not start with a
-  four-digit year exits 1 before any file is read. Dates read from the
+  `--meta`, `--meta-file`, or `.any2md.toml` must begin with a four-digit
+  year followed by `-` or the end of the value (`2025-03-01`, `2025`).
+  Anything else, such as `2025/03/01` or `20250301`, exits 1 before any
+  file is read. Dates read from the
   document itself are checked as ASCII `YYYY-MM-DD` calendar dates. One
-  that fails the check is dropped, and `date` falls back to the file's
-  modification time.
+  that fails the check is dropped with a `WARN:` line naming the file and
+  the ignored value, and `date` falls back to the file's modification time.
+  Partial dates such as `2019-06` count as failing, because `date` is
+  always a full `YYYY-MM-DD`.
 - `PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override them via
   `[document_id]` in `.any2md.toml` or `--meta-file`. `publisher_prefix`
   must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`.

@@ -29,8 +29,9 @@ that carries its own date.
   `--meta-file`, and `.any2md.toml` overrides apply. A source with no date
   of its own still gets its `date`, and so its year, from the file's
   modification time or today, so set `--meta date=...` when the year must
-  not drift. A `date` override that does not start with a four-digit year
-  exits 1 before any file is read. A non-blank `document_id` override still
+  not drift. A `date` override that does not begin with a four-digit year
+  followed by `-` or its end (so `2025/03/01` and `20250301`) exits 1
+  before any file is read. A non-blank `document_id` override still
   wins over `--auto-id`. A blank one (empty, whitespace, or
   `--meta document_id=,`) no longer turns `--auto-id` off.
 - **`[document_id]` settings are validated.** With `--auto-id`, a
@@ -51,8 +52,10 @@ that carries its own date.
   pretty-printed `core.xml` emitted `"\n    2026-"`, and free-text values
   emitted fragments such as `"March 3, 2"`. The PDF reader accepted
   superscript digits and impossible dates such as `0000-00-00`. A date that
-  fails the check is now dropped, and `date` falls back to the file's
-  modification time.
+  fails the check is now dropped with a `WARN:` line naming the file and
+  the value, and `date` falls back to the file's modification time.
+  Partial W3CDTF dates such as `2019-06` are dropped the same way, because
+  `date` is always a full `YYYY-MM-DD`.
 
 ### Security
 

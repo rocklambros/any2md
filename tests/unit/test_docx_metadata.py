@@ -94,3 +94,24 @@ def test_malformed_modified_date_yields_no_date(tmp_path, modified):
     docx = tmp_path / "bad_date.docx"
     _write_docx(docx, {"docProps/core.xml": _core_with_modified(modified)})
     assert _read_docx_metadata(docx)["date"] is None
+
+
+def test_dropped_modified_date_warns_with_file_and_value(tmp_path, capsys):
+    docx = tmp_path / "bad_date.docx"
+    _write_docx(docx, {"docProps/core.xml": _core_with_modified("2019-06")})
+    assert _read_docx_metadata(docx)["date"] is None
+    err = capsys.readouterr().err
+    assert "WARN" in err
+    assert "bad_date.docx" in err
+    assert "'2019-06'" in err
+    assert "modification time" in err
+
+
+def test_valid_or_absent_modified_date_does_not_warn(tmp_path, capsys):
+    ok = tmp_path / "ok.docx"
+    _write_docx(ok, {"docProps/core.xml": _core_with_modified("2025-03-01T00:00:00Z")})
+    bare = tmp_path / "bare.docx"
+    _write_docx(bare, {})
+    _read_docx_metadata(ok)
+    _read_docx_metadata(bare)
+    assert capsys.readouterr().err == ""

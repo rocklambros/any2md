@@ -128,7 +128,14 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
                     # the timestamp on its own indented line. A value that
                     # is not an ASCII calendar date is dropped, and the
                     # caller falls back to the file's modification time.
+                    # Warn, because --auto-id takes its year from that date.
                     out["date"] = clean_iso_date(modified.strip()[:10])
+                    if out["date"] is None and modified.strip():
+                        _logging.warn(
+                            f"{getattr(docx_path, 'name', docx_path)}: ignoring "
+                            f"document date {modified.strip()!r} (not YYYY-MM-DD); "
+                            f"using the file modification time"
+                        )
             if "docProps/app.xml" in members:
                 with _safe_zip_open(z, "docProps/app.xml") as f:
                     root = _xml_parse(f).getroot()
