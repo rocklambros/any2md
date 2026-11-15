@@ -36,7 +36,7 @@ from any2md.converters._office_pictures import (
     prepare_pictures,
     read_alt_texts,
 )
-from any2md.frontmatter import SourceMeta, compose
+from any2md.frontmatter import SourceMeta, compose, warn_dropped_document_date
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
 from any2md.pipeline.blocks import fenced_lines
@@ -49,7 +49,6 @@ from any2md.utils import (
     atomic_write_text,
     clean_iso_date,
     sanitize_filename,
-    warn_dropped_document_date,
 )
 
 

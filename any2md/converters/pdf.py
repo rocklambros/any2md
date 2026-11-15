@@ -22,14 +22,13 @@ from any2md._docling import DoclingWarningCapture, has_docling, install_hint
 from any2md._image_files import ImageWriter
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
-from any2md.frontmatter import SourceMeta, compose
+from any2md.frontmatter import SourceMeta, compose, warn_dropped_document_date
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
 from any2md.utils import (
     atomic_write_text,
     clean_iso_date,
     sanitize_filename,
-    warn_dropped_document_date,
 )
 
 

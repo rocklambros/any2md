@@ -41,13 +41,12 @@ from any2md.converters._office_pictures import (
     read_alt_texts,
 )
 from any2md.converters.docx import _read_docx_metadata
-from any2md.frontmatter import SourceMeta, compose
+from any2md.frontmatter import SourceMeta, compose, warn_dropped_document_date
 from any2md.pipeline import PipelineOptions
 from any2md.pipeline.structured import _render_heading, find_headings
 from any2md.utils import (
     atomic_write_text,
     sanitize_filename,
-    warn_dropped_document_date,
 )
 
 OfficeFormat = Literal["pptx", "xlsx"]

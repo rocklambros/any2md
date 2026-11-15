@@ -18,7 +18,7 @@ from datetime import date as _date_cls
 from datetime import time as _time_cls
 from typing import Any, Literal
 
-from any2md import heuristics
+from any2md import _logging, heuristics
 from any2md.config import validate_document_id_settings
 from any2md.utils import clean_iso_date
 from any2md.pipeline import Lane, PipelineOptions
@@ -337,13 +337,30 @@ def derive_title(body: str, title_hint: str | None, fallback: str) -> str:
     return stem.replace("_", " ").strip() or "Untitled"
 
 
+# Characters a YAML double-quoted scalar cannot carry raw. Strings reach the
+# emitter from untrusted document metadata and discovered config files, so
+# each of these is escaped: a raw C0 or C1 control or noncharacter makes the
+# frontmatter invalid YAML, and a raw NEL, LS, or PS is folded to a space on
+# read-back. Tab is printable in YAML and stays as is.
+_YAML_UNSAFE_RE = re.compile(
+    r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u2028\u2029\ufeff\ud800-\udfff\ufffe\uffff]"
+)
+
+
+def _yaml_escape_char(match: re.Match[str]) -> str:
+    ch = match.group(0)
+    if ch == "\n":
+        return "\\n"
+    if ch == "\r":
+        return "\\r"
+    code = ord(ch)
+    return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
+
+
 def _yaml_escape(value: str) -> str:
-    return (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
+    """Escape ``value`` for a YAML double-quoted scalar that round-trips."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return _YAML_UNSAFE_RE.sub(_yaml_escape_char, escaped)
 
 
 class FrontmatterEmitError(ValueError):
@@ -590,3 +607,48 @@ def compose(
             content_hash=fields["content_hash"],
         )
     return _emit_yaml_with_body(fields, body)
+
+
+_MAX_LOGGED_DATE_CHARS = 80
+
+
+def warn_dropped_document_date(
+    source_name: str, rejected: str | None, options: Any
+) -> None:
+    """Warn that a document's own date was dropped for the mtime fallback.
+
+    Called by each converter after its metadata reader returns, because only
+    the converter knows, from ``options``, whether a ``date`` override replaces the document's
+    date. With a non-blank override the dropped value is unused, so nothing
+    is printed. With a blank one the notice says ``date`` is left blank. The value is truncated, then ``repr()``-escaped, and
+    ``_logging.warn`` keeps the whole message on one line, so hostile
+    metadata cannot forge or flood terminal output. This is informational
+    and is not counted toward ``--strict``.
+    """
+    if rejected is None:
+        return
+    overrides = options.frontmatter_overrides
+    # A non-blank override replaces the document's date, so the dropped
+    # value is unused and nothing is printed. A blank or null override is
+    # still merged, so ``date`` ends up blank rather than the mtime, and the
+    # notice says so. When --auto-id generates an id, compose() fails the
+    # file on that blank date, and its FAIL line is the explanation.
+    outcome = "using the file modification time"
+    if overrides and "date" in overrides:
+        override = overrides["date"]
+        if override is not None and not (
+            isinstance(override, str) and not override.strip()
+        ):
+            return
+        if options.auto_id and not has_explicit_document_id(overrides):
+            return
+        outcome = "and the blank date override leaves date blank"
+    # Truncate first and put the length note outside the quotes, so it
+    # cannot be mistaken for part of the document's value.
+    shown = repr(rejected[:_MAX_LOGGED_DATE_CHARS])
+    if len(rejected) > _MAX_LOGGED_DATE_CHARS:
+        shown += f"... ({len(rejected)} chars)"
+    _logging.warn(
+        f"{source_name}: ignoring document date {shown} (not a full "
+        f"YYYY-MM-DD calendar date), {outcome}"
+    )

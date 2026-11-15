@@ -1,4 +1,4 @@
-"""Tests for ``utils.warn_dropped_document_date``.
+"""Tests for ``frontmatter.warn_dropped_document_date``.
 
 The readers return a rejected embedded date instead of printing, and each
 converter calls this helper once it knows whether a ``date`` override
@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from any2md.pipeline import PipelineOptions
-from any2md.utils import warn_dropped_document_date
+from any2md.frontmatter import warn_dropped_document_date
 
 
 def test_warns_with_file_value_and_fallback(capsys):
