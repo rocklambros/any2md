@@ -105,18 +105,22 @@ SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
   `date` always give the same ID. A source with no date of its own gets
   `date` from the file's modification time or today (see
   [`date`](#date)), so its year can drift between runs. Set
-  `--meta date=YYYY-MM-DD` when that matters. If `date` does not start with
-  a four-digit year, the file fails with a `FAIL:` line.
+  `--meta date=YYYY-MM-DD` when that matters. A `date` override from
+  `--meta`, `--meta-file`, or `.any2md.toml` that does not start with a
+  four-digit year exits 1 before any file is read. Dates read from the
+  document itself are checked as ASCII `YYYY-MM-DD` calendar dates. One
+  that fails the check is dropped, and `date` falls back to the file's
+  modification time.
 - `PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override them via
   `[document_id]` in `.any2md.toml` or `--meta-file`. `publisher_prefix`
   must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`.
   Anything else exits 1 before any file is read.
 
-A non-empty `document_id` from `--meta`, `--meta-file`, or `.any2md.toml`
-wins over `--auto-id` and is emitted as given. The prefix and type code are
-not checked in that case, because no ID is generated. An empty
-`document_id` that is empty, whitespace, or an empty list (`--meta
-document_id=,`) counts as unset.
+A non-blank `document_id` from `--meta`, `--meta-file`, or `.any2md.toml`
+wins over `--auto-id` and is emitted as given. The prefix, type code, and
+`date` are not checked in that case, because no ID is generated. A blank
+`document_id` counts as unset: an empty or whitespace-only string, or an
+empty list (`--meta document_id=,`).
 
 **`--auto-id` IDs are content-derived.** Two bodies with the same
 `content_hash` and the same `date` year share an ID. The same body with a

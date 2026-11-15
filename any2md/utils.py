@@ -10,6 +10,7 @@ import os
 import re
 import tempfile
 import urllib.parse
+from datetime import date
 from pathlib import Path
 
 _CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -159,3 +160,28 @@ def scrub_url_credentials(url: str) -> tuple[str, list[str]]:
     parsed = parsed._replace(query=urllib.parse.urlencode(kept))
 
     return urllib.parse.urlunsplit(parsed), warnings
+
+
+# ASCII only: ``\d`` would accept non-ASCII digits, and the emitted
+# ``date`` must stay ``YYYY-MM-DD`` in ASCII.
+_ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def clean_iso_date(text: str | None) -> str | None:
+    """Return ``text`` as a ``YYYY-MM-DD`` calendar date, or ``None``.
+
+    Extractors pass document metadata through this check so the emitted
+    ``date`` is always an ASCII calendar date. ``None`` makes the caller fall
+    back to the file's modification time, which beats emitting ``0000-00-00``
+    or ``March 3, 2`` and failing ``--auto-id`` on it.
+    """
+    if text is None:
+        return None
+    candidate = text.strip()
+    if not _ISO_DATE_RE.fullmatch(candidate):
+        return None
+    try:
+        date.fromisoformat(candidate)
+    except ValueError:
+        return None
+    return candidate

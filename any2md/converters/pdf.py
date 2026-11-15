@@ -25,7 +25,7 @@ from any2md.converters import add_warnings, is_quiet
 from any2md.frontmatter import SourceMeta, compose
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
-from any2md.utils import atomic_write_text, sanitize_filename
+from any2md.utils import atomic_write_text, clean_iso_date, sanitize_filename
 
 
 def _parse_pdf_authors(raw: str | None) -> list[str]:
@@ -44,10 +44,11 @@ def _parse_pdf_date(raw: str | None) -> str | None:
     if not raw:
         return None
     s = raw.lstrip("D:").strip()
-    # ASCII only: ``str.isdigit()`` alone accepts superscript and other
-    # Unicode digits, which would emit a non-conforming ``date``.
-    if len(s) >= 8 and s[:8].isascii() and s[:8].isdigit():
-        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+    # ``clean_iso_date`` rejects non-ASCII digits (``str.isdigit()`` accepts
+    # superscripts) and impossible dates such as a zeroed CreationDate, so
+    # the caller falls back to the file's modification time.
+    if len(s) >= 8:
+        return clean_iso_date(f"{s[0:4]}-{s[4:6]}-{s[6:8]}")
     return None
 
 

@@ -45,7 +45,7 @@ from any2md.pipeline.structured import (
     NO_IMAGE_LINK,
     lift_figure_captions,
 )
-from any2md.utils import atomic_write_text, sanitize_filename
+from any2md.utils import atomic_write_text, clean_iso_date, sanitize_filename
 
 
 _DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
@@ -125,8 +125,10 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
                 modified = root.findtext("dcterms:modified", namespaces=_NS_CORE)
                 if modified:
                     # Strip before slicing: a pretty-printed core.xml puts
-                    # the timestamp on its own indented line.
-                    out["date"] = modified.strip()[:10]
+                    # the timestamp on its own indented line. A value that
+                    # is not an ASCII calendar date is dropped, and the
+                    # caller falls back to the file's modification time.
+                    out["date"] = clean_iso_date(modified.strip()[:10])
             if "docProps/app.xml" in members:
                 with _safe_zip_open(z, "docProps/app.xml") as f:
                     root = _xml_parse(f).getroot()

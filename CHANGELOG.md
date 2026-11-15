@@ -29,9 +29,10 @@ that carries its own date.
   `--meta-file`, and `.any2md.toml` overrides apply. A source with no date
   of its own still gets its `date`, and so its year, from the file's
   modification time or today, so set `--meta date=...` when the year must
-  not drift. A `date` that does not start with a four-digit year fails that
-  file with a `FAIL:` line. A non-empty `document_id` override still wins
-  over `--auto-id`. An empty one no longer turns `--auto-id` off.
+  not drift. A `date` override that does not start with a four-digit year
+  exits 1 before any file is read. A non-blank `document_id` override still
+  wins over `--auto-id`. A blank one (empty, whitespace, or
+  `--meta document_id=,`) no longer turns `--auto-id` off.
 - **`[document_id]` settings are validated.** With `--auto-id`, a
   `publisher_prefix` outside `^[A-Z0-9]+$` or a `type_code` outside
   `^[A-Z]{2,4}$` exits 1 before any file is read, with a message that names
@@ -44,15 +45,14 @@ that carries its own date.
 
 ### Fixed
 
-- **DOCX dates from a pretty-printed `core.xml`.** The modified date was
-  sliced before whitespace was stripped, so an indented
-  `dcterms:modified` emitted a broken `date` such as `"\n    2026-"`. It is
-  now stripped first.
-- **PDF dates with non-ASCII digits.** `str.isdigit()` accepted superscript
-  and other Unicode digits and emitted them as `date`. Those dates are now
-  dropped, and `date` falls back to the file's modification time.
-- **A bad `--meta date=` with `--auto-id` exits 1 up front.** It used to
-  fail every file only after conversion.
+- **Document dates are checked before they are emitted.** DOCX, PPTX, XLSX,
+  and PDF metadata dates must be an ASCII `YYYY-MM-DD` calendar date. The
+  DOCX reader sliced `dcterms:modified` before stripping whitespace, so a
+  pretty-printed `core.xml` emitted `"\n    2026-"`, and free-text values
+  emitted fragments such as `"March 3, 2"`. The PDF reader accepted
+  superscript digits and impossible dates such as `0000-00-00`. A date that
+  fails the check is now dropped, and `date` falls back to the file's
+  modification time.
 
 ### Security
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import zipfile
 
+import pytest
+
 from any2md.converters.docx import _read_docx_metadata
 
 _DEFAULTS = {
@@ -66,3 +68,29 @@ def test_pretty_printed_modified_date_is_stripped_before_slicing(tmp_path):
     docx = tmp_path / "pretty.docx"
     _write_docx(docx, {"docProps/core.xml": core})
     assert _read_docx_metadata(docx)["date"] == "2025-03-01"
+
+
+def _core_with_modified(text: str) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties
+    xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+    xmlns:dcterms="http://purl.org/dc/terms/">
+  <dcterms:modified>{text}</dcterms:modified>
+</cp:coreProperties>
+"""
+
+
+@pytest.mark.parametrize(
+    "modified",
+    [
+        "٢٠٢٥-٠٣-٠١T00:00:00Z",
+        "March 3, 2024 10:00",
+        "20250301T100000Z",
+        "2025-13-40T00:00:00Z",
+    ],
+)
+def test_malformed_modified_date_yields_no_date(tmp_path, modified):
+    """A date that is not an ASCII calendar YYYY-MM-DD is dropped (mtime fallback)."""
+    docx = tmp_path / "bad_date.docx"
+    _write_docx(docx, {"docProps/core.xml": _core_with_modified(modified)})
+    assert _read_docx_metadata(docx)["date"] is None

@@ -416,7 +416,7 @@ type_code = "GD"
 
 With this file in place and `--auto-id` passed, generated `document_id` values look like `CSA-2025-GD-0422528348`. The year is the year of the document's `date` field, and the last part is 10 digits derived from `content_hash`, so the ID changes whenever the body changes. The resolution order, highest priority first: explicit `--meta KEY=VAL` arguments, then `--meta-file PATH` (when given), then auto-discovered `.any2md.toml`, then the tool's defaults. Full flag and config reference in [docs/cli-reference.md](docs/cli-reference.md).
 
-CSA is only the example. Any publisher sets its own prefix, such as `OWASP` (`OWASP-2025-GD-0422528348`) or `COSAI`. The prefix must match `^[A-Z0-9]+$`, so `CoSAI`, `OWASP-GENAI`, and `OWASP_AI` are rejected. The type code must be 2 to 4 uppercase letters (`^[A-Z]{2,4}$`). A value that breaks either rule makes `--auto-id` exit 1 before any file is read, with a message naming the value and the rule. Nothing registers prefixes, so organizations sharing an index should agree on distinct ones.
+CSA is only the example. Any publisher sets its own prefix, such as `OWASP` (`OWASP-2025-GD-0422528348`) or `COSAI`. The prefix must match `^[A-Z0-9]+$`, so `CoSAI`, `OWASP-GENAI`, and `OWASP_AI` are rejected. The type code must be 2 to 4 uppercase letters (`^[A-Z]{2,4}$`). A value that breaks either rule makes `--auto-id` exit 1 before any file is read, with a message naming the value and the rule. A `date` override that does not start with a four-digit year exits 1 the same way. Nothing registers prefixes, so organizations sharing an index should agree on distinct ones.
 
 ### Network behavior
 

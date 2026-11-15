@@ -352,7 +352,10 @@ as a zero-padded 10-digit decimal. Defaults: `PREFIX=LOCAL`, `TYPE=DOC`.
 Override via `[document_id]` in `.any2md.toml` or `--meta-file`
 (`publisher_prefix` must match `^[A-Z0-9]+$`, `type_code` must match
 `^[A-Z]{2,4}$`). A value that breaks either rule exits 1 before any file is
-read. An explicit `--meta document_id=...` wins over the generated value.
+read, and so does a `date` override (`--meta date=...` or `[meta] date`)
+that does not start with a four-digit year. An explicit non-blank
+`--meta document_id=...` wins over the generated value, and then none of
+these checks run.
 
 **Use this when** your retrieval pipeline keys on `document_id` and you don't
 have stable IDs from elsewhere. Generated IDs derive from the body hash and

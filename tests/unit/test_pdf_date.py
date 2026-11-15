@@ -25,3 +25,8 @@ def test_parses_standard_pdf_date():
 )
 def test_non_ascii_digits_yield_no_date(raw):
     assert _parse_pdf_date(raw) is None
+
+
+@pytest.mark.parametrize("raw", ["D:00000000000000", "D:20259999", "D:20250230"])
+def test_impossible_calendar_dates_yield_no_date(raw):
+    assert _parse_pdf_date(raw) is None
