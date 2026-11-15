@@ -66,13 +66,18 @@ that carries its own date.
 
 ### Security
 
-- **Frontmatter strings always round-trip through YAML.** Titles, authors,
-  and other strings come from untrusted document metadata and discovered
+- **Frontmatter always round-trips through YAML.** Titles, authors, and
+  other strings come from untrusted document metadata and discovered
   `.any2md.toml` files. The emitter escaped only `\`, `"`, `\n`, and `\r`,
   so a raw form feed, ESC, or other control character made the
   frontmatter invalid YAML, and a raw NEL, LS, or PS read back as a space.
-  Every C0 and C1 control, DEL, U+2028, U+2029, U+FEFF, surrogates, and
-  U+FFFE/U+FFFF are now written as `\xXX` or `\uXXXX` escapes.
+  C0 controls other than tab, DEL, C1 controls, U+2028, U+2029, U+FEFF,
+  U+FFFE, and U+FFFF are now written as `\xXX` or `\uXXXX` escapes, and the
+  result loads under both PyYAML and libyaml. A lone surrogate, which is
+  what undecodable bytes in an argument become, fails that file with a
+  `FAIL:` line, because UTF-8 cannot hold it. Override keys are now
+  checked with a full match: a key ending in a newline, such as
+  `"abc\n"` in a TOML file, used to pass the check and break the YAML.
 
 - **soupsieve 4.0 in the lockfiles** (GHSA-mmhr-3c5m-f64f,
   GHSA-6655-6qjp-jx7x, GHSA-7g44-g9rc-x53w). `requirements.txt` and

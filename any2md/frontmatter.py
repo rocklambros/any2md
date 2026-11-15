@@ -46,7 +46,9 @@ def _validate_keys(d: Mapping, *, path: str = "") -> None:
     """
     for k, v in d.items():
         full = f"{path}{k!r}"
-        if not isinstance(k, str) or not _VALID_KEY_RE.match(k):
+        # fullmatch: ``$`` alone also matches before a trailing newline,
+        # which let a key such as "abc\n" through to be written raw.
+        if not isinstance(k, str) or not _VALID_KEY_RE.fullmatch(k):
             raise ValueError(f"invalid frontmatter key: {full}")
         if isinstance(v, Mapping):
             _validate_keys(v, path=f"{path}{k}.")
@@ -343,7 +345,7 @@ def derive_title(body: str, title_hint: str | None, fallback: str) -> str:
 # frontmatter invalid YAML, and a raw NEL, LS, or PS is folded to a space on
 # read-back. Tab is printable in YAML and stays as is.
 _YAML_UNSAFE_RE = re.compile(
-    r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u2028\u2029\ufeff\ud800-\udfff\ufffe\uffff]"
+    r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u2028\u2029\ufeff\ufffe\uffff]"
 )
 
 
@@ -357,8 +359,23 @@ def _yaml_escape_char(match: re.Match[str]) -> str:
     return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
 
 
+_LONE_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+
+
 def _yaml_escape(value: str) -> str:
-    """Escape ``value`` for a YAML double-quoted scalar that round-trips."""
+    """Escape ``value`` for a YAML double-quoted scalar that round-trips.
+
+    Raises:
+        FrontmatterEmitError: for a lone surrogate, which is what undecodable
+            bytes in an argument or file name become. UTF-8 cannot hold one,
+            and libyaml rejects its ``\\uXXXX`` escape, so the file fails
+            instead of emitting frontmatter some loaders cannot read.
+    """
+    if _LONE_SURROGATE_RE.search(value):
+        raise FrontmatterEmitError(
+            "frontmatter value contains a lone surrogate (undecodable bytes): "
+            f"{value[:80]!r}" + (f"... ({len(value)} chars)" if len(value) > 80 else "")
+        )
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return _YAML_UNSAFE_RE.sub(_yaml_escape_char, escaped)
 

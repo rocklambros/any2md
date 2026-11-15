@@ -57,3 +57,10 @@ def test_compose_rejects_injection_via_overrides():
     overrides = {"innocent\nmalicious_key": "evil"}
     with pytest.raises(ValueError, match="invalid frontmatter key"):
         compose("body", meta, options, overrides=overrides)
+
+
+@pytest.mark.parametrize("key", ["abc\n", "abc\r\n", "a\nb", "abc\n\n"])
+def test_key_with_newline_is_rejected(key):
+    """``$`` matches before a trailing newline, so the check must be a full match."""
+    with pytest.raises(ValueError, match="invalid frontmatter key"):
+        _validate_keys({key: "v"})
