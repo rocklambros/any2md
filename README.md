@@ -358,7 +358,7 @@ Every file converted by any2md has the same frontmatter shape, regardless of sou
 | Field | How it's filled |
 |---|---|
 | `title` | First H1 in body; falls back to source metadata title; falls back to cleaned filename. |
-| `document_id` | Empty by default. Filled by `--auto-id` as `LOCAL-{YYYY}-DOC-{SHA8}`. |
+| `document_id` | Empty by default. Filled by `--auto-id` as `LOCAL-{YYYY}-DOC-{SEQ}`, where `YYYY` is the year of `date` and `SEQ` is 10 digits derived from `content_hash`. |
 | `version` | `"1"` for source files without an embedded version. |
 | `date` | File `mtime` for local files; HTTP `Last-Modified` for URLs; today for TXT without mtime. |
 | `status` | Always `"draft"` for converted documents. |
@@ -414,7 +414,7 @@ publisher_prefix = "CSA"
 type_code = "GD"
 ```
 
-With this file in place and `--auto-id` passed, generated `document_id` values look like `CSA-2026-GD-a3f1c91d`. The resolution order, highest priority first: explicit `--meta KEY=VAL` arguments, then `--meta-file PATH` (when given), then auto-discovered `.any2md.toml`, then the tool's defaults. Full flag and config reference in [docs/cli-reference.md](docs/cli-reference.md).
+With this file in place and `--auto-id` passed, generated `document_id` values look like `CSA-2025-GD-0422528348`. `publisher_prefix` must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`, otherwise `--auto-id` exits 1. The resolution order, highest priority first: explicit `--meta KEY=VAL` arguments, then `--meta-file PATH` (when given), then auto-discovered `.any2md.toml`, then the tool's defaults. Full flag and config reference in [docs/cli-reference.md](docs/cli-reference.md).
 
 ### Network behavior
 

@@ -14,6 +14,7 @@ from any2md.config import (
     extract_document_id_settings,
     extract_meta_overrides,
     load_toml,
+    validate_document_id_settings,
 )
 from any2md.converters import (
     LEGACY_EXTENSIONS,
@@ -332,9 +333,12 @@ def main():
     parser.add_argument(
         "--auto-id",
         action="store_true",
-        help="Generate an SAGE-conformant document_id of the form "
-        "{PREFIX}-{YYYY}-{TYPE}-{SHA8}. Defaults: PREFIX=LOCAL, TYPE=DOC. "
-        "Override via .any2md.toml [document_id] (publisher_prefix, type_code).",
+        help="Generate a SAGE-conformant document_id of the form "
+        "{PREFIX}-{YYYY}-{TYPE}-{SEQ}: YYYY is the year of the emitted date, "
+        "SEQ is 10 digits derived from the content hash. Defaults: "
+        "PREFIX=LOCAL, TYPE=DOC. Override via .any2md.toml [document_id] "
+        "(publisher_prefix: ^[A-Z0-9]+$, type_code: ^[A-Z]{2,4}$). "
+        "An explicit --meta document_id=... wins.",
     )
     parser.add_argument(
         "--meta",
@@ -382,6 +386,15 @@ def main():
                 auto_id_prefix = id_section["publisher_prefix"]
             if "type_code" in id_section:
                 auto_id_type_code = id_section["type_code"]
+
+    # Fail fast as a usage error, before any file is read. Only --auto-id
+    # reads these values, so a bad unused setting does not block a run.
+    if args.auto_id:
+        try:
+            validate_document_id_settings(auto_id_prefix, auto_id_type_code)
+        except ValueError as e:
+            sys.stderr.write(f"Error: {_logging.safe_oneline(str(e))}\n")
+            sys.exit(1)
 
     try:
         cli_meta = parse_meta_args(args.meta)

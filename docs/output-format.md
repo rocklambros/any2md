@@ -95,13 +95,34 @@ edit the H1.
 **opt-in** | type: `string` (empty by default)
 
 **Derivation:** Empty string `""` unless `--auto-id` is passed. With
-`--auto-id`, generated as `{PREFIX}-{YYYY}-{TYPE}-{SHA8}` where `SHA8` is the
-first 8 hex characters of `content_hash`, `YYYY` is the current year, and
-`PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override the prefix and type via
-`[document_id]` in `.any2md.toml`.
+`--auto-id`, generated as `{PREFIX}-{YYYY}-{TYPE}-{SEQ}`, which matches the
+SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
+
+- `SEQ` is the first 8 hex characters of `content_hash` read as a 32-bit
+  integer and zero-padded to 10 decimal digits.
+- `YYYY` is the year of the emitted `date` field, after `--meta`,
+  `--meta-file`, and `.any2md.toml` overrides apply. It never comes from the
+  clock, so the same body and `date` always give the same ID. If `date` does
+  not start with a four-digit year, the file fails with a `FAIL:` line.
+- `PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override them via
+  `[document_id]` in `.any2md.toml` or `--meta-file`. `publisher_prefix`
+  must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`.
+  Anything else exits 1 before any file is read.
+
+An explicit `document_id` from `--meta`, `--meta-file`, or `.any2md.toml`
+wins over `--auto-id` and is emitted as given.
+
+**`--auto-id` IDs are content-derived.** Two bodies with the same
+`content_hash` share an ID, and the ID changes whenever the body changes,
+including a re-conversion with a newer any2md release that cleans the body
+differently. Publishers who need an ID that stays stable across versions of
+a document should set `document_id` explicitly through `--meta` or
+`.any2md.toml`. `SEQ` carries 32 bits of the hash, so in a very large corpus
+two different bodies can share an ID by chance. Treat it as a label, not a
+unique key.
 
 **Example empty:** `""`
-**Example with `--auto-id`:** `"LOCAL-2026-DOC-a3f1c91d"`
+**Example with `--auto-id`:** `"LOCAL-2025-DOC-0422528348"`
 
 **Common mistake:** Treating `document_id` as a primary key without the
 publisher prefix. The same body converted by two different organizations both
@@ -749,7 +770,7 @@ from the frontmatter when not set. SAGE-only fields a user might add (`tlp`,
     "document_id": {
       "type": "string",
       "description": "Empty by default; non-empty when --auto-id is used.",
-      "pattern": "^$|^[A-Z][A-Z0-9]*-[0-9]{4}-[A-Z][A-Z0-9]*-[0-9a-f]{8}$"
+      "pattern": "^$|^[A-Z0-9]+-[0-9]{4}-[A-Z]{2,4}-[0-9]{3,}$"
     },
     "version": {
       "type": "string"

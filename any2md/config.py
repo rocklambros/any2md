@@ -3,13 +3,16 @@
 Discovers ``.any2md.toml`` by walking up from cwd. The ``[meta]`` table
 is treated as frontmatter overrides (deep-merged below ``--meta-file``
 and CLI ``--meta`` arguments). The ``[document_id]`` table provides
-``publisher_prefix`` / ``type_code`` overrides for ``--auto-id``.
+``publisher_prefix`` / ``type_code`` overrides for ``--auto-id``, which
+must satisfy the SAGE v1.0-RC1 ``document_id`` rule (see
+``validate_document_id_settings``).
 
 TOML parsing uses stdlib ``tomllib`` (any2md requires Python 3.11+).
 """
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -85,3 +88,37 @@ def extract_document_id_settings(config: dict[str, Any]) -> tuple[str, str]:
         section.get("publisher_prefix", "LOCAL"),
         section.get("type_code", "DOC"),
     )
+
+
+# SAGE v1.0-RC1 §3.2 / Appendix A: document_id is
+# ``^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$``. These are the ORG and TYPE parts.
+# Explicit ASCII classes with ``fullmatch``: ``$`` would accept a trailing
+# newline, and ``\d`` would accept non-ASCII digits.
+PREFIX_RULE = "^[A-Z0-9]+$"
+TYPE_CODE_RULE = "^[A-Z]{2,4}$"
+_PREFIX_RE = re.compile(r"[A-Z0-9]+")
+_TYPE_CODE_RE = re.compile(r"[A-Z]{2,4}")
+
+
+def validate_document_id_settings(prefix: object, type_code: object) -> None:
+    """Check ``--auto-id`` prefix and type code against the SAGE rule.
+
+    Args:
+        prefix: ``[document_id] publisher_prefix`` value. Must match
+            ``^[A-Z0-9]+$``.
+        type_code: ``[document_id] type_code`` value. Must match
+            ``^[A-Z]{2,4}$``.
+
+    Raises:
+        ValueError: naming the setting, the offending value, and the rule.
+    """
+    if not isinstance(prefix, str) or not _PREFIX_RE.fullmatch(prefix):
+        raise ValueError(
+            f"invalid [document_id] publisher_prefix {prefix!r}: must match "
+            f"{PREFIX_RULE} (uppercase ASCII letters and digits, at least one)"
+        )
+    if not isinstance(type_code, str) or not _TYPE_CODE_RE.fullmatch(type_code):
+        raise ValueError(
+            f"invalid [document_id] type_code {type_code!r}: must match "
+            f"{TYPE_CODE_RULE} (2 to 4 uppercase ASCII letters)"
+        )

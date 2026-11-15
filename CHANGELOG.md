@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-15
+
+Makes `--auto-id` emit `document_id` values that conform to SAGE v1.0-RC1
+and stay the same no matter when the conversion runs.
+
+### Changed
+
+- **`--auto-id` ID format (visible to anyone keyed on old IDs).** SAGE
+  v1.0-RC1 (§3.2, §3.5, Appendix A) requires
+  `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`. The suffix was the first 8 hex
+  characters of `content_hash` (`CSA-2026-GD-a3f1c91d`), and any hex letter
+  broke the rule. It is now the same 32 bits as a zero-padded 10-digit
+  decimal (`CSA-2025-GD-0422528348`). Every generated ID changes. Re-key
+  any index, database, or link built on v1.2.x IDs, or set `document_id`
+  explicitly through `--meta` or `.any2md.toml`. See
+  `docs/upgrading-from-0.7.md`.
+- **`--auto-id` year comes from the document's `date`.** It used the
+  clock, so the same input converted in a different year got a different
+  ID. The year now follows the emitted `date` field after `--meta`,
+  `--meta-file`, and `.any2md.toml` overrides apply. A `date` that does not
+  start with a four-digit year fails that file with a `FAIL:` line. An
+  explicit `document_id` override still wins over `--auto-id`.
+- **`[document_id]` settings are validated.** With `--auto-id`, a
+  `publisher_prefix` outside `^[A-Z0-9]+$` or a `type_code` outside
+  `^[A-Z]{2,4}$` exits 1 before any file is read, with a message that names
+  the value and the rule. `generate_document_id()` applies the same check,
+  and now takes the year as an argument.
+- The documented frontmatter JSON Schema in `docs/output-format.md` now
+  uses the SAGE `document_id` pattern.
+
 ## [1.2.2] — 2026-11-11
 
 Adds PowerPoint and Excel input through Docling, closes the remaining

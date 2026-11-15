@@ -345,13 +345,19 @@ that defines what each key means.
 
 ### `--auto-id`
 
-Generate an SAGE-conformant `document_id` of the form
-`{PREFIX}-{YYYY}-{TYPE}-{SHA8}`. Defaults: `PREFIX=LOCAL`, `TYPE=DOC`. Override
-via `[document_id]` in `.any2md.toml` (`publisher_prefix`, `type_code`).
+Generate a SAGE-conformant `document_id` of the form
+`{PREFIX}-{YYYY}-{TYPE}-{SEQ}`. `YYYY` is the year of the emitted `date` field,
+after overrides apply. `SEQ` is the first 8 hex characters of `content_hash`
+as a zero-padded 10-digit decimal. Defaults: `PREFIX=LOCAL`, `TYPE=DOC`.
+Override via `[document_id]` in `.any2md.toml` or `--meta-file`
+(`publisher_prefix` must match `^[A-Z0-9]+$`, `type_code` must match
+`^[A-Z]{2,4}$`). A value that breaks either rule exits 1 before any file is
+read. An explicit `--meta document_id=...` wins over the generated value.
 
 **Use this when** your retrieval pipeline keys on `document_id` and you don't
-have stable IDs from elsewhere — auto-generated IDs derive from the body hash,
-so they're stable across re-conversions and unique per body.
+have stable IDs from elsewhere. Generated IDs derive from the body hash and
+the document date, so re-converting the same body with the same date gives the
+same ID. Any change to the body changes the ID.
 
 **Don't use this when** you already have authoritative document IDs in another
 system. Set `--meta document_id=<your-id>` to use those values instead, so the
@@ -361,8 +367,9 @@ two systems agree.
 any2md --auto-id paper.pdf
 ```
 
-You'll see `document_id: "LOCAL-2026-DOC-a3f1c91d"` in the frontmatter — the
-SHA8 is the first 8 hex chars of `content_hash`.
+You'll see `document_id: "LOCAL-2025-DOC-0422528348"` in the frontmatter.
+`2025` is the year of `date`, and `0422528348` is the first 8 hex characters of
+`content_hash` (`192f455c`) in decimal.
 
 ### `--meta KEY=VAL`
 
@@ -643,7 +650,7 @@ any2md --strip-links ./corpus/
 
 `--strip-links` removes URL noise that consumes tokens without adding
 retrieval signal. Combine with `--meta-file` for organization-wide overrides
-or with `--auto-id` for stable document IDs.
+or with `--auto-id` for content-derived document IDs.
 
 You'll see body output with only the visible link text — `[the spec](https://example.com)`
 becomes `the spec`.

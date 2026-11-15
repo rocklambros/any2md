@@ -19,6 +19,7 @@ from datetime import time as _time_cls
 from typing import Any, Literal
 
 from any2md import heuristics
+from any2md.config import validate_document_id_settings
 from any2md.pipeline import Lane, PipelineOptions
 
 
@@ -89,18 +90,60 @@ def compute_content_hash(body: str) -> str:
 
 
 def generate_document_id(
-    body: str, prefix: str = "LOCAL", type_code: str = "DOC"
+    body: str, year: int, prefix: str = "LOCAL", type_code: str = "DOC"
 ) -> str:
-    """Generate an SAGE-conformant ``document_id`` from body content.
+    """Generate a SAGE-conformant ``document_id`` from body content.
 
-    Pattern: ``{PREFIX}-{YYYY}-{TYPE}-{SHA8}``.
+    Pattern: ``{PREFIX}-{YYYY}-{TYPE}-{SEQ}``, which matches SAGE v1.0-RC1
+    ``^[A-Z0-9]+-\\d{4}-[A-Z]{2,4}-\\d{3,}$``. Example:
+    ``CSA-2025-GD-0422528348``.
 
-    Used by ``--auto-id``. The ``SHA8`` is the first 8 hex chars of the
-    NFC + LF body's SHA-256 (i.e. ``compute_content_hash(body)[:8]``),
-    so two bodies that share a ``content_hash`` share an ``id``.
+    Used by ``--auto-id``. ``SEQ`` is the first 8 hex chars of the NFC + LF
+    body's SHA-256 (``compute_content_hash(body)[:8]``) read as a 32-bit
+    integer and zero-padded to 10 decimal digits, so two bodies that share
+    a ``content_hash`` share an ``id``. ``year`` is the year of the
+    document's emitted ``date``. The clock is never read, so the same body
+    and date always give the same id.
+
+    Raises:
+        ValueError: if ``prefix``, ``type_code``, or ``year`` would make a
+            non-conforming id. The CLI validates config values earlier;
+            this guard covers library callers that build
+            ``PipelineOptions`` directly.
     """
-    full_hash = compute_content_hash(body)
-    return f"{prefix}-{_date_cls.today().year}-{type_code}-{full_hash[:8]}"
+    validate_document_id_settings(prefix, type_code)
+    if isinstance(year, bool) or not isinstance(year, int) or not 0 <= year <= 9999:
+        raise ValueError(f"document_id year must be 0-9999, got {year!r}")
+    seq = int(compute_content_hash(body)[:8], 16)
+    # 2**32 - 1 has 10 digits, so a fixed width keeps every id the same length.
+    return f"{prefix}-{year:04d}-{type_code}-{seq:010d}"
+
+
+# ``date`` must start with a four-digit year: ``YYYY-MM-DD`` or bare
+# ``YYYY``. ASCII class because ``\d`` also matches non-ASCII digits.
+_DATE_YEAR_RE = re.compile(r"([0-9]{4})(?:-|\Z)")
+
+
+def _year_of_date(value: Any) -> int:
+    """Return the year of an emitted ``date`` value for ``--auto-id``.
+
+    Accepts a ``date``/``datetime`` (TOML date from a meta file) or a string
+    starting with a four-digit year.
+
+    Raises:
+        ValueError: when no year can be read. Falling back to the clock
+            would make the id depend on when the conversion ran.
+    """
+    if isinstance(value, _date_cls):
+        return value.year
+    if isinstance(value, str):
+        m = _DATE_YEAR_RE.match(value)
+        if m:
+            return int(m.group(1))
+    raise ValueError(
+        f"--auto-id needs a date that starts with a four-digit year "
+        f"(YYYY-MM-DD), got date {value!r}"
+    )
 
 
 @dataclass
@@ -331,18 +374,11 @@ def _build_fields(
     today = _date_cls.today().isoformat()
     fm_date = meta.date or today
 
-    if options.auto_id:
-        doc_id = generate_document_id(
-            body,
-            prefix=options.auto_id_prefix,
-            type_code=options.auto_id_type_code,
-        )
-    else:
-        doc_id = ""
-
     fields: dict[str, Any] = {}
     fields["title"] = title
-    fields["document_id"] = doc_id
+    # Placeholder that keeps the field's position. compose() fills it for
+    # --auto-id after overrides merge, because YEAR comes from the final date.
+    fields["document_id"] = ""
     fields["version"] = "1"
     fields["date"] = fm_date
     fields["status"] = "draft"
@@ -445,7 +481,13 @@ def compose(
     2. Derive title, content_hash, token_estimate, chunk_level, abstract.
     3. Deep-merge ``overrides`` (from ``--meta`` / ``--meta-file`` /
        ``.any2md.toml``) over the derived field map.
-    4. Emit YAML frontmatter in spec §3.2-3.4 order and concatenate the body.
+    4. With ``--auto-id``, generate ``document_id`` from the body and the
+       year of the merged ``date``, unless an override set ``document_id``.
+    5. Emit YAML frontmatter in spec §3.2-3.4 order and concatenate the body.
+
+    Raises:
+        ValueError: on an invalid override key, or when ``--auto-id`` cannot
+            read a year from the merged ``date``.
     """
     body = _normalize_body(body)
     overrides = filter_reserved_overrides(overrides, source_label="compose()")
@@ -454,4 +496,12 @@ def compose(
     fields = _build_fields(body, meta, options)
     if overrides:
         fields = _deep_merge(fields, overrides)
+    # An explicit document_id from any override layer wins, unvalidated.
+    if options.auto_id and not (overrides and "document_id" in overrides):
+        fields["document_id"] = generate_document_id(
+            body,
+            _year_of_date(fields["date"]),
+            prefix=options.auto_id_prefix,
+            type_code=options.auto_id_type_code,
+        )
     return _emit_yaml_with_body(fields, body)

@@ -7,6 +7,8 @@ overrides) and ``[document_id]`` (auto-id prefix / type code).
 
 from __future__ import annotations
 
+import pytest
+
 from any2md.config import (
     discover_config,
     extract_document_id_settings,
@@ -50,3 +52,34 @@ def test_extract_document_id_settings_defaults():
 def test_extract_document_id_settings_custom():
     cfg = {"document_id": {"publisher_prefix": "CSA", "type_code": "GD"}}
     assert extract_document_id_settings(cfg) == ("CSA", "GD")
+
+
+def test_validate_document_id_settings_accepts_conforming_values():
+    from any2md.config import validate_document_id_settings
+
+    for prefix, type_code in [("LOCAL", "DOC"), ("CSA", "GD"), ("A1B2", "GUID")]:
+        validate_document_id_settings(prefix, type_code)
+
+
+@pytest.mark.parametrize(
+    ("prefix", "type_code", "bad", "rule"),
+    [
+        ("csa", "GD", "'csa'", "^[A-Z0-9]+$"),
+        ("", "GD", "''", "^[A-Z0-9]+$"),
+        ("CS A", "GD", "'CS A'", "^[A-Z0-9]+$"),
+        (123, "GD", "123", "^[A-Z0-9]+$"),
+        ("CSA", "gd", "'gd'", "^[A-Z]{2,4}$"),
+        ("CSA", "GUIDE", "'GUIDE'", "^[A-Z]{2,4}$"),
+        ("CSA", "G1", "'G1'", "^[A-Z]{2,4}$"),
+        ("CSA", "G", "'G'", "^[A-Z]{2,4}$"),
+        ("CSA", "", "''", "^[A-Z]{2,4}$"),
+    ],
+)
+def test_validate_document_id_settings_rejects(prefix, type_code, bad, rule):
+    from any2md.config import validate_document_id_settings
+
+    with pytest.raises(ValueError) as exc:
+        validate_document_id_settings(prefix, type_code)
+    msg = str(exc.value)
+    assert bad in msg
+    assert rule in msg
