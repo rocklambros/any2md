@@ -60,3 +60,39 @@ def test_hostile_title_override_keeps_frontmatter_valid():
     title = "Report\f\x1b[31m\u0085\u2028end"
     out = compose("# T\n\nb\n", _meta(), PipelineOptions(), {"title": title})
     assert _frontmatter(out)["title"] == title
+
+
+_KEYWORD_KEYS = ["yes", "No", "ON", "off", "True", "false", "null", "NULL", "y", "n"]
+
+
+@pytest.mark.parametrize("loader", _LOADERS, ids=lambda c: c.__name__)
+def test_yaml_keyword_keys_load_back_as_strings(loader):
+    overrides = {k: f"v-{k}" for k in _KEYWORD_KEYS}
+    out = compose("# T\n\nb\n", _meta(), PipelineOptions(), overrides)
+    end = out.index("\n---\n", 4)
+    fm = _load(out[4:end], loader)
+    for k in _KEYWORD_KEYS:
+        assert fm[k] == f"v-{k}"
+
+
+def test_ordinary_keys_stay_plain():
+    out = compose("# T\n\nb\n", _meta(), PipelineOptions(), {"tlp": "x"})
+    assert "\ntlp: " in out
+    assert "\ntitle: " in out
+
+
+@pytest.mark.parametrize("loader", _LOADERS, ids=lambda c: c.__name__)
+@pytest.mark.parametrize(
+    "value", [float("inf"), float("-inf"), 1e20, 1e-7, 0.5, -2.0, 1.5e300]
+)
+def test_floats_round_trip_as_floats(value, loader):
+    loaded = _load(f"k: {_emit_value(value)}", loader)["k"]
+    assert isinstance(loaded, float)
+    assert loaded == value
+
+
+@pytest.mark.parametrize("loader", _LOADERS, ids=lambda c: c.__name__)
+def test_nan_round_trips_as_nan(loader):
+    loaded = _load(f"k: {_emit_value(float('nan'))}", loader)["k"]
+    assert isinstance(loaded, float)
+    assert loaded != loaded

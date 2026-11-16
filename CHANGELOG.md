@@ -66,7 +66,7 @@ that carries its own date.
 
 ### Security
 
-- **Frontmatter always round-trips through YAML.** Titles, authors, and
+- **Frontmatter strings, keys, and floats load back unchanged.** Titles, authors, and
   other strings come from untrusted document metadata and discovered
   `.any2md.toml` files. The emitter escaped only `\`, `"`, `\n`, and `\r`,
   so a raw form feed, ESC, or other control character made the
@@ -78,6 +78,11 @@ that carries its own date.
   `FAIL:` line, because UTF-8 cannot hold it. Override keys are now
   checked with a full match: a key ending in a newline, such as
   `"abc\n"` in a TOML file, used to pass the check and break the YAML.
+  Keys that YAML 1.1 reads as booleans or null (`yes`, `on`, `True`,
+  `null`, and the like) are now quoted, so they load back as strings
+  instead of collapsing into `true` or `null` keys. Floats are emitted as
+  `.inf`, `-.inf`, `.nan`, and `1.0e+20` instead of `inf`, `nan`, and
+  `1e+20`, which loaders read as strings.
 
 - **soupsieve 4.0 in the lockfiles** (GHSA-mmhr-3c5m-f64f,
   GHSA-6655-6qjp-jx7x, GHSA-7g44-g9rc-x53w). `requirements.txt` and

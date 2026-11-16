@@ -389,6 +389,43 @@ class FrontmatterEmitError(ValueError):
     """
 
 
+# Plain scalars a YAML 1.1 loader (PyYAML, libyaml) reads as bool or null.
+# A key in this set is quoted so it loads back as the same string. ``y`` and
+# ``n`` are YAML 1.1 booleans in the spec, though PyYAML reads them as
+# strings, so they are quoted too. Keys are already limited to
+# ``[A-Za-z_][A-Za-z0-9_-]*``, so no key can read as a number.
+_YAML_KEYWORD_KEYS = frozenset(
+    {"y", "n", "yes", "no", "on", "off", "true", "false", "null"}
+)
+
+
+def _emit_key(key: str) -> str:
+    """Emit a mapping key so it loads back as the same string."""
+    if key.lower() in _YAML_KEYWORD_KEYS:
+        return f'"{key}"'
+    return key
+
+
+def _emit_float(value: float) -> str:
+    """Emit a float in a form a YAML 1.1 loader reads back as that float.
+
+    ``str()`` gives ``inf``, ``nan``, and ``1e+20``, which PyYAML and libyaml
+    read as strings: YAML spells the specials ``.inf`` and ``.nan`` and needs
+    a ``.`` in the mantissa of an exponent form.
+    """
+    if math.isnan(value):
+        return ".nan"
+    if math.isinf(value):
+        return ".inf" if value > 0 else "-.inf"
+    text = repr(value)
+    if "e" in text:
+        mantissa, exponent = text.split("e")
+        if "." not in mantissa:
+            mantissa += ".0"
+        text = f"{mantissa}e{exponent}"
+    return text
+
+
 def _emit_value(value: Any) -> str:
     """Emit a scalar as YAML (one line)."""
     if value is None:
@@ -397,7 +434,9 @@ def _emit_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, str):
         return f'"{_yaml_escape(value)}"'
-    if isinstance(value, (int, float)):
+    if isinstance(value, float):
+        return _emit_float(value)
+    if isinstance(value, int):
         return str(value)
     if isinstance(value, (_date_cls, _time_cls)):
         # TOML dates, times, and datetimes from --meta-file or .any2md.toml.
@@ -552,22 +591,22 @@ def _emit_field(key: str, value: Any, lines: list[str], depth: int = 0) -> None:
         if not value:
             # A bare ``key:`` reads back as null, so an empty TOML table
             # needs the explicit flow form to stay a mapping.
-            lines.append(f"{indent}{key}: {{}}")
+            lines.append(f"{indent}{_emit_key(key)}: {{}}")
             return
-        lines.append(f"{indent}{key}:")
+        lines.append(f"{indent}{_emit_key(key)}:")
         for subkey, subval in value.items():
             _emit_field(subkey, subval, lines, depth + 1)
         return
     if isinstance(value, list):
         # Items emit as quoted strings (matches SAGE §3 fields).
         items = [_list_item_text(v) for v in value]
-        lines.append(f"{indent}{key}: {_emit_array(items)}")
+        lines.append(f"{indent}{_emit_key(key)}: {_emit_array(items)}")
         return
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        lines.append(f"{indent}{key}: {value}")
+        lines.append(f"{indent}{_emit_key(key)}: {_emit_value(value)}")
         return
     # Default: scalar/string emission.
-    lines.append(f"{indent}{key}: {_emit_value(value)}")
+    lines.append(f"{indent}{_emit_key(key)}: {_emit_value(value)}")
 
 
 def _emit_yaml_with_body(fields: dict[str, Any], body: str) -> str:
