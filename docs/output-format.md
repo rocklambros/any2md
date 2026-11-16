@@ -95,13 +95,61 @@ edit the H1.
 **opt-in** | type: `string` (empty by default)
 
 **Derivation:** Empty string `""` unless `--auto-id` is passed. With
-`--auto-id`, generated as `{PREFIX}-{YYYY}-{TYPE}-{SHA8}` where `SHA8` is the
-first 8 hex characters of `content_hash`, `YYYY` is the current year, and
-`PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override the prefix and type via
-`[document_id]` in `.any2md.toml`.
+`--auto-id`, generated as `{PREFIX}-{YYYY}-{TYPE}-{SEQ}`, which matches the
+SAGE v1.0-RC1 rule `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`:
+
+- `SEQ` is the first 8 hex characters of `content_hash` read as a 32-bit
+  integer and zero-padded to 10 decimal digits.
+- `YYYY` is the year of the emitted `date` field, after `--meta`,
+  `--meta-file`, and `.any2md.toml` overrides apply. The same body and
+  `date` always give the same ID. A source with no date of its own gets
+  `date` from the file's modification time or today (see
+  [`date`](#date)), so its year can drift between runs. Set
+  `--meta date=YYYY-MM-DD` when that matters.
+- With `--auto-id`, every `date` must be an ASCII calendar date
+  `YYYY-MM-DD`, whatever its source, and is emitted in exactly that form.
+  A `date` override from `--meta`, `--meta-file`, or `.any2md.toml` may be
+  a TOML date or datetime, or a `YYYY-MM-DD` string optionally followed by
+  `T` or a space and a time (`HH:MM`, optional `:SS` and a fraction of up
+  to 9 digits, and an optional `Z` or a `+` or `-` offset written `HH:MM`,
+  `HHMM`, or `HH`), as
+  in `2025-03-01T10:00:00Z`. Surrounding whitespace and the time are
+  dropped. An override that breaks the rule, such as `2025`, `2025-3`,
+  `2025-13-99`, or `2025/03/01`, exits 1 before any file is read. A date read
+  from the document itself that breaks the rule is dropped with an
+  informational `WARN:` line naming the file and the ignored value, and
+  `date` falls back to the file's modification time. That includes partial
+  dates the source formats allow, such as a W3CDTF `2019-06` in a DOCX or a
+  PDF `D:2025`, because filling in a month or day would invent one. The
+  `WARN:` is not counted by `--strict`, and it is not printed when a
+  non-blank `date` override replaces the document's date. A blank `date`
+  override is still merged, so without `--auto-id` the notice says `date`
+  is left blank and the blank value is emitted as given: `date: ""` from
+  `--meta date=`, or the exact whitespace string from a TOML file.
+- `PREFIX` / `TYPE` default to `LOCAL` / `DOC`. Override them via
+  `[document_id]` in `.any2md.toml` or `--meta-file`. `publisher_prefix`
+  must match `^[A-Z0-9]+$` and `type_code` must match `^[A-Z]{2,4}$`.
+  Anything else exits 1 before any file is read.
+
+A non-blank `document_id` from `--meta`, `--meta-file`, or `.any2md.toml`
+wins over `--auto-id` and is emitted as given. The prefix, type code, and
+`date` are not checked in that case, because no ID is generated. A blank
+`document_id` counts as unset: an empty or whitespace-only string, or an
+empty list (`--meta document_id=,`).
+
+**`--auto-id` IDs are content-derived.** Two bodies with the same
+`content_hash` and the same `date` year share an ID. The same body with a
+different year gets the same `SEQ` under a different `YYYY`. The ID changes
+whenever the body changes,
+including a re-conversion with a newer any2md release that cleans the body
+differently. Publishers who need an ID that stays stable across versions of
+a document should set `document_id` explicitly through `--meta` or
+`.any2md.toml`. `SEQ` carries 32 bits of the hash, so in a corpus of many
+thousands of documents two different bodies can share an ID by chance.
+Treat it as a label, not a unique key.
 
 **Example empty:** `""`
-**Example with `--auto-id`:** `"LOCAL-2026-DOC-a3f1c91d"`
+**Example with `--auto-id`:** `"LOCAL-2025-DOC-0422528348"`
 
 **Common mistake:** Treating `document_id` as a primary key without the
 publisher prefix. The same body converted by two different organizations both
@@ -749,7 +797,7 @@ from the frontmatter when not set. SAGE-only fields a user might add (`tlp`,
     "document_id": {
       "type": "string",
       "description": "Empty by default; non-empty when --auto-id is used.",
-      "pattern": "^$|^[A-Z][A-Z0-9]*-[0-9]{4}-[A-Z][A-Z0-9]*-[0-9a-f]{8}$"
+      "pattern": "^$|^[A-Z0-9]+-[0-9]{4}-[A-Z]{2,4}-[0-9]{3,}$"
     },
     "version": {
       "type": "string"

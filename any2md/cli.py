@@ -14,6 +14,7 @@ from any2md.config import (
     extract_document_id_settings,
     extract_meta_overrides,
     load_toml,
+    validate_document_id_settings,
 )
 from any2md.converters import (
     LEGACY_EXTENSIONS,
@@ -25,7 +26,11 @@ from any2md.converters import (
     set_output_mode,
 )
 from any2md.converters.html import convert_url
-from any2md.frontmatter import filter_reserved_overrides
+from any2md.frontmatter import (
+    filter_reserved_overrides,
+    has_explicit_document_id,
+    year_of_date,
+)
 from any2md.pipeline import PipelineOptions
 from any2md.utils import sanitize_filename, url_to_filename
 
@@ -332,9 +337,12 @@ def main():
     parser.add_argument(
         "--auto-id",
         action="store_true",
-        help="Generate an SAGE-conformant document_id of the form "
-        "{PREFIX}-{YYYY}-{TYPE}-{SHA8}. Defaults: PREFIX=LOCAL, TYPE=DOC. "
-        "Override via .any2md.toml [document_id] (publisher_prefix, type_code).",
+        help="Generate a SAGE-conformant document_id of the form "
+        "{PREFIX}-{YYYY}-{TYPE}-{SEQ}: YYYY is the year of the emitted date, "
+        "SEQ is 10 digits derived from the content hash. Defaults: "
+        "PREFIX=LOCAL, TYPE=DOC. Override via .any2md.toml [document_id] "
+        "(publisher_prefix: ^[A-Z0-9]+$, type_code: ^[A-Z]{2,4}$). "
+        "An explicit --meta document_id=... wins.",
     )
     parser.add_argument(
         "--meta",
@@ -392,6 +400,19 @@ def main():
     overrides = filter_reserved_overrides(
         overrides, source_label="--meta/--meta-file/.any2md.toml"
     )
+
+    # Fail fast as a usage error, before any file is read. The settings are
+    # read only when an id is generated: --auto-id is on and no override
+    # sets document_id. A bad unused setting does not block a run. A date
+    # override applies to every file, so a bad one is also known up front.
+    if args.auto_id and not has_explicit_document_id(overrides):
+        try:
+            validate_document_id_settings(auto_id_prefix, auto_id_type_code)
+            if overrides and "date" in overrides:
+                year_of_date(overrides["date"])
+        except ValueError as e:
+            sys.stderr.write(f"Error: {_logging.safe_oneline(str(e))}\n")
+            sys.exit(1)
 
     if (
         args.high_fidelity

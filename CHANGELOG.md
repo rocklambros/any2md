@@ -6,6 +6,106 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-15
+
+Makes `--auto-id` emit `document_id` values that conform to SAGE v1.0-RC1
+and that no longer depend on the year the conversion runs, for any document
+that carries its own date.
+
+### Changed
+
+- **`--auto-id` ID format (visible to anyone keyed on old IDs).** SAGE
+  v1.0-RC1 (§3.2, §3.5, Appendix A) requires
+  `^[A-Z0-9]+-\d{4}-[A-Z]{2,4}-\d{3,}$`. The suffix was the first 8 hex
+  characters of `content_hash` (`CSA-2026-GD-a3f1c91d`), and any hex letter
+  broke the rule. It is now the same 32 bits as a zero-padded 10-digit
+  decimal (`CSA-2025-GD-0422528348`). Every generated ID changes. Re-key
+  any index, database, or link built on v1.2.x IDs, or set `document_id`
+  explicitly through `--meta` or `.any2md.toml`. See
+  `docs/upgrading-from-0.7.md`.
+- **`--auto-id` year comes from the document's `date`.** It used the
+  clock, so the same input converted in a different year got a different
+  ID. The year now follows the emitted `date` field after `--meta`,
+  `--meta-file`, and `.any2md.toml` overrides apply. A source with no date
+  of its own still gets its `date`, and so its year, from the file's
+  modification time or today, so set `--meta date=...` when the year must
+  not drift. With `--auto-id`, a `date` override must be an ASCII calendar
+  date `YYYY-MM-DD` or a TOML date. A time may follow the date (`HH:MM`,
+  optional `:SS` and a fraction of up to 9 digits, optional `Z` or a `+`
+  or `-` offset written `HH:MM`, `HHMM`, or `HH`).
+  The date is emitted as `YYYY-MM-DD`. Anything else, such as `2025`, `2025-13-99`, or
+  `2025/03/01`, exits 1 before any file is read. A non-blank `document_id` override still
+  wins over `--auto-id`. A blank one (empty, whitespace, or
+  `--meta document_id=,`) no longer turns `--auto-id` off.
+- **`[document_id]` settings are validated.** With `--auto-id`, a
+  `publisher_prefix` outside `^[A-Z0-9]+$` or a `type_code` outside
+  `^[A-Z]{2,4}$` exits 1 before any file is read, with a message that names
+  the value and the rule. The check is skipped when `--meta document_id=...`
+  means no ID is generated. `generate_document_id()` applies the same
+  check and takes a keyword-only `year`, so a 1.2.x positional call fails
+  with `TypeError`.
+- The documented frontmatter JSON Schema in `docs/output-format.md` now
+  uses the SAGE `document_id` pattern.
+
+### Fixed
+
+- **Document dates are checked before they are emitted.** DOCX, PPTX, XLSX,
+  and PDF metadata dates must be an ASCII `YYYY-MM-DD` calendar date. The
+  DOCX reader sliced `dcterms:modified` before stripping whitespace, so a
+  pretty-printed `core.xml` emitted `"\n    2026-"`, and free-text values
+  emitted fragments such as `"March 3, 2"`. The PDF reader accepted
+  superscript digits and impossible dates such as `0000-00-00`. A date that
+  fails the check is now dropped with an informational `WARN:` line naming
+  the file and the value (truncated past 80 characters), and `date` falls
+  back to the file's modification time. Partial dates such as a W3CDTF
+  `2019-06` or a PDF `D:2025` are dropped the same way rather than given an
+  invented month or day. The `WARN:` is not counted by `--strict` and is not
+  printed when a non-blank `date` override replaces the document's date.
+  With a blank override and no `--auto-id`, it says `date` is left blank. The PDF reader also accepts ISO-form CreationDates and
+  leading whitespace, and treats a bare `D:` as no date.
+
+### Security
+
+- **Frontmatter strings, keys, and scalar floats load back unchanged.** Titles, authors, and
+  other strings come from untrusted document metadata and discovered
+  `.any2md.toml` files. The emitter escaped only `\`, `"`, `\n`, and `\r`,
+  so a raw form feed, ESC, or other control character made the
+  frontmatter invalid YAML, and a raw NEL, LS, or PS read back as a space.
+  C0 controls other than tab, DEL, C1 controls, U+2028, U+2029, U+FEFF,
+  U+FFFE, and U+FFFF are now written as `\xXX` or `\uXXXX` escapes, and the
+  result loads under both PyYAML and libyaml. A lone surrogate, which is
+  what undecodable bytes in an argument become, fails that file with a
+  `FAIL:` line, because UTF-8 cannot hold it. Override keys are now
+  checked with a full match: a key ending in a newline, such as
+  `"abc\n"` in a TOML file, used to pass the check and break the YAML.
+  Keys that YAML 1.1 reads as booleans or null (`yes`, `on`, `True`,
+  `null`, and the like) are now quoted, so they load back as strings
+  instead of collapsing into `true` or `null` keys. Floats are emitted as
+  `.inf`, `-.inf`, `.nan`, and `1.0e+20` instead of `inf`, `nan`, and
+  `1e+20`, which loaders read as strings. Array items, floats included,
+  are still emitted as quoted strings, as documented.
+
+- **soupsieve 4.0 in the lockfiles** (GHSA-mmhr-3c5m-f64f,
+  GHSA-6655-6qjp-jx7x, GHSA-7g44-g9rc-x53w). `requirements.txt` and
+  `.devcontainer/requirements.lock` pinned soupsieve 2.10, which has
+  denial-of-service bugs in CSS selector compilation and matching. any2md
+  never compiles a selector, so document input cannot reach them, and
+  `pip install any2md` already resolved a newer soupsieve. Only installs
+  from the lockfiles were pinned to the vulnerable release. Every patched
+  soupsieve release requires Python 3.11.5 or later, so the lockfiles now
+  do too. The package itself still supports Python 3.11 and later.
+
+### Documentation
+
+- The README explains how any publisher sets its own prefix (`OWASP`,
+  `COSAI`), which values are rejected, and that prefixes are not
+  registered, so organizations sharing an index should agree on them.
+- `docs/output-format.md` states that `--auto-id` IDs are content-derived
+  and change with the body. Publishers who need an ID that stays stable
+  across versions should set `document_id` explicitly.
+- `docs/cli-reference.md` no longer says auto-discovery cannot be turned
+  off. `--no-config` skips it for one run.
+
 ## [1.2.2] — 2026-11-11
 
 Adds PowerPoint and Excel input through Docling, closes the remaining

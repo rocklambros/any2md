@@ -22,10 +22,14 @@ from any2md._docling import DoclingWarningCapture, has_docling, install_hint
 from any2md._image_files import ImageWriter
 from any2md._safe_open import SourceFile, as_source
 from any2md.converters import add_warnings, is_quiet
-from any2md.frontmatter import SourceMeta, compose
+from any2md.frontmatter import SourceMeta, compose, warn_dropped_document_date
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
-from any2md.utils import atomic_write_text, sanitize_filename
+from any2md.utils import (
+    atomic_write_text,
+    clean_iso_date,
+    sanitize_filename,
+)
 
 
 def _parse_pdf_authors(raw: str | None) -> list[str]:
@@ -43,14 +47,30 @@ def _parse_pdf_date(raw: str | None) -> str | None:
     """Convert 'D:20250315120000Z' -> '2025-03-15'."""
     if not raw:
         return None
-    s = raw.lstrip("D:").strip()
-    if len(s) >= 8 and s[:8].isdigit():
-        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-    return None
+    # Strip first, then drop a literal ``D:`` prefix. ``lstrip("D:")`` strips
+    # characters, not a prefix, and ran before whitespace was removed.
+    s = raw.strip()
+    if s.startswith("D:"):
+        s = s[2:].strip()
+    # ``clean_iso_date`` rejects non-ASCII digits (``str.isdigit()`` accepts
+    # superscripts) and impossible dates such as a zeroed CreationDate, so
+    # the caller falls back to the file's modification time.
+    if len(s) >= 8 and s[:8].isascii() and s[:8].isdigit():
+        return clean_iso_date(f"{s[0:4]}-{s[4:6]}-{s[6:8]}")
+    # Some producers write an ISO date instead of the D: layout.
+    return clean_iso_date(s[:10])
 
 
 def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
     meta = doc.metadata or {}
+    raw_date = meta.get("creationDate")
+    parsed_date = _parse_pdf_date(raw_date)
+    # Returned so the converter can warn once it knows whether a date
+    # override applies. A bare ``D:`` prefix counts as no date at all.
+    body = (raw_date or "").strip()
+    if body.startswith("D:"):
+        body = body[2:].strip()
+    date_rejected = raw_date.strip() if parsed_date is None and body else None
     creator_raw = (meta.get("creator") or "").strip() or None
     org_result = filter_organization(creator_raw)
     return {
@@ -58,7 +78,8 @@ def _parse_pdf_metadata(doc: "pymupdf.Document") -> dict[str, object]:
         "authors": _parse_pdf_authors(meta.get("author")),
         "organization": org_result.organization,
         "produced_by": org_result.produced_by,
-        "date": _parse_pdf_date(meta.get("creationDate")),
+        "date": parsed_date,
+        "date_rejected": date_rejected,
         "keywords": [
             k.strip() for k in (meta.get("keywords") or "").split(",") if k.strip()
         ],
@@ -295,6 +316,7 @@ def convert_pdf(
             # backend produces the markdown body.
             page_count = len(doc)
             props = _parse_pdf_metadata(doc)
+            warn_dropped_document_date(src.name, props["date_rejected"], options)
 
             # Python warnings from a Docling run that returned. A run that
             # raised falls back to pymupdf4llm, and its warnings go with it.

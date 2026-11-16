@@ -358,7 +358,7 @@ Every file converted by any2md has the same frontmatter shape, regardless of sou
 | Field | How it's filled |
 |---|---|
 | `title` | First H1 in body; falls back to source metadata title; falls back to cleaned filename. |
-| `document_id` | Empty by default. Filled by `--auto-id` as `LOCAL-{YYYY}-DOC-{SHA8}`. |
+| `document_id` | Empty by default. Filled by `--auto-id` as `LOCAL-{YYYY}-DOC-{SEQ}`, where `YYYY` is the year of `date` and `SEQ` is 10 digits derived from `content_hash`. |
 | `version` | `"1"` for source files without an embedded version. |
 | `date` | File `mtime` for local files; HTTP `Last-Modified` for URLs; today for TXT without mtime. |
 | `status` | Always `"draft"` for converted documents. |
@@ -414,7 +414,9 @@ publisher_prefix = "CSA"
 type_code = "GD"
 ```
 
-With this file in place and `--auto-id` passed, generated `document_id` values look like `CSA-2026-GD-a3f1c91d`. The resolution order, highest priority first: explicit `--meta KEY=VAL` arguments, then `--meta-file PATH` (when given), then auto-discovered `.any2md.toml`, then the tool's defaults. Full flag and config reference in [docs/cli-reference.md](docs/cli-reference.md).
+With this file in place and `--auto-id` passed, generated `document_id` values look like `CSA-2025-GD-0422528348`. The year is the year of the document's `date` field, and the last part is 10 digits derived from `content_hash`, so the ID changes whenever the body changes. The resolution order, highest priority first: explicit `--meta KEY=VAL` arguments, then `--meta-file PATH` (when given), then auto-discovered `.any2md.toml`, then the tool's defaults. Full flag and config reference in [docs/cli-reference.md](docs/cli-reference.md).
+
+CSA is only the example. Any publisher sets its own prefix, such as `OWASP` (`OWASP-2025-GD-0422528348`) or `COSAI`. The prefix must match `^[A-Z0-9]+$`, so `CoSAI`, `OWASP-GENAI`, and `OWASP_AI` are rejected. The type code must be 2 to 4 uppercase letters (`^[A-Z]{2,4}$`). A value that breaks either rule makes `--auto-id` exit 1 before any file is read, with a message naming the value and the rule. A `date` override that is not an ASCII calendar date `YYYY-MM-DD` exits 1 the same way, so `2025`, `2025-13-99`, and `2025/03/01` are rejected. A time such as `T10:00:00Z` or `T10:00:00-0800` may follow the date and is dropped. The exact accepted forms are in [docs/cli-reference.md](docs/cli-reference.md#--auto-id). Nothing registers prefixes, so organizations sharing an index should agree on distinct ones.
 
 ### Network behavior
 

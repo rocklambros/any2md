@@ -18,7 +18,9 @@ from datetime import date as _date_cls
 from datetime import time as _time_cls
 from typing import Any, Literal
 
-from any2md import heuristics
+from any2md import _logging, heuristics
+from any2md.config import validate_document_id_settings
+from any2md.utils import clean_iso_date
 from any2md.pipeline import Lane, PipelineOptions
 
 
@@ -44,7 +46,9 @@ def _validate_keys(d: Mapping, *, path: str = "") -> None:
     """
     for k, v in d.items():
         full = f"{path}{k!r}"
-        if not isinstance(k, str) or not _VALID_KEY_RE.match(k):
+        # fullmatch: ``$`` alone also matches before a trailing newline,
+        # which let a key such as "abc\n" through to be written raw.
+        if not isinstance(k, str) or not _VALID_KEY_RE.fullmatch(k):
             raise ValueError(f"invalid frontmatter key: {full}")
         if isinstance(v, Mapping):
             _validate_keys(v, path=f"{path}{k}.")
@@ -89,18 +93,137 @@ def compute_content_hash(body: str) -> str:
 
 
 def generate_document_id(
-    body: str, prefix: str = "LOCAL", type_code: str = "DOC"
+    body: str,
+    prefix: str = "LOCAL",
+    type_code: str = "DOC",
+    *,
+    year: int,
+    content_hash: str | None = None,
 ) -> str:
-    """Generate an SAGE-conformant ``document_id`` from body content.
+    """Generate a SAGE-conformant ``document_id`` from body content.
 
-    Pattern: ``{PREFIX}-{YYYY}-{TYPE}-{SHA8}``.
+    Pattern: ``{PREFIX}-{YYYY}-{TYPE}-{SEQ}``, which matches SAGE v1.0-RC1
+    ``^[A-Z0-9]+-\\d{4}-[A-Z]{2,4}-\\d{3,}$``. Example:
+    ``CSA-2025-GD-0422528348``.
 
-    Used by ``--auto-id``. The ``SHA8`` is the first 8 hex chars of the
-    NFC + LF body's SHA-256 (i.e. ``compute_content_hash(body)[:8]``),
-    so two bodies that share a ``content_hash`` share an ``id``.
+    Used by ``--auto-id``. ``SEQ`` is the first 8 hex chars of the NFC + LF
+    body's SHA-256 (``compute_content_hash(body)[:8]``) read as a 32-bit
+    integer and zero-padded to 10 decimal digits, so two bodies that share
+    a ``content_hash`` and a ``date`` year share an ``id``.
+
+    Args:
+        body: Post-pipeline body.
+        prefix: ``auto_id_prefix``. Must match ``^[A-Z0-9]+$``.
+        type_code: ``auto_id_type_code``. Must match ``^[A-Z]{2,4}$``.
+        year: Year of the document's emitted ``date``. Keyword-only, so a
+            1.2.x positional call ``(body, prefix, type_code)`` fails with
+            ``TypeError`` instead of binding a prefix to the year.
+        content_hash: ``compute_content_hash(body)`` when the caller already
+            has it. ``compose()`` passes its own value, so the id and the
+            emitted ``content_hash`` cannot disagree.
+
+    Raises:
+        ValueError: if ``prefix``, ``type_code``, or ``year`` would make a
+            non-conforming id. The CLI validates config values before any
+            file is read. This guard covers library callers that build
+            ``PipelineOptions`` directly.
     """
-    full_hash = compute_content_hash(body)
-    return f"{prefix}-{_date_cls.today().year}-{type_code}-{full_hash[:8]}"
+    validate_document_id_settings(prefix, type_code)
+    if isinstance(year, bool) or not isinstance(year, int) or not 0 <= year <= 9999:
+        raise ValueError(f"document_id year must be 0-9999, got {year!r}")
+    if content_hash is None:
+        content_hash = compute_content_hash(body)
+    elif not _CONTENT_HASH_RE.fullmatch(content_hash):
+        raise ValueError(
+            f"content_hash must be 64 lowercase hex characters, got {content_hash!r}"
+        )
+    full_hash = content_hash
+    seq = int(full_hash[:8], 16)
+    # 2**32 - 1 has 10 digits, so a fixed width keeps every id the same length.
+    return f"{prefix}-{year:04d}-{type_code}-{seq:010d}"
+
+
+_CONTENT_HASH_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def has_explicit_document_id(overrides: Mapping[str, Any] | None) -> bool:
+    """True when an override layer sets a non-blank ``document_id``.
+
+    An explicit id wins over ``--auto-id``. A blank value counts as unset,
+    so a template that keeps ``document_id = ""`` as a placeholder does not
+    silently turn ``--auto-id`` off. Blank means ``None``, a whitespace-only
+    string, or an empty list or table (``--meta document_id=,`` parses to
+    ``[]``).
+    """
+    if not overrides or "document_id" not in overrides:
+        return False
+    value = overrides["document_id"]
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return True
+
+
+# The time an override may carry after its date. A fixed ASCII pattern, not
+# ``datetime.fromisoformat``, whose accepted forms change between Python
+# releases (3.15 accepts ``T24:00``, 3.12 accepts ``T10,5``).
+_ISO_TIME_RE = re.compile(
+    r"(?:[01][0-9]|2[0-3]):[0-5][0-9]"
+    r"(?::[0-5][0-9](?:\.[0-9]{1,9})?)?"
+    r"(?:Z|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?"
+)
+# The accepted forms, named in errors and docs so "ISO time" is not a guess.
+AUTO_ID_TIME_FORMS = (
+    "HH:MM, optional :SS and a fraction of 1 to 9 digits, and an optional "
+    "Z or a +/- offset as HH:MM, HHMM, or HH"
+)
+
+
+def normalize_auto_id_date(value: Any) -> str:
+    """Return the ``YYYY-MM-DD`` that ``--auto-id`` emits for a ``date`` value.
+
+    One rule for every source, matching what the document readers keep: a
+    ``date``/``datetime`` (TOML date or datetime from a meta file) reduced to
+    its calendar date, or a string that is an ASCII ``YYYY-MM-DD`` calendar
+    date, optionally followed by ``T`` or a space and a time in one of the
+    ``AUTO_ID_TIME_FORMS`` (``HH:MM``, optional ``:SS`` and a fraction of up
+    to 9 digits, optional ``Z`` or a ``+HH:MM``, ``+HHMM``, or ``+HH``
+    offset), after surrounding whitespace is stripped. ``compose()`` emits the result, so ``date`` is always a full
+    calendar date when ``--auto-id`` generates an id.
+
+    Raises:
+        ValueError: for anything else, including a bare year, ``2025-3``,
+            ``2025-13-99``, or a malformed time. Falling back to the clock
+            would make the id depend on when the conversion ran.
+    """
+    if isinstance(value, _date_cls):
+        # ``datetime`` subclasses ``date``, so this covers both.
+        return value.isoformat()[:10]
+    if isinstance(value, str):
+        text = value.strip()
+        head = clean_iso_date(text[:10])
+        if head is not None:
+            if len(text) == 10:
+                return head
+            if text[10] in "T " and _ISO_TIME_RE.fullmatch(text[11:]):
+                return head
+    raise ValueError(
+        "--auto-id needs date as an ASCII calendar date YYYY-MM-DD, "
+        f"optionally followed by T or a space and a time ({AUTO_ID_TIME_FORMS}), "
+        f"got date {value!r}"
+    )
+
+
+def year_of_date(value: Any) -> int:
+    """Return the year of a ``date`` value under the ``--auto-id`` rule.
+
+    Raises:
+        ValueError: see ``normalize_auto_id_date``.
+    """
+    return int(normalize_auto_id_date(value)[:4])
 
 
 @dataclass
@@ -216,13 +339,45 @@ def derive_title(body: str, title_hint: str | None, fallback: str) -> str:
     return stem.replace("_", " ").strip() or "Untitled"
 
 
+# Characters a YAML double-quoted scalar cannot carry raw. Strings reach the
+# emitter from untrusted document metadata and discovered config files, so
+# each of these is escaped: a raw C0 or C1 control or noncharacter makes the
+# frontmatter invalid YAML, and a raw NEL, LS, or PS is folded to a space on
+# read-back. Tab is printable in YAML and stays as is.
+_YAML_UNSAFE_RE = re.compile(
+    r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u2028\u2029\ufeff\ufffe\uffff]"
+)
+
+
+def _yaml_escape_char(match: re.Match[str]) -> str:
+    ch = match.group(0)
+    if ch == "\n":
+        return "\\n"
+    if ch == "\r":
+        return "\\r"
+    code = ord(ch)
+    return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
+
+
+_LONE_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+
+
 def _yaml_escape(value: str) -> str:
-    return (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
+    """Escape ``value`` for a YAML double-quoted scalar that round-trips.
+
+    Raises:
+        FrontmatterEmitError: for a lone surrogate, which is what undecodable
+            bytes in an argument or file name become. UTF-8 cannot hold one,
+            and libyaml rejects its ``\\uXXXX`` escape, so the file fails
+            instead of emitting frontmatter some loaders cannot read.
+    """
+    if _LONE_SURROGATE_RE.search(value):
+        raise FrontmatterEmitError(
+            "frontmatter value contains a lone surrogate (undecodable bytes): "
+            f"{value[:80]!r}" + (f"... ({len(value)} chars)" if len(value) > 80 else "")
+        )
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return _YAML_UNSAFE_RE.sub(_yaml_escape_char, escaped)
 
 
 class FrontmatterEmitError(ValueError):
@@ -234,6 +389,45 @@ class FrontmatterEmitError(ValueError):
     """
 
 
+# Plain scalars a YAML 1.1 loader (PyYAML, libyaml) reads as bool or null.
+# A key in this set is quoted so it loads back as the same string. ``y`` and
+# ``n`` are YAML 1.1 booleans in the spec, though PyYAML reads them as
+# strings, so they are quoted too. Keys are already limited to
+# ``[A-Za-z_][A-Za-z0-9_-]*``, so no key can read as a number.
+_YAML_KEYWORD_KEYS = frozenset(
+    {"y", "n", "yes", "no", "on", "off", "true", "false", "null"}
+)
+
+
+def _emit_key(key: str) -> str:
+    """Emit a mapping key so it loads back as the same string."""
+    if key.lower() in _YAML_KEYWORD_KEYS:
+        return f'"{key}"'
+    return key
+
+
+def _emit_float(value: float) -> str:
+    """Emit a float in a form a YAML 1.1 loader reads back as that float.
+
+    ``str()`` gives ``inf``, ``nan``, and ``1e+20``, which PyYAML and libyaml
+    read as strings: YAML spells the specials ``.inf`` and ``.nan`` and needs
+    a ``.`` in the mantissa of an exponent form.
+    """
+    if math.isnan(value):
+        return ".nan"
+    if math.isinf(value):
+        return ".inf" if value > 0 else "-.inf"
+    # float.__repr__, not repr(): a float subclass from a library caller
+    # could override __repr__ and inject non-numeric text.
+    text = float.__repr__(value)
+    if "e" in text:
+        mantissa, exponent = text.split("e")
+        if "." not in mantissa:
+            mantissa += ".0"
+        text = f"{mantissa}e{exponent}"
+    return text
+
+
 def _emit_value(value: Any) -> str:
     """Emit a scalar as YAML (one line)."""
     if value is None:
@@ -242,7 +436,9 @@ def _emit_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, str):
         return f'"{_yaml_escape(value)}"'
-    if isinstance(value, (int, float)):
+    if isinstance(value, float):
+        return _emit_float(value)
+    if isinstance(value, int):
         return str(value)
     if isinstance(value, (_date_cls, _time_cls)):
         # TOML dates, times, and datetimes from --meta-file or .any2md.toml.
@@ -331,18 +527,11 @@ def _build_fields(
     today = _date_cls.today().isoformat()
     fm_date = meta.date or today
 
-    if options.auto_id:
-        doc_id = generate_document_id(
-            body,
-            prefix=options.auto_id_prefix,
-            type_code=options.auto_id_type_code,
-        )
-    else:
-        doc_id = ""
-
     fields: dict[str, Any] = {}
     fields["title"] = title
-    fields["document_id"] = doc_id
+    # Placeholder that keeps the field's position. compose() fills it for
+    # --auto-id after overrides merge, because YEAR comes from the final date.
+    fields["document_id"] = ""
     fields["version"] = "1"
     fields["date"] = fm_date
     fields["status"] = "draft"
@@ -404,22 +593,22 @@ def _emit_field(key: str, value: Any, lines: list[str], depth: int = 0) -> None:
         if not value:
             # A bare ``key:`` reads back as null, so an empty TOML table
             # needs the explicit flow form to stay a mapping.
-            lines.append(f"{indent}{key}: {{}}")
+            lines.append(f"{indent}{_emit_key(key)}: {{}}")
             return
-        lines.append(f"{indent}{key}:")
+        lines.append(f"{indent}{_emit_key(key)}:")
         for subkey, subval in value.items():
             _emit_field(subkey, subval, lines, depth + 1)
         return
     if isinstance(value, list):
         # Items emit as quoted strings (matches SAGE §3 fields).
         items = [_list_item_text(v) for v in value]
-        lines.append(f"{indent}{key}: {_emit_array(items)}")
+        lines.append(f"{indent}{_emit_key(key)}: {_emit_array(items)}")
         return
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        lines.append(f"{indent}{key}: {value}")
+        lines.append(f"{indent}{_emit_key(key)}: {_emit_value(value)}")
         return
     # Default: scalar/string emission.
-    lines.append(f"{indent}{key}: {_emit_value(value)}")
+    lines.append(f"{indent}{_emit_key(key)}: {_emit_value(value)}")
 
 
 def _emit_yaml_with_body(fields: dict[str, Any], body: str) -> str:
@@ -445,7 +634,14 @@ def compose(
     2. Derive title, content_hash, token_estimate, chunk_level, abstract.
     3. Deep-merge ``overrides`` (from ``--meta`` / ``--meta-file`` /
        ``.any2md.toml``) over the derived field map.
-    4. Emit YAML frontmatter in spec §3.2-3.4 order and concatenate the body.
+    4. With ``--auto-id``, generate ``document_id`` from the body and the
+       year of the merged ``date``, unless an override set a non-empty
+       ``document_id``.
+    5. Emit YAML frontmatter in spec §3.2-3.4 order and concatenate the body.
+
+    Raises:
+        ValueError: on an invalid override key, or when ``--auto-id`` cannot
+            read a year from the merged ``date``.
     """
     body = _normalize_body(body)
     overrides = filter_reserved_overrides(overrides, source_label="compose()")
@@ -454,4 +650,63 @@ def compose(
     fields = _build_fields(body, meta, options)
     if overrides:
         fields = _deep_merge(fields, overrides)
+    # An explicit non-empty document_id from any override layer wins,
+    # unvalidated. content_hash is reserved, so fields still holds the
+    # derived value.
+    if options.auto_id and not has_explicit_document_id(overrides):
+        # Emit the normalized date so the id's year and ``date`` agree and
+        # ``date`` is always YYYY-MM-DD, whatever form the override took.
+        fields["date"] = normalize_auto_id_date(fields["date"])
+        fields["document_id"] = generate_document_id(
+            body,
+            prefix=options.auto_id_prefix,
+            type_code=options.auto_id_type_code,
+            year=int(fields["date"][:4]),
+            content_hash=fields["content_hash"],
+        )
     return _emit_yaml_with_body(fields, body)
+
+
+_MAX_LOGGED_DATE_CHARS = 80
+
+
+def warn_dropped_document_date(
+    source_name: str, rejected: str | None, options: Any
+) -> None:
+    """Warn that a document's own date was dropped for the mtime fallback.
+
+    Called by each converter after its metadata reader returns, because only
+    the converter knows, from ``options``, whether a ``date`` override replaces the document's
+    date. With a non-blank override the dropped value is unused, so nothing
+    is printed. With a blank one the notice says ``date`` is left blank. The value is truncated, then ``repr()``-escaped, and
+    ``_logging.warn`` keeps the whole message on one line, so hostile
+    metadata cannot forge or flood terminal output. This is informational
+    and is not counted toward ``--strict``.
+    """
+    if rejected is None:
+        return
+    overrides = options.frontmatter_overrides
+    # A non-blank override replaces the document's date, so the dropped
+    # value is unused and nothing is printed. A blank or null override is
+    # still merged, so ``date`` ends up blank rather than the mtime, and the
+    # notice says so. When --auto-id generates an id, compose() fails the
+    # file on that blank date, and its FAIL line is the explanation.
+    outcome = "using the file modification time"
+    if overrides and "date" in overrides:
+        override = overrides["date"]
+        if override is not None and not (
+            isinstance(override, str) and not override.strip()
+        ):
+            return
+        if options.auto_id and not has_explicit_document_id(overrides):
+            return
+        outcome = "and the blank date override leaves date blank"
+    # Truncate first and put the length note outside the quotes, so it
+    # cannot be mistaken for part of the document's value.
+    shown = repr(rejected[:_MAX_LOGGED_DATE_CHARS])
+    if len(rejected) > _MAX_LOGGED_DATE_CHARS:
+        shown += f"... ({len(rejected)} chars)"
+    _logging.warn(
+        f"{source_name}: ignoring document date {shown} (not a full "
+        f"YYYY-MM-DD calendar date), {outcome}"
+    )

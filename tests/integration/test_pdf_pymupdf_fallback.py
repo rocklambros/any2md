@@ -51,8 +51,8 @@ def test_pdf_software_creator_routes_to_produced_by(
 
     real = pdf_mod._parse_pdf_metadata
 
-    def fake(doc):
-        out = real(doc)
+    def fake(doc, **kwargs):
+        out = real(doc, **kwargs)
         # Re-route through filter_organization with a software value.
         from any2md.heuristics import filter_organization
 

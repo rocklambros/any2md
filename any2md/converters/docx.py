@@ -36,7 +36,7 @@ from any2md.converters._office_pictures import (
     prepare_pictures,
     read_alt_texts,
 )
-from any2md.frontmatter import SourceMeta, compose
+from any2md.frontmatter import SourceMeta, compose, warn_dropped_document_date
 from any2md.heuristics import filter_organization
 from any2md.pipeline import PipelineOptions
 from any2md.pipeline.blocks import fenced_lines
@@ -45,7 +45,11 @@ from any2md.pipeline.structured import (
     NO_IMAGE_LINK,
     lift_figure_captions,
 )
-from any2md.utils import atomic_write_text, sanitize_filename
+from any2md.utils import (
+    atomic_write_text,
+    clean_iso_date,
+    sanitize_filename,
+)
 
 
 _DOCLING_MSWORD_LOGGER = "docling.backend.msword_backend"
@@ -103,6 +107,7 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
         "produced_by": None,
         "date": None,
         "keywords": [],
+        "date_rejected": None,
     }
     try:
         with as_source(docx_path).open_binary() as fh, zipfile.ZipFile(fh) as z:
@@ -124,7 +129,15 @@ def _read_docx_metadata(docx_path: Path | SourceFile) -> dict[str, object]:
                 out["keywords"] = [k.strip() for k in kw.split(",") if k.strip()]
                 modified = root.findtext("dcterms:modified", namespaces=_NS_CORE)
                 if modified:
-                    out["date"] = modified[:10]
+                    # Strip before slicing: a pretty-printed core.xml puts
+                    # the timestamp on its own indented line. A value that
+                    # is not an ASCII calendar date is dropped, and the
+                    # caller falls back to the file's modification time.
+                    # The rejected value is returned so the converter can
+                    # warn once it knows whether a date override applies.
+                    out["date"] = clean_iso_date(modified.strip()[:10])
+                    if out["date"] is None and modified.strip():
+                        out["date_rejected"] = modified.strip()
             if "docProps/app.xml" in members:
                 with _safe_zip_open(z, "docProps/app.xml") as f:
                     root = _xml_parse(f).getroot()
@@ -603,6 +616,7 @@ def convert_docx(
         add_warnings(warnings)
 
         props = _read_docx_metadata(src)
+        warn_dropped_document_date(src.name, props["date_rejected"], options)
         meta = SourceMeta(
             title_hint=props["title_hint"],
             authors=props["authors"],

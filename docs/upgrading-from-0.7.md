@@ -58,7 +58,7 @@ v0.7 are listed in the second table.
 
 | Key | Type | Notes |
 |---|---|---|
-| `document_id` | string | Empty by default. Filled by `--auto-id` as `LOCAL-{YYYY}-DOC-{SHA8}`. Override prefix/type via `[document_id]` in `.any2md.toml`. |
+| `document_id` | string | Empty by default. Filled by `--auto-id` as `LOCAL-{YYYY}-DOC-{SEQ}` (10-digit `SEQ` since v1.3.0). Override prefix/type via `[document_id]` in `.any2md.toml`. |
 | `version` | string | Always `"1"` for v1.0. Reserved for future revisions. |
 | `date` | string | ISO-8601 `YYYY-MM-DD`. Source-side metadata first, then file mtime, then today. |
 | `status` | string | Always `"draft"` for converted documents. |
@@ -190,7 +190,7 @@ The v0.7 flag set works unchanged in v1.0. The following flags are new:
 | `--high-fidelity`, `-H` | Force the Docling backend for PDF / DOCX. Exit 1 if Docling is not installed. |
 | `--ocr-figures` | Run OCR on figures (Docling path). Implies `-H`. |
 | `--save-images` | Save extracted images to `<output>/images/` and link them from the body (PDF, DOCX, PPTX, and XLSX). Implies `-H`. See the CLI reference for what each format writes. |
-| `--auto-id` | Generate `document_id` as `{PREFIX}-{YYYY}-{TYPE}-{SHA8}`. |
+| `--auto-id` | Generate `document_id` as `{PREFIX}-{YYYY}-{TYPE}-{SEQ}`. |
 | `--meta KEY=VAL` | Set or override a frontmatter field. Repeatable. Comma values become arrays. Dotted keys are nested. |
 | `--meta-file PATH` | Load TOML defaults from `PATH`. Auto-discovery of `.any2md.toml` walks up from cwd when absent. |
 | `--strict` | Promote pipeline validation warnings to errors (exit 3). |
@@ -225,6 +225,19 @@ For per-flag documentation, see [cli-reference.md](cli-reference.md).
 6. **Tighten CI.** Add `--strict` to your CI invocation so that
    pipeline validation warnings fail the build. Audit and either fix
    warnings or accept them, then keep `--strict` on going forward.
+
+## Later change: `--auto-id` format in v1.3.0
+
+Through v1.2.2, `--auto-id` emitted IDs such as `CSA-2026-GD-a3f1c91d`: a hex
+suffix that fails the SAGE `\d{3,}` rule, and a year taken from the clock.
+From v1.3.0 the suffix is the same 32 bits of `content_hash` written as 10
+decimal digits, and the year comes from the document's `date` field, as in
+`CSA-2025-GD-0422528348`. Every generated ID changes. If an index, database,
+or link is keyed on v1.2.x IDs, re-key it after re-converting, or pin
+`document_id` explicitly through `--meta` or `.any2md.toml`. v1.3.0 also
+rejects a `publisher_prefix` outside `^[A-Z0-9]+$` or a `type_code` outside
+`^[A-Z]{2,4}$` with exit 1. See
+[output-format.md](output-format.md#document_id).
 
 ## Cross-references
 
