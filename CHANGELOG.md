@@ -66,7 +66,7 @@ that carries its own date.
 
 ### Security
 
-- **Frontmatter strings, keys, and floats load back unchanged.** Titles, authors, and
+- **Frontmatter strings, keys, and scalar floats load back unchanged.** Titles, authors, and
   other strings come from untrusted document metadata and discovered
   `.any2md.toml` files. The emitter escaped only `\`, `"`, `\n`, and `\r`,
   so a raw form feed, ESC, or other control character made the
@@ -82,7 +82,8 @@ that carries its own date.
   `null`, and the like) are now quoted, so they load back as strings
   instead of collapsing into `true` or `null` keys. Floats are emitted as
   `.inf`, `-.inf`, `.nan`, and `1.0e+20` instead of `inf`, `nan`, and
-  `1e+20`, which loaders read as strings.
+  `1e+20`, which loaders read as strings. Array items, floats included,
+  are still emitted as quoted strings, as documented.
 
 - **soupsieve 4.0 in the lockfiles** (GHSA-mmhr-3c5m-f64f,
   GHSA-6655-6qjp-jx7x, GHSA-7g44-g9rc-x53w). `requirements.txt` and

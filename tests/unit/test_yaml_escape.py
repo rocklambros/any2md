@@ -96,3 +96,11 @@ def test_nan_round_trips_as_nan(loader):
     loaded = _load(f"k: {_emit_value(float('nan'))}", loader)["k"]
     assert isinstance(loaded, float)
     assert loaded != loaded
+
+
+def test_float_subclass_repr_cannot_inject_text():
+    class Evil(float):
+        def __repr__(self):
+            return '1\n"injected": true'
+
+    assert _emit_value(Evil(1.5)) == "1.5"

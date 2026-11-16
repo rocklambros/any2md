@@ -417,7 +417,9 @@ def _emit_float(value: float) -> str:
         return ".nan"
     if math.isinf(value):
         return ".inf" if value > 0 else "-.inf"
-    text = repr(value)
+    # float.__repr__, not repr(): a float subclass from a library caller
+    # could override __repr__ and inject non-numeric text.
+    text = float.__repr__(value)
     if "e" in text:
         mantissa, exponent = text.split("e")
         if "." not in mantissa:
