@@ -8,6 +8,8 @@ folded to a space when read back. Each must be escaped.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 import yaml
 
@@ -95,7 +97,7 @@ def test_floats_round_trip_as_floats(value, loader):
 def test_nan_round_trips_as_nan(loader):
     loaded = _load(f"k: {_emit_value(float('nan'))}", loader)["k"]
     assert isinstance(loaded, float)
-    assert loaded != loaded
+    assert math.isnan(loaded)
 
 
 def test_float_subclass_repr_cannot_inject_text():
